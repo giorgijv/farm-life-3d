@@ -926,7 +926,7 @@ const View = {
     playRaidFx({ attacker, defender, targetEl: resolveTarget(target) });
   },
   hurricane() {
-    View.hurricane();
+    playHurricaneFx();
   },
 };
 
@@ -1872,7 +1872,7 @@ function buildPlotCell(cell, plot, idx, sig) {
       cell.classList.add('unlockable');
       cell.title = `Unlock this plot for ${cost}💰`;
       cell.setAttribute('aria-label', `${label}, locked. Unlock for ${cost} coins`);
-      cell.onclick = () => unlockPlot();
+      cell.onclick = () => handlePlotTap(idx);
     } else {
       cell.title = 'Unlock the previous plot first';
       cell.setAttribute('aria-label', `${label}, locked. Unlock the previous plot first`);
@@ -1884,7 +1884,7 @@ function buildPlotCell(cell, plot, idx, sig) {
     cell.innerHTML = '<span aria-hidden="true">➕</span>';
     cell.title = 'Plant a seed here';
     cell.setAttribute('aria-label', `${label}, empty. Plant the selected seed`);
-    cell.onclick = () => plantSeed(idx);
+    cell.onclick = () => handlePlotTap(idx);
   } else {
     const crop = CROPS[plot.crop];
     const progress = plotProgress(plot);
@@ -1899,7 +1899,7 @@ function buildPlotCell(cell, plot, idx, sig) {
       cell.appendChild(sprite);
       cell.title = `Rotten ${crop.name} — tap to clear`;
       cell.setAttribute('aria-label', `${label}, ${crop.name} has rotted. Tap to clear it`);
-      cell.onclick = () => clearRottenPlot(idx);
+      cell.onclick = () => handlePlotTap(idx);
     } else if (progress >= 1) {
       const wilting = isWilting(plot);
       cell.classList.add('ready');
@@ -1911,7 +1911,7 @@ function buildPlotCell(cell, plot, idx, sig) {
         'aria-label',
         `${label}, ${crop.name} ready to harvest${wilting ? ', going off soon' : ''}`,
       );
-      cell.onclick = () => harvestPlot(idx);
+      cell.onclick = () => handlePlotTap(idx);
 
       // Doubles as the shelf-life gauge once a crop is ripe.
       const bar = document.createElement('div');
@@ -2032,6 +2032,49 @@ function harvestPlot(idx) {
   saveState();
   render();
 }
+
+/* One dispatcher for "the plot at this index got tapped", so every one of
+   buildPlotCell's onclick handlers below means the same thing. Also on the
+   bridge for the 3D scene: it isn't called from there yet (the accessible
+   DOM buttons still do the tapping — see the .plots-grid comment in
+   styles.css for why), but the walk-to-harvest step later in the plan
+   fires the same actions once the farmer arrives, and should call this
+   rather than re-deriving the branching. */
+function handlePlotTap(idx) {
+  if (idx >= state.unlockedPlots) {
+    if (idx === state.unlockedPlots) unlockPlot();
+    return;
+  }
+  const plot = state.plots[idx];
+  if (!plot.crop) { plantSeed(idx); return; }
+  if (plot.rotten) { clearRottenPlot(idx); return; }
+  if (plotProgress(plot) >= 1) { harvestPlot(idx); return; }
+  // Still growing — nothing to do yet.
+}
+
+/* ------------------------------------------------------------------ */
+/* Farm3D bridge — the seam scene.js reads through                       */
+/* ------------------------------------------------------------------ */
+
+/* scene.js is a module, loaded for the import map three.js needs, and a
+   module's top level cannot see this script's top-level `const`s and `let`s
+   — those live in the classic-script global lexical scope, which modules
+   don't share. So this is the one deliberate handle the 3D scene gets:
+   read-only access to state and the crop table on the way in, the same
+   handlePlotTap the 2D grid uses on the way out. Nothing else. `getState`
+   returns the live binding rather than a snapshot, since `state` is
+   reassigned wholesale on restart (see freshState/migrateSave). */
+window.Farm3DBridge = {
+  PLOT_COUNT,
+  CROPS,
+  getState: () => state,
+  getActiveTab: () => activeTab,
+  plotProgress,
+  plotGrowthStage,
+  isWilting,
+  freshness,
+  handlePlotTap,
+};
 
 /* ------------------------------------------------------------------ */
 /* Animals tab                                                          */
@@ -3160,7 +3203,7 @@ function resolveHurricane() {
   });
 
   SFX.error();
-  playHurricaneFx();
+  View.hurricane();
 
   const parts = [];
   if (flattened > 0) parts.push(`${flattened} ${flattened === 1 ? 'crop was' : 'crops were'} flattened`);

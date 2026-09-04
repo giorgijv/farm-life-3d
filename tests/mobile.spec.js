@@ -191,12 +191,25 @@ test.describe('landscape', () => {
     }
   });
 
-  test('the plot grid widens instead of running off the bottom', async ({ page }) => {
+  test('the farm scene shrinks instead of pushing the tab off-screen', async ({ page }) => {
     await load(page);
-    const tops = await page.locator('#plotsGrid > *').evaluateAll((els) =>
-      els.slice(0, 6).map((el) => Math.round(el.getBoundingClientRect().top)));
-    // Six plots share the first row in landscape.
-    expect(new Set(tops).size).toBe(1);
+    // The 3D yard is a fixed 4x4 layout — it doesn't reflow columns the way
+    // a card grid did, so on its side the scene box itself is what has to
+    // give: the short-viewport rule below caps it well under the 393px
+    // viewport height this profile uses.
+    const height = await page.locator('#farmScene').evaluate((el) => el.getBoundingClientRect().height);
+    expect(height).toBeLessThan(393 * 0.5);
+  });
+
+  test('every plot still has a tappable footprint in landscape', async ({ page }) => {
+    await load(page);
+    const boxes = await page.locator('#plotsGrid > *').evaluateAll((els) =>
+      els.map((el) => el.getBoundingClientRect()));
+    expect(boxes).toHaveLength(16);
+    boxes.forEach((r) => {
+      expect(r.width).toBeGreaterThanOrEqual(44);
+      expect(r.height).toBeGreaterThanOrEqual(44);
+    });
   });
 });
 

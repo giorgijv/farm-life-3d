@@ -74,7 +74,13 @@
         <button class="farmer-feed-btn" id="farmerFeedBtn"></button>
       </div>
       <div class="seed-bar" id="seedBar"></div>
-      <div class="plots-grid" id="plotsGrid"></div>
+      <div class="farm-scene" id="farmScene">
+        <canvas id="farmCanvas" aria-hidden="true"></canvas>
+        <!-- Kept for a screen reader and a keyboard, which never see the
+             canvas above at all. Invisible over it otherwise — see the
+             .plots-grid rule in styles.css. -->
+        <div class="plots-grid" id="plotsGrid"></div>
+      </div>
       <div class="night-veil"></div>
     </section>
 
@@ -253,5 +259,13 @@
   <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
 
 <script src="script.js"></script>
+<!-- Vendored, not linked to a CDN: the game loads zero external requests
+     and works with the network off, and a <script src> to a CDN would break
+     that. See vendor/README.md. The import map lets scene.js write a bare
+     "three" import without a bundler. -->
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script type="module" src="scene.js"></script>
 </body>
 </html>

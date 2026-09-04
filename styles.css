@@ -114,6 +114,15 @@ body {
   outline-color: #fffdf0;
 }
 
+/* The plot grid is invisible over the 3D scene (see "The 3D farm scene, and
+   the plot grid layered over it" below) except while a tile is keyboard-
+   focused, when its familiar 2D face pops back in — both so a sighted
+   keyboard user can see which tile they are on, and as a legible focus
+   indicator over the canvas. */
+.plot:focus-visible {
+  opacity: 1;
+}
+
 /* ==================================================================
    Scenery — sun/moon, clouds, rolling hills behind the UI
    ================================================================== */
@@ -759,22 +768,65 @@ body {
 }
 
 /* ==================================================================
-   Plots — tilled soil tiles
+   The 3D farm scene, and the plot grid layered over it
    ================================================================== */
 
+.farm-scene {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-bottom: 16px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #bfe4f5 0%, #eaf6dd 70%, #d9ecc4 100%);
+  box-shadow:
+    0 0 0 3px var(--wood-darker),
+    0 6px 0 rgba(97, 58, 24, 0.35),
+    0 12px 22px rgba(46, 26, 8, 0.3);
+}
+
+.farm-scene canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: manipulation;
+}
+
+/* Real <button>s, kept for exactly two audiences: a screen reader, which
+   never sees the canvas at all, and a keyboard, which tabs through them in
+   plot order. Still a plain CSS grid, same as the flat 2D field — the 3D
+   scene looks down on the yard at an angle, so its tiles recede into the
+   distance and no longer sit under equal-sized cells, but chasing that with
+   a camera projection turned out to invite exactly the failure a hit target
+   must never have: two overlapping, similarly-sized targets whose winner
+   depends on a hit-test race between the compositor and the DOM. An even
+   grid can't overlap itself, so a tap always resolves to one plot,
+   deterministically — the small mismatch between where a back-row tile
+   sits on screen and where its invisible button sits costs nothing, since
+   the button stays invisible either way. */
 .plots-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 8px;
+  padding: 8px;
 }
 
 .plot {
   position: relative;
   aspect-ratio: 1 / 1;
+  min-width: 44px;
+  min-height: 44px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s cubic-bezier(.34, 1.56, .64, 1), box-shadow 0.12s ease;
   /* Plots are real <button>s so they are keyboard reachable; reset the
      inherited control styling that comes with that. */
   font-family: inherit;
@@ -804,7 +856,6 @@ body {
     inset 0 -10px 16px rgba(45, 24, 5, 0.5),
     0 6px 0 var(--soil-deepest),
     0 11px 16px rgba(38, 20, 4, 0.35);
-  transition: transform 0.12s cubic-bezier(.34, 1.56, .64, 1), box-shadow 0.12s ease;
 }
 
 @media (hover: hover) {
@@ -2878,11 +2929,6 @@ body {
     padding-left: max(11px, env(safe-area-inset-left));
   }
 
-  .plots-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 9px;
-  }
-
   .plot { font-size: 1.75rem; }
 
   /* Share the row evenly so all four seeds fit on one line; wrapping to a
@@ -3014,7 +3060,9 @@ body {
   .logo-icon { display: none; }
   .tabbar { margin: 9px 0; }
   .tab-screen { padding: 12px; }
-  .plots-grid { grid-template-columns: repeat(6, 1fr); }
+  /* The fixed 4:3 box is too tall for a phone lying on its side; let it
+     shrink and letterbox rather than push the rest of the tab off-screen. */
+  .farm-scene { max-height: 46vh; }
 }
 
 /* Respect users who prefer less motion: keep state, drop the movement. */
