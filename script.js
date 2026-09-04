@@ -906,6 +906,60 @@ function spawnFloatText(text, anchorEl, variant) {
   setTimeout(() => el.remove(), 1250);
 }
 
+/* ------------------------------------------------------------------ */
+/* View — the one place the rules are allowed to reach the screen        */
+/* ------------------------------------------------------------------ */
+
+/* The rules say *where* in the language of the farm — plot 7, that cow, the
+   whole field — and never in the language of the DOM. Everything that draws
+   sits behind these four methods, so replacing the flat field with a 3D scene
+   means writing another object with the same shape rather than hunting
+   element lookups back out of the simulation. */
+const View = {
+  float(target, text, variant) {
+    spawnFloatText(text, resolveTarget(target), variant);
+  },
+  flash(target) {
+    flashRaidTarget(resolveTarget(target));
+  },
+  raid({ attacker, defender, target }) {
+    playRaidFx({ attacker, defender, targetEl: resolveTarget(target) });
+  },
+  hurricane() {
+    View.hurricane();
+  },
+};
+
+/* A farm coordinate to an element, or null when the thing it names is not on
+   screen — a raid on the field while the market is open still plays, it just
+   plays from the middle of the screen instead of over the plot it took. */
+function resolveTarget(target) {
+  if (!target) return null;
+
+  if (Number.isFinite(target.plot)) {
+    if (activeTab !== 'farm') return null;
+    return document.getElementById('plotsGrid').children[target.plot] || null;
+  }
+  if (target.animal) {
+    if (activeTab !== 'animals') return null;
+    const { kind, id } = target.animal;
+    return document.querySelector(`#${kind}List [data-animal-id="${id}"]`);
+  }
+  if (target.field) {
+    return activeTab === 'farm' ? document.getElementById('plotsGrid') : null;
+  }
+  if (target.herd) {
+    if (activeTab !== 'animals') return null;
+    const kind = LIVESTOCK_ORDER.find((k) => state[ANIMALS[k].stateKey].length > 0);
+    return kind ? document.getElementById(`${kind}List`) : null;
+  }
+  if (Number.isFinite(target.good)) {
+    return document.getElementById('sellList').children[target.good] || null;
+  }
+  if (target.dream) return document.getElementById('dreamList');
+  return null;
+}
+
 /* Feeding is per-animal now: each one eats a specific good. */
 
 function canFeed(def) {
@@ -1971,7 +2025,7 @@ function harvestPlot(idx) {
   state.inventory[plot.crop] += yielded;
   state.stats.totalHarvested += yielded;
   SFX.harvest();
-  spawnFloatText(`+${yielded} ${crop.emoji}`, document.getElementById('plotsGrid').children[idx], 'gain');
+  View.float({ plot: idx }, `+${yielded} ${crop.emoji}`, 'gain');
   showToast(`Harvested ${yielded}x ${crop.emoji} ${crop.name}`
     + (isFarmerTired() ? ' — halved, the farmer is exhausted. Eat a pumpkin!' : ''));
   state.plots[idx] = emptyPlot();
@@ -2413,29 +2467,6 @@ function playRaidFx({ attacker, defender, targetEl }) {
   }, RAID_FX_MS + 400);
 }
 
-/* A defended raid takes nothing, so there is no victim to aim at. Point it at
-   the field or the pens instead — again, only when that tab is on screen. */
-function fieldAnchor() {
-  return activeTab === 'farm' ? document.getElementById('plotsGrid') : null;
-}
-
-function herdAnchor() {
-  if (activeTab !== 'animals') return null;
-  const kind = LIVESTOCK_ORDER.find((k) => state[ANIMALS[k].stateKey].length > 0);
-  return kind ? document.getElementById(`${kind}List`) : null;
-}
-
-// The tile or card a raid is aimed at, but only while its tab is on screen.
-function plotElement(index) {
-  if (activeTab !== 'farm') return null;
-  return document.getElementById('plotsGrid').children[index] || null;
-}
-
-function animalElement(kind, id) {
-  if (activeTab !== 'animals') return null;
-  return document.querySelector(`#${kind}List [data-animal-id="${id}"]`);
-}
-
 function resolveWolfRaid() {
   const guarded = isOnDuty('dog');
   // Full cover always turns the wolf away; partial cover does so in
@@ -2446,7 +2477,7 @@ function resolveWolfRaid() {
       showToast('🐕 Your dogs chased off a wolf!');
       // Show the dog earning its keep — otherwise the only sign a guardian
       // ever did anything is a line of text.
-      playRaidFx({ attacker: 'wolf', defender: 'dog', targetEl: herdAnchor() });
+      View.raid({ attacker: 'wolf', defender: 'dog', target: { herd: true } });
     }
     return;
   }
@@ -2460,9 +2491,9 @@ function resolveWolfRaid() {
   const def = ANIMALS[taken.kind];
   const list = state[def.stateKey];
   // Grab the card before the animal is removed and the card goes with it.
-  const targetEl = animalElement(taken.kind, taken.id);
-  flashRaidTarget(targetEl);
-  playRaidFx({ attacker: 'wolf', defender: null, targetEl });
+  const target = { animal: taken };
+  View.flash(target);
+  View.raid({ attacker: 'wolf', defender: null, target });
   list.splice(list.findIndex((a) => a.id === taken.id), 1);
   SFX.error();
   showToast(guarded
@@ -2477,7 +2508,7 @@ function resolvePestRaid() {
     if (guarded) {
       SFX.collect();
       showToast('🐈 Your cats saw off the crows!');
-      playRaidFx({ attacker: 'crow', defender: 'cat', targetEl: fieldAnchor() });
+      View.raid({ attacker: 'crow', defender: 'cat', target: { field: true } });
     }
     return;
   }
@@ -2488,9 +2519,9 @@ function resolvePestRaid() {
 
   const hit = planted[Math.floor(Math.random() * planted.length)];
   const crop = CROPS[hit.plot.crop];
-  const targetEl = plotElement(hit.index);
-  flashRaidTarget(targetEl);
-  playRaidFx({ attacker: 'crow', defender: null, targetEl });
+  const target = { plot: hit.index };
+  View.flash(target);
+  View.raid({ attacker: 'crow', defender: null, target });
   state.plots[hit.index] = emptyPlot();
   SFX.error();
   showToast(guarded
@@ -2525,11 +2556,7 @@ function collectAnimal(kind, id) {
   if (animalProgress(animal, def) < 1) return;
   state.inventory[def.produceKey] += def.produceYield;
   SFX.collect();
-  spawnFloatText(
-    `+${def.produceYield} ${def.produceEmoji}`,
-    document.querySelector(`#${kind}List [data-animal-id="${id}"]`),
-    'gain',
-  );
+  View.float({ animal: { kind, id } }, `+${def.produceYield} ${def.produceEmoji}`, 'gain');
   showToast(`Collected ${def.produceYield}x ${def.produceEmoji}`);
   becomeHungry(animal);
   saveState();
@@ -2743,7 +2770,7 @@ function sellAll(key) {
   state.inventory[key] = 0;
   SFX.sell();
   const goodIndex = Object.keys(GOODS).indexOf(key);
-  spawnFloatText(`+${earned} 💰`, document.getElementById('sellList').children[goodIndex], 'coins');
+  View.float({ good: goodIndex }, `+${earned} 💰`, 'coins');
   showToast(`Sold ${qty}x ${good.emoji} for ${earned}💰`);
   saveState();
   render();
@@ -3373,7 +3400,7 @@ function buyDreamHome(key) {
   state.dreamHome = key;
   SFX.achievement();
   showToast(`${home.emoji} You bought the ${home.name}! The farm is a home now.`);
-  spawnFloatText(home.emoji, document.getElementById('dreamList'), 'gain');
+  View.float({ dream: true }, home.emoji, 'gain');
   saveState();
   render();
   showEnding(key);
