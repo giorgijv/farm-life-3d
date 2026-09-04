@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Farm Life 3D</title>
+<meta name="description" content="A farming game in 3D: walk the yard, work the field, raise animals and sell what you produce.">
+<meta name="theme-color" content="#7ec8f0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚜</text></svg>">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Parallax scenery behind the UI: sun/moon, drifting clouds, rolling hills. -->
+  <div class="scene" aria-hidden="true">
+    <div class="cloud cloud-a"></div>
+    <div class="cloud cloud-b"></div>
+    <div class="cloud cloud-c"></div>
+    <div class="hills">
+      <div class="hill hill-far"></div>
+      <div class="hill hill-mid"></div>
+      <div class="hill hill-near"></div>
+    </div>
+    <!-- Night falls on the scenery above, but not on the stars or the moon
+         that follow — those should stay bright against the dark sky. -->
+    <div class="scene-shade"></div>
+    <div class="stars"></div>
+    <div class="celestial" id="celestial"><div class="celestial-body" id="celestialBody"></div></div>
+  </div>
+
+  <div id="app">
+
+    <header class="topbar">
+      <h1 class="logo"><span class="logo-icon">🚜</span> Farm Life</h1>
+      <div class="stats">
+        <span id="coinsLabel" class="coin-badge">💰 0</span>
+        <span id="dayLabel" class="day-badge">☀️ Day 1</span>
+        <button id="helpBtn" class="mute-btn" title="How to play" aria-label="How to play">❓</button>
+        <button id="muteBtn" class="mute-btn" title="Toggle sound"></button>
+      </div>
+    </header>
+
+    <nav class="tabbar">
+      <button class="tab-btn active" data-tab="farm"><span class="tab-icon">🌾</span> Farm</button>
+      <button class="tab-btn" data-tab="animals"><span class="tab-icon">🐄</span> Animals</button>
+      <button class="tab-btn" data-tab="market"><span class="tab-icon">🛒</span> Market</button>
+      <button class="tab-btn" data-tab="achievements"><span class="tab-icon">🏆</span> Awards</button>
+      <button class="tab-btn" data-tab="dream"><span class="tab-icon">🏡</span> Dream</button>
+    </nav>
+
+    <div class="welcome-banner hidden" id="welcomeBack" role="status">
+      <span class="welcome-icon" aria-hidden="true">🌅</span>
+      <span class="welcome-text" id="welcomeBackText"></span>
+      <button id="welcomeDismissBtn">Nice!</button>
+    </div>
+
+    <!-- FARM TAB -->
+    <section id="farmTab" class="tab-screen field-screen">
+      <div class="onboarding-banner hidden" id="onboardingBanner">
+        <span class="onboarding-text">🌱 Pick a seed below, then tap an empty plot to plant it. Come back once it's grown to harvest!</span>
+        <button id="onboardingDismissBtn">Got it!</button>
+      </div>
+      <div class="farmer-strip" id="farmerStrip">
+        <div class="farmer-avatar" id="farmerAvatar" aria-hidden="true"></div>
+        <div class="farmer-info">
+          <div class="farmer-state" id="farmerState"></div>
+          <div class="farmer-energy" id="farmerEnergy" role="progressbar"
+               aria-label="Farmer energy" aria-valuemin="0" aria-valuemax="100">
+            <div class="farmer-energy-fill" id="farmerEnergyFill"></div>
+          </div>
+        </div>
+        <button class="farmer-feed-btn" id="farmerFeedBtn"></button>
+      </div>
+      <div class="seed-bar" id="seedBar"></div>
+      <div class="plots-grid" id="plotsGrid"></div>
+      <div class="night-veil"></div>
+    </section>
+
+    <!-- ANIMALS TAB -->
+    <section id="animalsTab" class="tab-screen field-screen hidden">
+      <div class="animal-group">
+        <h2 class="group-title">🐄 Cows</h2>
+        <div class="animal-list" id="cowList"></div>
+        <button class="buy-animal-btn" id="buyCowBtn"></button>
+      </div>
+      <div class="animal-group">
+        <h2 class="group-title">🐔 Chickens</h2>
+        <div class="animal-list" id="chickenList"></div>
+        <button class="buy-animal-btn" id="buyChickenBtn"></button>
+      </div>
+      <div class="animal-group">
+        <h2 class="group-title">🐑 Sheep</h2>
+        <div class="animal-list" id="sheepList"></div>
+        <button class="buy-animal-btn" id="buySheepBtn"></button>
+      </div>
+      <div class="animal-group">
+        <h2 class="group-title">🐕 Dogs</h2>
+        <p class="group-note">A dog stands guard and chases off wolves, but it eats meat: feeding one means slaughtering livestock, and the bigger the animal the longer the watch. Each dog on duty covers 4 animals, so a bigger herd needs more dogs.</p>
+        <p class="guard-status" id="dogGuardStatus" role="status"></p>
+        <div class="animal-list" id="dogList"></div>
+        <button class="buy-animal-btn" id="buyDogBtn"></button>
+      </div>
+      <div class="animal-group">
+        <h2 class="group-title">🐈 Cats</h2>
+        <p class="group-note">A fed cat patrols the field and keeps crows from eating your crops. Each cat on duty covers 4 planted plots, so a fuller field needs more cats.</p>
+        <p class="guard-status" id="catGuardStatus" role="status"></p>
+        <div class="animal-list" id="catList"></div>
+        <button class="buy-animal-btn" id="buyCatBtn"></button>
+      </div>
+      <div class="night-veil"></div>
+    </section>
+
+    <!-- MARKET TAB -->
+    <section id="marketTab" class="tab-screen hidden">
+      <h2 class="group-title">🔧 Upgrades</h2>
+      <div class="upgrade-list" id="upgradeList"></div>
+
+      <h2 class="group-title">Sell Goods</h2>
+      <div class="market-list" id="sellList"></div>
+      <h2 class="group-title">Inventory</h2>
+      <div class="inventory-list" id="inventoryList"></div>
+      <h2 class="group-title">🌪️ Weather &amp; Barns</h2>
+      <p class="barn-forecast" id="barnForecast" role="status"></p>
+      <div class="barn-list" id="barnList"></div>
+
+      <h2 class="group-title">Difficulty</h2>
+      <div class="difficulty-choice" id="difficultyChoice"></div>
+
+      <h2 class="group-title">Farmer</h2>
+      <div class="farmer-choice" id="farmerChoice"></div>
+
+      <h2 class="group-title">Sound</h2>
+      <div class="sound-controls">
+        <button id="musicToggleBtn" aria-pressed="true">🎵 Music: On</button>
+        <label class="volume-control" for="volumeSlider">
+          <span>Volume</span>
+          <input type="range" id="volumeSlider" min="0" max="100" step="5" value="70">
+          <span id="volumeReadout" class="volume-readout">70%</span>
+        </label>
+      </div>
+
+      <h2 class="group-title">Save Data</h2>
+      <div class="save-controls">
+        <button id="downloadSaveBtn">⬇️ Download Save</button>
+        <button id="loadSaveBtn">⬆️ Load Save</button>
+        <input type="file" id="loadSaveInput" accept="application/json" class="hidden">
+      </div>
+
+      <h2 class="group-title">Start Over</h2>
+      <p class="restart-note">Clears this farm completely and begins again with
+        nothing but your starting purse. There is no undo — download a save first
+        if you might want this farm back.</p>
+      <button id="newFarmBtn" class="restart-btn">🔄 Start a New Farm</button>
+      <div class="night-veil"></div>
+    </section>
+
+    <!-- ACHIEVEMENTS TAB -->
+    <section id="achievementsTab" class="tab-screen hidden">
+      <h2 class="group-title">🏆 Achievements <span id="achievementsProgress"></span></h2>
+      <div class="achievements-list" id="achievementsList"></div>
+      <div class="night-veil"></div>
+    </section>
+
+    <!-- DREAM TAB -->
+    <section id="dreamTab" class="tab-screen hidden">
+      <h2 class="group-title">🏡 Your Dream Home</h2>
+      <p class="dream-intro" id="dreamIntro"></p>
+      <div class="dream-list" id="dreamList"></div>
+      <div class="night-veil"></div>
+    </section>
+
+    <footer class="site-footer">
+      <span class="footer-line">Farm Life 3D &middot; made by Giorgi Jvarsheishvili</span>
+      <span class="footer-line">
+        Other games by Giorgi Jvarsheishvili:
+        <a href="https://giorgijv.github.io/farm-game/">🚜 Play Farm Life (2D)</a>
+        <a href="https://giorgijv.github.io/juice-sort/">🧃 Play Juice Sort</a>
+        <a href="https://giorgijv.github.io/soviet-racer-giorgi/">🏎️ Play Soviet Racer</a>
+      </span>
+    </footer>
+
+  </div>
+
+  <!-- The ending: the home you bought, seen from the inside, with fireworks. -->
+  <div id="endingOverlay" class="ending hidden" role="dialog" aria-modal="true"
+       aria-labelledby="endingTitle">
+    <!-- Back to front: floor, then the window in the wall, then the room. -->
+    <div class="ending-scene" id="endingScene">
+      <div class="ending-floor"></div>
+      <div class="ending-window">
+        <div class="ending-sky"></div>
+        <div class="ending-hills"></div>
+        <div class="ending-fireworks" id="endingFireworks" aria-hidden="true"></div>
+        <div class="ending-frame"></div>
+      </div>
+      <div class="ending-feature" id="endingFeature" aria-hidden="true"></div>
+      <div class="ending-rug"></div>
+      <div class="ending-table"><span class="ending-lamp"></span></div>
+      <div class="ending-sofa"></div>
+      <div class="ending-farmer" id="endingFarmer" aria-hidden="true"></div>
+    </div>
+    <div class="ending-card">
+      <h2 id="endingTitle"></h2>
+      <p id="endingBlurb"></p>
+      <dl class="ending-stats" id="endingStats"></dl>
+      <button id="endingCloseBtn" class="ending-btn">Keep farming</button>
+    </div>
+  </div>
+
+  <!-- Game over: the farmer collapsed. -->
+  <div id="gameOverOverlay" class="gameover hidden" role="dialog" aria-modal="true"
+       aria-labelledby="gameOverTitle">
+    <div class="gameover-panel">
+      <div class="gameover-emoji" aria-hidden="true">💀</div>
+      <h2 id="gameOverTitle">The farmer collapsed</h2>
+      <p id="gameOverText"></p>
+      <dl class="ending-stats" id="gameOverStats"></dl>
+      <div class="gameover-actions">
+        <button id="restartBtn" class="ending-btn">Start a new farm</button>
+        <button id="gameOverLoadBtn" class="ending-btn secondary">Load a save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="helpPanel" class="help-panel hidden" role="dialog" aria-modal="true"
+       aria-labelledby="helpTitle">
+    <div class="help-inner">
+      <div class="help-head">
+        <h2 id="helpTitle">📖 How Farm Life works</h2>
+        <button id="helpCloseBtn" class="help-close" aria-label="Close">✕</button>
+      </div>
+      <div class="help-body" id="helpBody"></div>
+    </div>
+  </div>
+
+  <div id="farmerPicker" class="farmer-picker hidden" role="dialog" aria-modal="true"
+       aria-labelledby="farmerPickerTitle">
+    <div class="farmer-picker-panel">
+      <h2 id="farmerPickerTitle">Who is running this farm?</h2>
+      <p>You will be doing every job here — planting, harvesting, feeding and
+         milking. Pick your farmer to begin.</p>
+      <div class="farmer-picker-options" id="farmerPickerOptions"></div>
+      <h3 class="picker-subhead">How hard should it be?</h3>
+      <div class="difficulty-choice compact" id="pickerDifficulty"></div>
+    </div>
+  </div>
+
+  <div id="stormLayer" class="storm-layer hidden" aria-hidden="true"></div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
+
+<script src="script.js"></script>
+</body>
+</html>

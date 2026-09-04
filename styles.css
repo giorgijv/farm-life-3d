@@ -1,0 +1,3027 @@
+/* ==================================================================
+   Farm Life — visual system
+   Chunky, warm, tactile styling in the spirit of mobile farm games.
+   Everything is CSS-generated: no image assets, no external fonts.
+   ================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Animatable custom properties so the day/night sky can tween. */
+@property --sky-top {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #7ec8f0;
+}
+
+@property --sky-bottom {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #bfe6a8;
+}
+
+@property --sky-ground {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #8fc96a;
+}
+
+:root {
+  /* Sky (driven by JS through the day/night cycle) */
+  --sky-top: #7ec8f0;
+  --sky-bottom: #bfe6a8;
+  --sky-ground: #8fc96a;
+
+  /* Wood */
+  --wood: #b9793f;
+  --wood-dark: #7a4a22;
+  --wood-darker: #5b3517;
+
+  /* Parchment panels */
+  --parchment: #fffaec;
+  --parchment-deep: #f6e7c6;
+  --parchment-line: #e3cea1;
+
+  /* Grass / field */
+  --grass: #7cbf55;
+  --grass-dark: #5d9c3c;
+
+  /* Soil */
+  --soil: #8a5a30;
+  --soil-deepest: #3f2410;
+
+  /* Ink + accents */
+  --text: #4a3113;
+  --text-soft: #7a5c33;
+  --gold: #ffc63f;
+  --gold-dark: #d98f18;
+  --gold-deep: #a86400;
+  --good: #5fc74b;
+  --good-dark: #3d9330;
+  --good-deep: #2b6f21;
+  --bad: #ef5b4c;
+  --bad-dark: #c33a2d;
+
+  --radius: 18px;
+  --radius-sm: 12px;
+
+  /* Clear strip of sky above the UI that the sun/moon arcs through. */
+  --sky-band: 94px;
+  --celestial-size: 52px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: 'Trebuchet MS', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: var(--text);
+  background: linear-gradient(180deg,
+    var(--sky-top) 0%,
+    var(--sky-top) 30%,
+    var(--sky-bottom) 62%,
+    var(--sky-ground) 100%);
+  background-attachment: fixed;
+  transition: --sky-top 1.5s linear, --sky-bottom 1.5s linear, --sky-ground 1.5s linear;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  /* Stop an over-eager downward swipe near the top of the farm from
+     triggering Android Chrome's pull-to-refresh mid-game. */
+  overscroll-behavior-y: contain;
+  /* Keep label sizes stable when an Android phone is rotated. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* A single high-contrast focus ring for every control, so the game is
+   comfortably playable with a keyboard. */
+:focus-visible {
+  outline: 3px solid #1c2b52;
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.field-screen :focus-visible,
+.plot:focus-visible {
+  outline-color: #fffdf0;
+}
+
+/* ==================================================================
+   Scenery — sun/moon, clouds, rolling hills behind the UI
+   ================================================================== */
+
+.scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Starfield — fades in with the night factor.
+   Split across two layers on purpose: .stars owns the night fade, while the
+   pseudo-element owns the twinkle. Animating opacity on a child composites,
+   whereas the old filter: brightness repainted a 62vh box every frame. */
+.stars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 62vh;
+  opacity: var(--night, 0);
+  transition: opacity 1.4s linear;
+}
+
+.stars::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.6px 1.6px at 8% 22%, #fff, transparent),
+    radial-gradient(1.4px 1.4px at 17% 9%, #fff, transparent),
+    radial-gradient(1.8px 1.8px at 26% 31%, #fff, transparent),
+    radial-gradient(1.3px 1.3px at 34% 14%, #e8f0ff, transparent),
+    radial-gradient(1.6px 1.6px at 43% 27%, #fff, transparent),
+    radial-gradient(1.4px 1.4px at 52% 7%, #fff, transparent),
+    radial-gradient(1.7px 1.7px at 61% 19%, #e8f0ff, transparent),
+    radial-gradient(1.3px 1.3px at 69% 33%, #fff, transparent),
+    radial-gradient(1.6px 1.6px at 77% 11%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 86% 25%, #e8f0ff, transparent),
+    radial-gradient(1.4px 1.4px at 93% 15%, #fff, transparent),
+    radial-gradient(1.7px 1.7px at 4% 38%, #fff, transparent),
+    radial-gradient(1.3px 1.3px at 48% 41%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 88% 44%, #e8f0ff, transparent);
+  animation: twinkle 4.5s ease-in-out infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* Sun / moon. JS places it along an arc via inline left/top each tick. */
+.celestial {
+  position: absolute;
+  inset: 0;
+}
+
+.celestial-body {
+  position: absolute;
+  left: 50%;
+  top: 30px;
+  width: var(--celestial-size);
+  height: var(--celestial-size);
+  margin-left: calc(var(--celestial-size) / -2);
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #fff6c8, #ffd94a 46%, #ffb013 100%);
+  box-shadow:
+    0 0 0 12px rgba(255, 224, 120, 0.20),
+    0 0 44px 18px rgba(255, 206, 84, 0.42);
+  transition: left 1s linear, top 1s linear, background 2.5s linear, box-shadow 2.5s linear;
+}
+
+.celestial-body.moon {
+  background: radial-gradient(circle at 36% 32%, #ffffff, #dfe6f3 45%, #aab6cd 100%);
+  box-shadow:
+    0 0 0 12px rgba(200, 216, 245, 0.16),
+    0 0 40px 14px rgba(186, 205, 242, 0.34);
+}
+
+/* Soft craters, only visible on the moon. */
+.celestial-body.moon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 62% 34%, rgba(140,156,186,.55) 0 7px, transparent 8px),
+    radial-gradient(circle at 38% 62%, rgba(140,156,186,.45) 0 5px, transparent 6px),
+    radial-gradient(circle at 68% 68%, rgba(140,156,186,.38) 0 4px, transparent 5px);
+}
+
+/* Chunky rounded clouds built from three overlapping blobs. */
+.cloud {
+  position: absolute;
+  width: 104px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.88);
+  border-radius: 42px;
+  filter: blur(0.2px);
+  box-shadow: inset 0 -8px 0 rgba(196, 220, 240, 0.5);
+  opacity: 0.9;
+}
+
+.cloud::before,
+.cloud::after {
+  content: '';
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+
+.cloud::before {
+  width: 50px;
+  height: 50px;
+  left: 14px;
+  top: -22px;
+}
+
+.cloud::after {
+  width: 36px;
+  height: 36px;
+  right: 16px;
+  top: -14px;
+}
+
+/* Two clouds ride the clear sky strip; the third sits lower, where it only
+   shows in the side margins on wide screens. */
+.cloud-a { top: 30px; left: -180px; animation: drift 72s linear infinite; }
+.cloud-b { top: 62px; left: -180px; animation: drift 104s linear infinite 16s; opacity: 0.62; }
+.cloud-c { top: 34vh; left: -180px; animation: drift 132s linear infinite 40s; opacity: 0.5; }
+
+@keyframes drift {
+  from { transform: translateX(0) scale(var(--s, 1)); }
+  to   { transform: translateX(calc(100vw + 340px)) scale(var(--s, 1)); }
+}
+
+.cloud-a { --s: 1; }
+.cloud-b { --s: 0.72; }
+.cloud-c { --s: 1.25; }
+
+/* Layered hills along the bottom of the viewport. */
+.hills {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42vh;
+}
+
+.hill {
+  position: absolute;
+  bottom: 0;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+}
+
+.hill-far {
+  left: -14%;
+  width: 74%;
+  height: 74%;
+  background: linear-gradient(180deg, #96d073, #74b352);
+  opacity: 0.75;
+}
+
+.hill-mid {
+  right: -18%;
+  width: 84%;
+  height: 62%;
+  background: linear-gradient(180deg, #85c65f, #63a544);
+  opacity: 0.85;
+}
+
+.hill-near {
+  left: 8%;
+  width: 96%;
+  height: 44%;
+  background: linear-gradient(180deg, #79bd51, #55963a);
+}
+
+/* Darkens the whole scene at night; JS drives the opacity. */
+.scene-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(10, 18, 46, 0.55), rgba(8, 20, 38, 0.30));
+  opacity: var(--night, 0);
+  transition: opacity 1.4s linear;
+}
+
+/* ==================================================================
+   Layout shell
+   ================================================================== */
+
+#app {
+  position: relative;
+  z-index: 1;
+  max-width: 940px;
+  margin: 0 auto;
+  /* Keep clear of notches, punch-holes and the gesture bar — these matter
+     most when the game is installed and runs without browser chrome. */
+  padding-top: calc(var(--sky-band) + 6px + env(safe-area-inset-top));
+  padding-right: max(16px, env(safe-area-inset-right));
+  padding-bottom: calc(48px + env(safe-area-inset-bottom));
+  padding-left: max(16px, env(safe-area-inset-left));
+  min-height: 100vh;
+}
+
+/* ==================================================================
+   Top bar — a hanging wooden sign
+   ================================================================== */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  background:
+    repeating-linear-gradient(90deg, rgba(90, 52, 20, 0.10) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(90deg, rgba(255, 236, 200, 0.06) 0 1px, transparent 1px 13px),
+    linear-gradient(180deg, #c9884b 0%, #b16e37 55%, #9c5f2e 100%);
+  border: 3px solid var(--wood-darker);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 226, 180, 0.28),
+    inset 0 -6px 12px rgba(70, 38, 12, 0.42),
+    0 7px 0 var(--wood-darker),
+    0 14px 24px rgba(46, 26, 8, 0.34);
+}
+
+.logo {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  color: #fff6e2;
+  text-shadow:
+    0 2px 0 rgba(88, 48, 16, 0.85),
+    0 4px 8px rgba(50, 26, 6, 0.5);
+}
+
+.logo-icon {
+  display: inline-block;
+  animation: tractorBob 3.2s ease-in-out infinite;
+}
+
+@keyframes tractorBob {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50%      { transform: translateY(-3px) rotate(2deg); }
+}
+
+.stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+/* Gold coin pill with a sweeping shine. */
+.coin-badge {
+  position: relative;
+  overflow: hidden;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 1.05rem;
+  color: #5a3400;
+  background: linear-gradient(180deg, #ffe27a 0%, var(--gold) 52%, #f0a913 100%);
+  border: 2px solid var(--gold-deep);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.75),
+    0 3px 0 var(--gold-deep),
+    0 6px 10px rgba(60, 34, 0, 0.3);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: transform 0.18s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.coin-badge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  left: 0;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  animation: shine 4.5s ease-in-out infinite;
+}
+
+@keyframes shine {
+  0%, 65%   { transform: translateX(-160%); }
+  85%, 100% { transform: translateX(340%); }
+}
+
+/* Fires when the coin total changes. */
+.coin-badge.pop {
+  animation: coinPop 0.42s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+@keyframes coinPop {
+  0%   { transform: scale(1); }
+  38%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+.day-badge {
+  padding: 6px 13px;
+  border-radius: 999px;
+  font-size: 0.98rem;
+  color: #fff4dd;
+  background: rgba(72, 40, 14, 0.42);
+  border: 2px solid rgba(58, 32, 10, 0.55);
+  box-shadow: inset 0 2px 0 rgba(255, 224, 176, 0.18);
+  text-shadow: 0 1px 2px rgba(40, 20, 4, 0.7);
+}
+
+.mute-btn {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  font-size: 1.05rem;
+  line-height: 1;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(180deg, #e2a05f, #bd7736);
+  border: 2px solid var(--wood-darker);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 232, 198, 0.45),
+    0 3px 0 var(--wood-darker),
+    0 6px 9px rgba(50, 28, 8, 0.3);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.mute-btn:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 232, 198, 0.35), 0 0 0 var(--wood-darker);
+}
+
+/* ==================================================================
+   Tab bar — chunky pressable tabs
+   ================================================================== */
+
+.tabbar {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 8px;
+  font-family: inherit;
+  font-size: 0.98rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #5a3a12;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--wood-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.8),
+    0 5px 0 var(--wood-dark),
+    0 9px 14px rgba(50, 28, 8, 0.22);
+  transition: transform 0.09s ease, box-shadow 0.09s ease, background 0.18s ease;
+}
+
+@media (hover: hover) {
+  .tab-btn:hover {
+    transform: translateY(-1px);
+  }
+}
+
+.tab-btn:active {
+  transform: translateY(5px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 0 0 var(--wood-dark);
+}
+
+.tab-btn.active {
+  color: #5a3400;
+  background: linear-gradient(180deg, #ffe488 0%, var(--gold) 55%, #f2ab14 100%);
+  border-color: var(--gold-deep);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.7),
+    0 5px 0 var(--gold-deep),
+    0 9px 16px rgba(140, 84, 0, 0.32);
+}
+
+.tab-icon {
+  font-size: 1.05rem;
+}
+
+/* ==================================================================
+   Panels
+   ================================================================== */
+
+.tab-screen {
+  position: relative;
+  padding: 18px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 5px solid var(--wood);
+  box-shadow:
+    0 0 0 3px var(--wood-darker),
+    inset 0 3px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -8px 18px rgba(190, 155, 96, 0.25),
+    0 10px 0 rgba(97, 58, 24, 0.35),
+    0 18px 34px rgba(46, 26, 8, 0.3);
+}
+
+/* Evening light washes over the panels too, so the play field doesn't stay
+   stuck at high noon while the world outside goes dark. */
+.tab-screen > .night-veil {
+  position: absolute;
+  inset: 0;
+  border-radius: 16px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(24, 38, 92, 0.95), rgba(14, 30, 66, 0.95));
+  opacity: calc(var(--night, 0) * 0.42);
+  transition: opacity 1.4s linear;
+  mix-blend-mode: multiply;
+}
+
+/* Decorative nail heads in the panel corners. */
+.tab-screen::before,
+.tab-screen::after {
+  content: '';
+  position: absolute;
+  top: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #fff3d6, #b98d4e 60%, #7d5a26);
+  box-shadow: 0 1px 2px rgba(60, 36, 10, 0.6);
+}
+
+.tab-screen::before { left: 11px; }
+.tab-screen::after  { right: 11px; }
+
+/* Outdoor panels get a grass interior instead of parchment. */
+.field-screen {
+  background:
+    radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.12) 0 2px, transparent 3px),
+    radial-gradient(circle at 72% 64%, rgba(255, 255, 255, 0.10) 0 2px, transparent 3px),
+    radial-gradient(circle at 44% 84%, rgba(255, 255, 255, 0.08) 0 2px, transparent 3px),
+    repeating-linear-gradient(58deg, rgba(255, 255, 255, 0.05) 0 3px, transparent 3px 9px),
+    linear-gradient(180deg, var(--grass) 0%, var(--grass-dark) 100%);
+  box-shadow:
+    0 0 0 3px var(--wood-darker),
+    inset 0 3px 0 rgba(255, 255, 255, 0.30),
+    inset 0 -10px 22px rgba(40, 82, 22, 0.4),
+    0 10px 0 rgba(97, 58, 24, 0.35),
+    0 18px 34px rgba(46, 26, 8, 0.3);
+}
+
+.group-title {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: var(--text);
+}
+
+.field-screen .group-title {
+  color: #fdffef;
+  text-shadow:
+    0 2px 0 rgba(46, 88, 26, 0.9),
+    0 4px 8px rgba(30, 62, 16, 0.5);
+}
+
+/* ==================================================================
+   Welcome-back summary
+   ================================================================== */
+
+.welcome-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.94rem;
+  font-weight: 700;
+  color: #4a3a12;
+  background: linear-gradient(180deg, #fff6d8, #ffe8ac);
+  border: 3px solid var(--gold-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 5px 0 var(--gold-deep),
+    0 10px 18px rgba(90, 56, 0, 0.28);
+  animation: popIn 0.4s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.welcome-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.welcome-text {
+  flex: 1;
+  min-width: 180px;
+}
+
+.welcome-banner button {
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #5a3400;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffe488, var(--gold));
+  border: 2px solid var(--gold-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 4px 0 var(--gold-deep);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.welcome-banner button:active {
+  transform: translateY(4px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 0 0 var(--gold-deep);
+}
+
+/* ==================================================================
+   Onboarding banner
+   ================================================================== */
+
+.onboarding-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #5a3d10;
+  background: linear-gradient(180deg, #fff8dd, #ffedb4);
+  border: 3px solid var(--gold-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 4px 0 var(--gold-deep),
+    0 8px 14px rgba(90, 56, 0, 0.25);
+  animation: popIn 0.4s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.onboarding-text {
+  flex: 1;
+  min-width: 190px;
+}
+
+.onboarding-banner button {
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #fff;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #6ed35a, var(--good-dark));
+  border: 2px solid var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 4px 0 var(--good-deep);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.onboarding-banner button:active {
+  transform: translateY(4px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35), 0 0 0 var(--good-deep);
+}
+
+@keyframes popIn {
+  0%   { transform: scale(0.9) translateY(-6px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* ==================================================================
+   Seed bar
+   ================================================================== */
+
+.seed-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.seed-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 84px;
+  padding: 9px 12px 8px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #fff4e0;
+  border-radius: 14px;
+  background:
+    repeating-linear-gradient(90deg, rgba(80, 46, 16, 0.12) 0 2px, transparent 2px 8px),
+    linear-gradient(180deg, #c4874a 0%, #a86a33 100%);
+  border: 3px solid var(--wood-darker);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 230, 190, 0.35),
+    0 5px 0 var(--wood-darker),
+    0 9px 14px rgba(48, 26, 6, 0.3);
+  text-shadow: 0 1px 2px rgba(60, 32, 8, 0.75);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+
+.seed-btn:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: inset 0 2px 0 rgba(255, 230, 190, 0.3), 0 0 0 var(--wood-darker);
+}
+
+.seed-btn .seed-emoji {
+  font-size: 1.6rem;
+  line-height: 1.1;
+  filter: drop-shadow(0 2px 2px rgba(40, 20, 4, 0.45));
+}
+
+.seed-btn.selected {
+  color: #fffdf2;
+  background: linear-gradient(180deg, #7bd964 0%, var(--good-dark) 100%);
+  border-color: var(--good-deep);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    0 5px 0 var(--good-deep),
+    0 0 0 4px rgba(255, 255, 255, 0.35),
+    0 10px 18px rgba(30, 90, 20, 0.4);
+  transform: translateY(-2px);
+}
+
+.seed-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+/* ==================================================================
+   Plots — tilled soil tiles
+   ================================================================== */
+
+.plots-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.plot {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Plots are real <button>s so they are keyboard reachable; reset the
+     inherited control styling that comes with that. */
+  font-family: inherit;
+  font-size: 2.1rem;
+  color: inherit;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 14px;
+  /* Tilled earth: scattered clods over soft horizontal furrows. */
+  background:
+    radial-gradient(ellipse 7px 4px at 24% 22%, rgba(255, 224, 176, 0.16), transparent),
+    radial-gradient(ellipse 5px 3px at 70% 33%, rgba(255, 224, 176, 0.13), transparent),
+    radial-gradient(ellipse 8px 5px at 46% 63%, rgba(28, 13, 2, 0.22), transparent),
+    radial-gradient(ellipse 6px 4px at 82% 74%, rgba(28, 13, 2, 0.20), transparent),
+    radial-gradient(ellipse 6px 4px at 14% 76%, rgba(255, 224, 176, 0.11), transparent),
+    radial-gradient(ellipse 5px 3px at 60% 88%, rgba(255, 224, 176, 0.09), transparent),
+    repeating-linear-gradient(0deg,
+      rgba(255, 219, 170, 0.07) 0 2px,
+      rgba(0, 0, 0, 0) 2px 8px,
+      rgba(38, 18, 3, 0.17) 8px 12px,
+      rgba(0, 0, 0, 0) 12px 16px),
+    linear-gradient(180deg, #7b5230 0%, #653f1e 58%, #4d2e14 100%);
+  border: 3px solid #58351a;
+  box-shadow:
+    inset 0 3px 0 rgba(255, 214, 160, 0.16),
+    inset 0 -10px 16px rgba(45, 24, 5, 0.5),
+    0 6px 0 var(--soil-deepest),
+    0 11px 16px rgba(38, 20, 4, 0.35);
+  transition: transform 0.12s cubic-bezier(.34, 1.56, .64, 1), box-shadow 0.12s ease;
+}
+
+@media (hover: hover) {
+  .plot:hover {
+    transform: translateY(-3px);
+    box-shadow:
+      inset 0 3px 0 rgba(255, 214, 160, 0.2),
+      inset 0 -10px 16px rgba(45, 24, 5, 0.45),
+      0 9px 0 var(--soil-deepest),
+      0 15px 22px rgba(38, 20, 4, 0.4);
+  }
+}
+
+.plot:active {
+  transform: translateY(4px);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 214, 160, 0.14),
+    inset 0 -8px 14px rgba(45, 24, 5, 0.5),
+    0 1px 0 var(--soil-deepest),
+    0 4px 8px rgba(38, 20, 4, 0.3);
+}
+
+/* Empty plots show a soft dashed target instead of a raw plus. */
+.plot.empty {
+  font-size: 1.5rem;
+  color: rgba(255, 235, 205, 0.42);
+  text-shadow: 0 2px 3px rgba(40, 20, 4, 0.5);
+}
+
+.plot.empty::after {
+  content: '';
+  position: absolute;
+  inset: 12%;
+  border: 2px dashed rgba(255, 231, 196, 0.24);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+/* Growing crops sway gently. */
+.plot .crop-sprite {
+  display: block;
+  filter: drop-shadow(0 3px 3px rgba(35, 18, 3, 0.55));
+  transform-origin: 50% 90%;
+  animation: sway 3.4s ease-in-out infinite;
+}
+
+@keyframes sway {
+  0%, 100% { transform: rotate(-4deg); }
+  50%      { transform: rotate(4deg); }
+}
+
+/* Ripe plots glow and bounce to pull the eye. */
+.plot.ready {
+  background:
+    radial-gradient(circle at 50% 118%, rgba(255, 214, 110, 0.38), transparent 62%),
+    radial-gradient(ellipse 7px 4px at 24% 22%, rgba(255, 232, 190, 0.18), transparent),
+    radial-gradient(ellipse 8px 5px at 46% 63%, rgba(40, 20, 3, 0.20), transparent),
+    radial-gradient(ellipse 6px 4px at 82% 74%, rgba(40, 20, 3, 0.18), transparent),
+    repeating-linear-gradient(0deg,
+      rgba(255, 226, 180, 0.08) 0 2px,
+      rgba(0, 0, 0, 0) 2px 8px,
+      rgba(48, 24, 4, 0.15) 8px 12px,
+      rgba(0, 0, 0, 0) 12px 16px),
+    linear-gradient(180deg, #8f6033 0%, #77491f 58%, #5d3715 100%);
+  border-color: var(--gold-dark);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 224, 170, 0.2),
+    inset 0 -10px 16px rgba(45, 24, 5, 0.45),
+    0 6px 0 var(--soil-deepest),
+    0 11px 18px rgba(38, 20, 4, 0.35);
+}
+
+/* The ripe halo used to animate box-shadow, which repaints the tile every
+   frame — and with a full field of ripe crops that was enough to bog the
+   main thread down. A scaling, fading ring composites instead. */
+.plot.ready::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 16px;
+  border: 3px solid rgba(255, 198, 63, 0.55);
+  pointer-events: none;
+  animation: readyPulse 1.5s ease-in-out infinite;
+}
+
+.plot.ready .crop-sprite {
+  animation: readyBounce 0.9s ease-in-out infinite;
+}
+
+@keyframes readyPulse {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50%      { opacity: 0;   transform: scale(1.11); }
+}
+
+@keyframes readyBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-6px) scale(1.06); }
+}
+
+/* Little "tap me" chevron over ripe crops. */
+.plot.ready::before {
+  content: '▾';
+  position: absolute;
+  top: 2px;
+  font-size: 0.95rem;
+  color: #fff2c4;
+  text-shadow: 0 2px 3px rgba(60, 34, 0, 0.7);
+  animation: nudge 0.9s ease-in-out infinite;
+}
+
+@keyframes nudge {
+  0%, 100% { transform: translateY(0); opacity: 0.85; }
+  50%      { transform: translateY(4px); opacity: 1; }
+}
+
+/* Growth progress bar sits along the bottom lip of the tile. */
+.plot-progress {
+  position: absolute;
+  bottom: 7px;
+  left: 9px;
+  right: 9px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(30, 15, 2, 0.55);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.plot-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #a4ef7f, var(--good-dark));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: width 0.9s linear;
+}
+
+/* Once ripe, the same bar counts down shelf life instead of growth — gold
+   while there is time to spare, red once the crop is on its way out. */
+.plot-progress-fill.freshness {
+  background: linear-gradient(180deg, #ffdf94, #e0a12a);
+}
+
+.plot.ready.wilting .plot-progress-fill.freshness {
+  background: linear-gradient(180deg, #f4906a, #c33a1e);
+}
+
+/* Last stretch before spoiling — the halo and the chevron turn to a warning. */
+.plot.ready.wilting {
+  border-color: #b5701f;
+}
+
+.plot.ready.wilting::after {
+  border-color: rgba(240, 150, 45, 0.72);
+  animation-duration: 0.75s;
+}
+
+.plot.ready.wilting::before {
+  content: '⏳';
+  color: #ffdca8;
+  animation-duration: 0.75s;
+}
+
+.plot.ready.wilting .crop-sprite {
+  filter: drop-shadow(0 3px 3px rgba(35, 18, 3, 0.55)) sepia(0.5);
+}
+
+/* Spoiled: no glow, no bounce, just wasted ground waiting to be cleared. */
+.plot.rotten {
+  background:
+    radial-gradient(ellipse 9px 5px at 30% 30%, rgba(28, 14, 2, 0.35), transparent),
+    radial-gradient(ellipse 8px 5px at 68% 66%, rgba(28, 14, 2, 0.32), transparent),
+    linear-gradient(180deg, #5c4626 0%, #46331a 60%, #33240f 100%);
+  border-color: #3d2a12;
+  box-shadow:
+    inset 0 3px 0 rgba(255, 224, 170, 0.07),
+    inset 0 -10px 18px rgba(20, 10, 2, 0.6),
+    0 5px 0 #2a1b08,
+    0 9px 14px rgba(30, 16, 3, 0.3);
+}
+
+.plot.rotten .crop-sprite {
+  filter: drop-shadow(0 3px 3px rgba(20, 10, 2, 0.6)) grayscale(0.55) brightness(0.85);
+  animation: rotSag 2.6s ease-in-out infinite;
+}
+
+@keyframes rotSag {
+  0%, 100% { transform: rotate(-9deg) translateY(0); }
+  50%      { transform: rotate(-13deg) translateY(2px); }
+}
+
+/* A drifting fly, so a spoiled tile reads at a glance from across the grid. */
+.plot.rotten::after {
+  content: '🪰';
+  position: absolute;
+  top: 16%;
+  right: 14%;
+  font-size: 0.62rem;
+  pointer-events: none;
+  animation: rotBuzz 2.2s ease-in-out infinite;
+}
+
+@keyframes rotBuzz {
+  0%, 100% { transform: translate(0, 0); opacity: 0.75; }
+  25%      { transform: translate(-5px, 4px); opacity: 1; }
+  50%      { transform: translate(3px, 7px); opacity: 0.8; }
+  75%      { transform: translate(-2px, 2px); opacity: 1; }
+}
+
+/* Locked plots read as fenced-off ground. */
+.plot.locked {
+  cursor: not-allowed;
+  font-size: 1.5rem;
+  color: rgba(255, 240, 214, 0.75);
+  background:
+    repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.16) 0 8px, transparent 8px 16px),
+    linear-gradient(180deg, #6a4a2c 0%, #4e3520 100%);
+  border-style: dashed;
+  border-color: rgba(255, 232, 196, 0.4);
+  box-shadow:
+    inset 0 -8px 14px rgba(28, 14, 2, 0.55),
+    0 5px 0 #33200c,
+    0 9px 14px rgba(30, 16, 3, 0.32);
+}
+
+@media (hover: hover) {
+  .plot.locked:hover {
+    transform: none;
+  }
+}
+
+.plot.locked.unlockable {
+  cursor: pointer;
+  border-color: var(--gold);
+  border-style: solid;
+  box-shadow:
+    inset 0 -8px 14px rgba(28, 14, 2, 0.5),
+    0 5px 0 #33200c,
+    0 0 0 3px rgba(255, 198, 63, 0.35),
+    0 10px 16px rgba(30, 16, 3, 0.35);
+  animation: unlockPulse 1.9s ease-in-out infinite;
+}
+
+@media (hover: hover) {
+  .plot.locked.unlockable:hover {
+    transform: translateY(-3px);
+  }
+}
+
+/* Overlay rather than a filter, which forced a repaint of the whole tile. */
+.plot.locked.unlockable::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 11px;
+  background: rgba(255, 214, 110, 0.2);
+  pointer-events: none;
+  animation: unlockPulse 1.9s ease-in-out infinite;
+}
+
+@keyframes unlockPulse {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 1; }
+}
+
+.plot-lock-cost {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #ffe9ae;
+  text-shadow: 0 1px 2px rgba(30, 16, 2, 0.85);
+}
+
+/* ==================================================================
+   Animals
+   ================================================================== */
+
+.animal-group {
+  margin-bottom: 22px;
+}
+
+.animal-group:last-child {
+  margin-bottom: 0;
+}
+
+/* Explains what a guardian is for, above its pen. */
+.group-note {
+  margin: -6px 0 10px;
+  max-width: 46ch;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #f2ffe4;
+  text-shadow: 0 1px 3px rgba(34, 68, 18, 0.85);
+}
+
+/* Guard coverage readout, on the green field alongside .group-note. */
+.guard-status {
+  margin: -4px 0 10px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #f2ffe4;
+  text-shadow: 0 1px 3px rgba(34, 68, 18, 0.85);
+}
+
+.guard-status.short {
+  color: #ffd8a0;
+}
+
+.animal-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.animal-list p {
+  margin: 0;
+  padding: 10px 4px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #f2ffe4;
+  text-shadow: 0 1px 3px rgba(34, 68, 18, 0.8);
+}
+
+.animal-card {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 11px;
+  text-align: center;
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--wood-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 5px 0 rgba(97, 58, 24, 0.5),
+    0 10px 16px rgba(46, 26, 8, 0.28);
+  animation: popIn 0.3s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.animal-emoji {
+  font-size: 2.4rem;
+  line-height: 1.15;
+  filter: drop-shadow(0 3px 3px rgba(60, 36, 10, 0.4));
+  animation: idleBob 2.6s ease-in-out infinite;
+}
+
+@keyframes idleBob {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-4px) scale(1.04); }
+}
+
+/* Push the action buttons to the bottom so cards in a row line up even when
+   one has an extra Sell button or a progress bar. */
+.animal-state {
+  margin: 5px 0 9px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  flex: 1;
+}
+
+.animal-state.hungry   { color: var(--bad-dark); }
+.animal-state.onduty   { color: #2f6ea8; }
+.animal-state.producing { color: var(--gold-deep); }
+.animal-state.ready     { color: var(--good-deep); }
+
+.animal-progress {
+  height: 9px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: rgba(120, 90, 50, 0.28);
+  box-shadow: inset 0 1px 3px rgba(80, 52, 16, 0.5);
+  overflow: hidden;
+}
+
+/* A starving animal is about to be lost, so it gets more than a colour: the
+   label pulses to pull the eye to the card that still needs feeding. */
+.animal-state.starving {
+  color: #a3231b;
+  animation: starvingPulse 1s ease-in-out infinite;
+}
+
+@keyframes starvingPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.62; transform: scale(1.06); }
+}
+
+.animal-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffdc74, var(--gold-dark));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: width 0.9s linear;
+}
+
+/* While hungry the same bar counts down to starvation instead of up to
+   produce — green with time in hand, red once the animal is in trouble. */
+.animal-progress-fill.hunger {
+  background: linear-gradient(180deg, #a4ef7f, var(--good-dark));
+}
+
+.animal-card.starving .animal-progress-fill.hunger {
+  background: linear-gradient(180deg, #f4906a, #c33a1e);
+}
+
+/* Shared chunky button recipe for animal actions. */
+.animal-btn {
+  width: 100%;
+  /* Emoji in the label are rendered by a fallback font whose metrics are not
+     ours to rely on, so the tap target is stated outright rather than left to
+     come out of the line box. */
+  min-height: 44px;
+  padding: 9px 6px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #fff;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #6ed35a, var(--good-dark));
+  border: 2px solid var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 4px 0 var(--good-deep);
+  text-shadow: 0 1px 2px rgba(20, 70, 12, 0.6);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.animal-btn:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 0 0 var(--good-deep);
+}
+
+.animal-btn:disabled {
+  cursor: not-allowed;
+  color: #f4f0e6;
+  background: linear-gradient(180deg, #c3bdb0, #a49d8f);
+  border-color: #8b8477;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 4px 0 #8b8477;
+  text-shadow: none;
+}
+
+.animal-btn-sell {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 7px;
+  padding: 6px 5px;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: var(--bad-dark);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff6f4, #ffe2dd);
+  border: 2px solid var(--bad);
+  box-shadow: 0 3px 0 rgba(195, 58, 45, 0.5);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.animal-btn-sell:active {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 rgba(195, 58, 45, 0.5);
+}
+
+.buy-animal-btn {
+  padding: 11px 18px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #fff4e0;
+  border-radius: 13px;
+  background:
+    repeating-linear-gradient(90deg, rgba(80, 46, 16, 0.12) 0 2px, transparent 2px 8px),
+    linear-gradient(180deg, #c4874a 0%, #a86a33 100%);
+  border: 3px solid var(--wood-darker);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 230, 190, 0.35),
+    0 5px 0 var(--wood-darker),
+    0 9px 14px rgba(48, 26, 6, 0.3);
+  text-shadow: 0 1px 2px rgba(60, 32, 8, 0.75);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.buy-animal-btn:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: inset 0 2px 0 rgba(255, 230, 190, 0.3), 0 0 0 var(--wood-darker);
+}
+
+.buy-animal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.55);
+}
+
+/* ==================================================================
+   Market
+   ================================================================== */
+
+.market-list, .inventory-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.market-item, .inventory-item {
+  padding: 12px 10px;
+  text-align: center;
+  font-size: 0.86rem;
+  font-weight: 600;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffdf6 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--parchment-line);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 4px 0 rgba(200, 172, 118, 0.6),
+    0 8px 14px rgba(120, 90, 40, 0.18);
+}
+
+.market-item .item-emoji, .inventory-item .item-emoji {
+  font-size: 2rem;
+  line-height: 1.2;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 2px 2px rgba(120, 90, 40, 0.35));
+}
+
+.market-item button {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 5px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #5a3400;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #ffe488, var(--gold));
+  border: 2px solid var(--gold-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 4px 0 var(--gold-deep);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.market-item button:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 0 0 var(--gold-deep);
+}
+
+.market-item button:disabled {
+  cursor: not-allowed;
+  color: #f6f3ec;
+  background: linear-gradient(180deg, #ccc6b9, #ada697);
+  border-color: #948d80;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.28), 0 4px 0 #948d80;
+}
+
+/* --- Upgrades --- */
+
+.upgrade-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.upgrade-item {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 11px;
+  text-align: center;
+  font-size: 0.84rem;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffdf6 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--parchment-line);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 4px 0 rgba(200, 172, 118, 0.6),
+    0 8px 14px rgba(120, 90, 40, 0.18);
+}
+
+.upgrade-item.maxed {
+  border-color: var(--good-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 4px 0 var(--good-deep),
+    0 8px 14px rgba(40, 110, 30, 0.22);
+}
+
+.upgrade-name {
+  font-size: 0.95rem;
+  font-weight: 800;
+  margin: 2px 0 3px;
+}
+
+.upgrade-effect {
+  flex: 1;
+  color: var(--text-soft);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.upgrade-level {
+  font-weight: 800;
+  color: var(--gold-deep);
+  margin-bottom: 8px;
+}
+
+.upgrade-item.maxed .upgrade-level {
+  color: var(--good-deep);
+}
+
+.upgrade-item button {
+  width: 100%;
+  padding: 8px 5px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #fff;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #6ed35a, var(--good-dark));
+  border: 2px solid var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 4px 0 var(--good-deep);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.upgrade-item button:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 0 0 var(--good-deep);
+}
+
+.upgrade-item button:disabled {
+  cursor: not-allowed;
+  color: #f4f0e6;
+  background: linear-gradient(180deg, #c3bdb0, #a49d8f);
+  border-color: #8b8477;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 4px 0 #8b8477;
+}
+
+/* --- Sound settings --- */
+
+.sound-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.sound-controls button {
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #5a3400;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffe488, var(--gold));
+  border: 2px solid var(--gold-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 4px 0 var(--gold-deep);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.sound-controls button[aria-pressed="false"] {
+  color: #6a6255;
+  background: linear-gradient(180deg, #e6e0d2, #cdc6b6);
+  border-color: #a89f8d;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 4px 0 #a89f8d;
+}
+
+.sound-controls button:active {
+  transform: translateY(4px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 0 0 var(--gold-deep);
+}
+
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.volume-control input[type="range"] {
+  width: 150px;
+  accent-color: var(--good-dark);
+  cursor: pointer;
+}
+
+.volume-readout {
+  min-width: 3.2em;
+  font-weight: 800;
+  color: var(--gold-deep);
+}
+
+.save-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.save-controls button {
+  padding: 10px 16px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #fff4e0;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #c4874a 0%, #a86a33 100%);
+  border: 3px solid var(--wood-darker);
+  box-shadow: inset 0 2px 0 rgba(255, 230, 190, 0.35), 0 4px 0 var(--wood-darker);
+  text-shadow: 0 1px 2px rgba(60, 32, 8, 0.7);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.save-controls button:active {
+  transform: translateY(4px);
+  box-shadow: inset 0 2px 0 rgba(255, 230, 190, 0.3), 0 0 0 var(--wood-darker);
+}
+
+/* ==================================================================
+   Achievements
+   ================================================================== */
+
+#achievementsProgress {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--gold-deep);
+}
+
+.achievements-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+  gap: 12px;
+}
+
+.achievement-card {
+  position: relative;
+  padding: 14px 12px;
+  text-align: center;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f4efe2 0%, #e6dcc6 100%);
+  border: 3px solid #cdbf9f;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 4px 0 rgba(180, 162, 122, 0.55);
+  filter: saturate(0.35);
+  opacity: 0.75;
+  transition: transform 0.18s ease, filter 0.25s ease, opacity 0.25s ease;
+}
+
+.achievement-card.unlocked {
+  filter: none;
+  opacity: 1;
+  background: linear-gradient(180deg, #fffbe9 0%, #ffeec2 100%);
+  border-color: var(--gold-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 5px 0 var(--gold-deep),
+    0 10px 18px rgba(150, 96, 0, 0.25);
+}
+
+/* Soft rays behind an earned badge. */
+.achievement-card.unlocked::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 74px;
+  height: 74px;
+  margin-left: -37px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 205, 80, 0.55), transparent 68%);
+  pointer-events: none;
+}
+
+.achievement-emoji {
+  position: relative;
+  font-size: 2.2rem;
+  line-height: 1.2;
+  filter: drop-shadow(0 2px 3px rgba(120, 82, 10, 0.4));
+}
+
+.achievement-card.unlocked .achievement-emoji {
+  animation: idleBob 3s ease-in-out infinite;
+}
+
+.achievement-name {
+  margin: 5px 0 3px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.achievement-desc {
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+.achievement-reward {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--gold-deep);
+}
+
+.achievement-card.unlocked .achievement-reward {
+  color: var(--good-deep);
+}
+
+/* ==================================================================
+   Hurricanes and barns
+   ================================================================== */
+
+.storm-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow: hidden;
+  pointer-events: none;
+  background: linear-gradient(100deg, rgba(30, 40, 60, 0) 0%, rgba(28, 38, 58, 0.55) 45%, rgba(30, 40, 60, 0) 100%);
+  background-size: 300% 100%;
+  animation: stormSweep 2.6s ease-in-out 1;
+}
+
+@keyframes stormSweep {
+  0%   { opacity: 0; transform: translateX(-6%); }
+  18%  { opacity: 1; }
+  75%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(6%); }
+}
+
+.storm-layer .debris {
+  position: absolute;
+  left: -8%;
+  font-size: 1.5rem;
+  animation: debrisFly 2.2s ease-in 1 both;
+}
+
+@keyframes debrisFly {
+  0%   { transform: translate(0, 0) rotate(0deg) scale(0.7); opacity: 0; }
+  12%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translate(122vw, var(--rise)) rotate(var(--spin)) scale(1.1); opacity: 0; }
+}
+
+.barn-forecast {
+  margin: -4px 0 12px;
+  max-width: 56ch;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.barn-forecast.warning {
+  font-weight: 800;
+  color: #a3231b;
+}
+
+.barn-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.barn-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px 13px 12px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--wood-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 4px 0 var(--wood-dark);
+}
+
+.barn-card.ready {
+  border-color: var(--gold-dark);
+  background: linear-gradient(180deg, #fffbe9 0%, #ffedbe 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.9), 0 4px 0 var(--gold-deep);
+}
+
+.barn-card.owned {
+  border-color: var(--good-deep);
+  background: linear-gradient(180deg, #f2fde9 0%, #d8f2c2 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.9), 0 4px 0 var(--good-deep);
+}
+
+.barn-card.outgrown { filter: saturate(0.25); opacity: 0.65; }
+
+.barn-head { font-size: 1rem; font-weight: 800; color: var(--text); }
+
+.barn-capacity {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--gold-deep);
+}
+
+.barn-card.owned .barn-capacity { color: var(--good-deep); }
+
+.barn-blurb {
+  flex: 1;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.barn-btn {
+  width: 100%;
+  padding: 12px 8px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #2f5410;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--good) 0%, var(--good-dark) 100%);
+  border: 3px solid var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.55), 0 4px 0 var(--good-deep);
+}
+
+.barn-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 1px 0 var(--good-deep);
+}
+
+.barn-btn:disabled {
+  cursor: not-allowed;
+  color: #6b6153;
+  background: linear-gradient(180deg, #ddd2ba 0%, #c6b998 100%);
+  border-color: #a89a79;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 4px 0 #a89a79;
+}
+
+/* ==================================================================
+   Endings — the celebration room, and the game over
+   ================================================================== */
+
+.ending {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 18px;
+  overflow-y: auto;
+  background: rgba(20, 11, 3, 0.86);
+  backdrop-filter: blur(3px);
+}
+
+/* The room you just bought, seen from a chair inside it. */
+.ending-scene {
+  position: relative;
+  width: min(460px, 100%);
+  aspect-ratio: 4 / 3;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 4px solid var(--wood-dark);
+  box-shadow: 0 8px 0 var(--wood-dark), 0 18px 34px rgba(0, 0, 0, 0.5);
+  /* Cottage: warm plaster and timber. */
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(120, 78, 36, 0.16) 0 3px, rgba(0, 0, 0, 0) 3px 62px),
+    linear-gradient(180deg, #efd9b4 0%, #e2c69c 58%, #ddc094 100%);
+  background-color: #e6c9a0;
+  animation: popIn 0.45s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.ending-scene.villa {
+  /* Villa: pale marble, cool and tall. */
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(140, 140, 165, 0.16) 0 4px, rgba(0, 0, 0, 0) 4px 84px),
+    linear-gradient(180deg, #f3f1ea 0%, #e2ded2 100%);
+  background-color: #eeebe2;
+}
+
+/* Window onto the night, where the fireworks are. */
+.ending-window {
+  position: absolute;
+  left: 50%;
+  top: 12%;
+  width: 54%;
+  height: 44%;
+  transform: translateX(-50%);
+  border-radius: 10px 10px 4px 4px;
+  overflow: hidden;
+  box-shadow: 0 6px 14px rgba(40, 22, 4, 0.35);
+}
+
+.ending-scene.villa .ending-window {
+  width: 60%;
+  height: 50%;
+  border-radius: 50% 50% 4px 4px / 26% 26% 4px 4px;
+}
+
+.ending-sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, #10193c 0%, #24305e 62%, #4a4b74 100%);
+}
+
+.ending-hills {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: 0;
+  height: 26%;
+  border-radius: 50% 50% 0 0;
+  background: linear-gradient(180deg, #24401f, #16290f);
+}
+
+.ending-fireworks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Each burst is a point that scales in and fades; the sparks fly outward on
+   transform alone, so a screenful of them stays cheap. */
+.firework {
+  position: absolute;
+  width: 0;
+  height: 0;
+  animation: fireworkBurst 3.6s ease-out infinite;
+}
+
+.firework .spark {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: hsl(var(--hue, 45) 100% 68%);
+  box-shadow: 0 0 4px hsl(var(--hue, 45) 100% 60%);
+  transform: rotate(var(--angle)) translateY(0);
+  animation: sparkFly 3.6s ease-out infinite;
+}
+
+@keyframes fireworkBurst {
+  0%, 4%   { opacity: 0; }
+  6%       { opacity: 1; }
+  38%      { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+
+@keyframes sparkFly {
+  0%, 5% { transform: rotate(var(--angle)) translateY(0) scale(0.4); }
+  55%    { transform: rotate(var(--angle)) translateY(calc(var(--dist) * -1)) scale(1); }
+  100%   { transform: rotate(var(--angle)) translateY(calc(var(--dist) * -1.25)) scale(0.2); }
+}
+
+.ending-frame {
+  position: absolute;
+  inset: 0;
+  border: 5px solid #7c5228;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.ending-frame::before,
+.ending-frame::after {
+  content: '';
+  position: absolute;
+  background: #7c5228;
+}
+
+.ending-frame::before { left: 50%; top: 0; bottom: 0; width: 5px; margin-left: -2.5px; }
+.ending-frame::after  { top: 50%; left: 0; right: 0; height: 5px; margin-top: -2.5px; }
+
+.ending-scene.villa .ending-frame { border-color: #b9b2a0; }
+.ending-scene.villa .ending-frame::before,
+.ending-scene.villa .ending-frame::after { background: #b9b2a0; }
+
+/* Fireplace in the cottage, candelabra in the villa. */
+.ending-feature {
+  position: absolute;
+  left: 9%;
+  bottom: 26%;
+  width: 20%;
+  height: 26%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6%;
+  font-size: 1.5rem;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, #8b6238 0%, #6b4626 100%);
+  box-shadow: inset 0 3px 0 rgba(255, 226, 180, 0.25);
+  animation: idleBob 3.4s ease-in-out infinite;
+}
+
+.ending-scene.villa .ending-feature {
+  background: linear-gradient(180deg, #d9d4c6 0%, #bdb7a6 100%);
+  border-radius: 6px;
+}
+
+.ending-floor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22%;
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(60, 32, 8, 0.22) 0 2px, rgba(0, 0, 0, 0) 2px 34px),
+    linear-gradient(180deg, #a9743f 0%, #8a5729 100%);
+}
+
+.ending-scene.villa .ending-floor {
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(120, 118, 130, 0.18) 0 14px, rgba(0, 0, 0, 0) 14px 28px),
+    linear-gradient(180deg, #d7d2c6 0%, #b9b3a4 100%);
+}
+
+.ending-rug {
+  position: absolute;
+  left: 50%;
+  bottom: 5%;
+  width: 62%;
+  height: 12%;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, #c9503f 0 42%, #9b3628 42% 70%, #7d2b20 70%);
+  opacity: 0.92;
+}
+
+.ending-sofa {
+  position: absolute;
+  left: 50%;
+  bottom: 16%;
+  width: 40%;
+  height: 14%;
+  transform: translateX(-50%);
+  border-radius: 12px 12px 5px 5px;
+  background: linear-gradient(180deg, #6f8f5a 0%, #4f6d3d 100%);
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.22);
+}
+
+.ending-scene.villa .ending-sofa {
+  background: linear-gradient(180deg, #8c7fb0 0%, #6a5d90 100%);
+}
+
+.ending-table {
+  position: absolute;
+  right: 9%;
+  bottom: 20%;
+  width: 15%;
+  height: 8%;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #a9773f, #7d5326);
+}
+
+.ending-lamp {
+  position: absolute;
+  left: 50%;
+  bottom: 88%;
+  width: 62%;
+  padding-top: 40%;
+  transform: translateX(-50%);
+  border-radius: 40% 40% 8px 8px;
+  background: radial-gradient(circle at 50% 70%, #fff2c0, #ffd873);
+  box-shadow: 0 0 16px rgba(255, 214, 120, 0.75);
+}
+
+.ending-farmer {
+  position: absolute;
+  left: 50%;
+  bottom: 24%;
+  font-size: 2.4rem;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 3px 4px rgba(60, 34, 4, 0.5));
+  animation: idleBob 2.8s ease-in-out infinite;
+}
+
+.ending-card, .gameover-panel {
+  width: min(460px, 100%);
+  padding: 18px 18px 16px;
+  text-align: center;
+  border-radius: 18px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 4px solid var(--wood-dark);
+  box-shadow: 0 7px 0 var(--wood-dark), 0 16px 28px rgba(0, 0, 0, 0.45);
+}
+
+.ending-card h2, .gameover-panel h2 {
+  margin-bottom: 7px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ending-card p, .gameover-panel p {
+  margin-bottom: 12px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.ending-stats {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 12px;
+  margin-bottom: 14px;
+  padding: 11px 13px;
+  text-align: left;
+  border-radius: 12px;
+  background: rgba(120, 84, 40, 0.12);
+}
+
+.ending-stats dt {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.ending-stats dd {
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-align: right;
+  color: var(--text);
+}
+
+.ending-btn {
+  width: 100%;
+  padding: 13px 10px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #2f5410;
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--good) 0%, var(--good-dark) 100%);
+  border: 3px solid var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.55), 0 4px 0 var(--good-deep);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+
+.ending-btn:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 1px 0 var(--good-deep);
+}
+
+.ending-btn.secondary {
+  color: #5a3a12;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border-color: var(--wood-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 4px 0 var(--wood-dark);
+}
+
+/* Game over. */
+.gameover {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(12, 7, 2, 0.9);
+  backdrop-filter: blur(4px);
+}
+
+.gameover-emoji {
+  font-size: 3.4rem;
+  line-height: 1;
+  margin-bottom: 6px;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.5));
+}
+
+.gameover-actions {
+  display: grid;
+  gap: 9px;
+}
+
+/* ==================================================================
+   How to play
+   ================================================================== */
+
+.help-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(28, 16, 4, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.help-inner {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(88vh, 760px);
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 4px solid var(--wood-dark);
+  box-shadow: 0 8px 0 var(--wood-dark), 0 18px 32px rgba(30, 16, 3, 0.45);
+  animation: popIn 0.35s cubic-bezier(.34, 1.56, .64, 1);
+  overflow: hidden;
+}
+
+.help-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 16px;
+  border-bottom: 3px solid rgba(120, 84, 40, 0.28);
+}
+
+.help-head h2 {
+  flex: 1;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.help-close {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #5a3a12;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--wood-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 3px 0 var(--wood-dark);
+}
+
+.help-close:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), 0 1px 0 var(--wood-dark);
+}
+
+.help-body {
+  flex: 1;
+  padding: 4px 18px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.help-section {
+  padding: 14px 0 4px;
+  border-bottom: 2px dashed rgba(120, 84, 40, 0.24);
+}
+
+.help-section:last-child { border-bottom: none; }
+
+.help-section h3 {
+  margin-bottom: 6px;
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.help-section p {
+  margin-bottom: 8px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+/* ==================================================================
+   The farmer
+   ================================================================== */
+
+/* First-run picker: nothing else on the farm matters until it has an owner. */
+.farmer-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(28, 16, 4, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.farmer-picker-panel {
+  width: min(440px, 100%);
+  padding: 24px 20px 20px;
+  text-align: center;
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 4px solid var(--wood-dark);
+  box-shadow: 0 8px 0 var(--wood-dark), 0 18px 32px rgba(30, 16, 3, 0.45);
+  animation: popIn 0.4s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.farmer-picker-panel h2 {
+  margin-bottom: 8px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.farmer-picker-panel p {
+  margin-bottom: 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.farmer-picker-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.farmer-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 10px 14px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: var(--text);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffbe9 0%, #ffedbe 100%);
+  border: 3px solid var(--gold-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.9), 0 5px 0 var(--gold-deep);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+
+.farmer-option:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), 0 2px 0 var(--gold-deep);
+}
+
+.farmer-option-emoji {
+  font-size: 3rem;
+  line-height: 1;
+  filter: drop-shadow(0 3px 4px rgba(120, 82, 10, 0.4));
+}
+
+/* The farmer's own strip above the seed bar, on the green field. */
+.farmer-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 13px;
+  margin-bottom: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, rgba(255, 252, 240, 0.95), rgba(243, 232, 205, 0.95));
+  border: 3px solid var(--wood-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 4px 0 var(--wood-dark);
+}
+
+.farmer-strip.tired {
+  border-color: #b5701f;
+  background: linear-gradient(180deg, #fdf0dd, #f3ddb9);
+}
+
+.farmer-avatar {
+  font-size: 2.1rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px rgba(120, 82, 10, 0.4));
+}
+
+.farmer-strip.tired .farmer-avatar {
+  animation: farmerSlump 2.4s ease-in-out infinite;
+}
+
+@keyframes farmerSlump {
+  0%, 100% { transform: rotate(-3deg) translateY(0); }
+  50%      { transform: rotate(-7deg) translateY(2px); }
+}
+
+.farmer-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.farmer-state {
+  margin-bottom: 5px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.farmer-strip.tired .farmer-state { color: #a3231b; }
+
+.farmer-energy {
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(120, 90, 50, 0.28);
+  box-shadow: inset 0 1px 3px rgba(80, 52, 16, 0.5);
+  overflow: hidden;
+}
+
+.farmer-energy-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #a4ef7f, var(--good-dark));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: width 0.9s linear;
+}
+
+.farmer-strip.tired .farmer-energy-fill {
+  background: linear-gradient(180deg, #f4906a, #c33a1e);
+}
+
+.farmer-feed-btn {
+  flex-shrink: 0;
+  padding: 11px 13px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #2f5410;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--good) 0%, var(--good-dark) 100%);
+  border: 3px solid var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.55), 0 4px 0 var(--good-deep);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+
+.farmer-feed-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 1px 0 var(--good-deep);
+}
+
+.farmer-feed-btn:disabled {
+  cursor: not-allowed;
+  color: #6b6153;
+  background: linear-gradient(180deg, #ddd2ba 0%, #c6b998 100%);
+  border-color: #a89a79;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 4px 0 #a89a79;
+}
+
+/* Start Over. Deliberately the last thing in the market and deliberately not
+   dressed like the routine green buttons above it — this one throws a farm
+   away. */
+.restart-note {
+  margin: -4px 0 10px;
+  max-width: 52ch;
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.restart-btn {
+  width: 100%;
+  padding: 13px 10px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #7a1f14;
+  border-radius: 13px;
+  background: linear-gradient(180deg, #ffe3dd 0%, #ffc7bb 100%);
+  border: 3px solid var(--bad-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), 0 4px 0 var(--bad-dark);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+
+.restart-btn:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 1px 0 var(--bad-dark);
+}
+
+/* Difficulty tiers: three cards, in the first-run picker and in the market. */
+.difficulty-choice {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.difficulty-choice.compact {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.difficulty-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 13px 12px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  color: #5a3a12;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--wood-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 4px 0 var(--wood-dark);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+
+.difficulty-choice.compact .difficulty-btn {
+  align-items: center;
+  padding: 11px 6px;
+  text-align: center;
+}
+
+.difficulty-btn:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), 0 1px 0 var(--wood-dark);
+}
+
+.difficulty-btn.active {
+  color: #2f5410;
+  background: linear-gradient(180deg, #d9f5bd 0%, #b6e58c 100%);
+  border-color: var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 4px 0 var(--good-deep);
+}
+
+.difficulty-name {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.difficulty-choice.compact .difficulty-name { font-size: 0.8rem; }
+
+.difficulty-blurb {
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.difficulty-btn.active .difficulty-blurb { color: #3d6b1c; }
+
+.difficulty-facts {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: var(--gold-deep);
+}
+
+.difficulty-btn.active .difficulty-facts { color: var(--good-deep); }
+
+.picker-subhead {
+  margin-top: 16px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+/* Market -> Farmer, so a mis-tap on the first screen is not permanent. */
+.farmer-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.farmer-swap {
+  flex: 1 1 150px;
+  padding: 12px 10px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #5a3a12;
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--parchment) 0%, var(--parchment-deep) 100%);
+  border: 3px solid var(--wood-dark);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 4px 0 var(--wood-dark);
+}
+
+.farmer-swap.active {
+  color: #2f5410;
+  background: linear-gradient(180deg, #d9f5bd 0%, #b6e58c 100%);
+  border-color: var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 4px 0 var(--good-deep);
+}
+
+/* A dog's feed buttons: one per animal it could be given. */
+.animal-btn.prey-btn {
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  color: #6b2f13;
+  background: linear-gradient(180deg, #ffcf9b 0%, #e8975a 100%);
+  border-color: #b6612c;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 4px 0 #b6612c;
+}
+
+.animal-btn.prey-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 1px 0 #b6612c;
+}
+
+/* ==================================================================
+   Dream homes — the two grand goals
+   ================================================================== */
+
+/* The dream tab sits on parchment, not the green field, so it needs its own
+   intro styling rather than the field-tab .group-note. */
+.dream-intro {
+  margin: -4px 0 14px;
+  max-width: 52ch;
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
+.dream-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.dream-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 15px 15px;
+  text-align: center;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fdf8ea 0%, #f0e5cc 100%);
+  border: 3px solid var(--wood-dark);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.8),
+    0 5px 0 var(--wood-dark),
+    0 11px 18px rgba(50, 28, 8, 0.22);
+  transition: filter 0.25s ease, opacity 0.25s ease;
+}
+
+/* Affordable right now: the card lights up gold so you cannot miss it. */
+.dream-card.ready {
+  border-color: var(--gold-dark);
+  background: linear-gradient(180deg, #fffbe9 0%, #ffedbe 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 5px 0 var(--gold-deep),
+    0 12px 22px rgba(150, 96, 0, 0.3);
+}
+
+.dream-card.owned {
+  border-color: var(--good-dark);
+  background: linear-gradient(180deg, #f2fde9 0%, #d8f2c2 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.9),
+    0 5px 0 var(--good-deep),
+    0 12px 22px rgba(60, 120, 20, 0.28);
+}
+
+/* Passed over for the other one — greyed out, but still on the page as a
+   record of the choice that was made. */
+.dream-card.forfeited {
+  filter: saturate(0.2);
+  opacity: 0.6;
+}
+
+.dream-emoji {
+  font-size: 3rem;
+  line-height: 1.1;
+  filter: drop-shadow(0 3px 4px rgba(120, 82, 10, 0.4));
+}
+
+.dream-card.ready .dream-emoji,
+.dream-card.owned .dream-emoji {
+  animation: idleBob 3s ease-in-out infinite;
+}
+
+.dream-name {
+  margin: 7px 0 3px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.dream-tagline {
+  margin-bottom: 7px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-style: italic;
+  color: var(--text-soft);
+}
+
+.dream-desc {
+  flex: 1;
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.dream-price {
+  margin-bottom: 9px;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--gold-deep);
+}
+
+.dream-card.owned .dream-price { color: var(--good-deep); }
+
+.dream-progress {
+  height: 11px;
+  margin-bottom: 11px;
+  border-radius: 999px;
+  background: rgba(120, 90, 50, 0.28);
+  box-shadow: inset 0 1px 3px rgba(80, 52, 16, 0.5);
+  overflow: hidden;
+}
+
+.dream-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffdc74, var(--gold-dark));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: width 0.9s linear;
+}
+
+.dream-btn {
+  width: 100%;
+  padding: 12px 8px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+  color: #2f5410;
+  border-radius: 13px;
+  background: linear-gradient(180deg, var(--good) 0%, var(--good-dark) 100%);
+  border: 3px solid var(--good-deep);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.55), 0 4px 0 var(--good-deep);
+  transition: transform 0.09s ease, box-shadow 0.09s ease;
+}
+
+.dream-btn:active:not(:disabled) {
+  transform: translateY(3px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 1px 0 var(--good-deep);
+}
+
+.dream-btn:disabled {
+  cursor: not-allowed;
+  color: #6b6153;
+  background: linear-gradient(180deg, #ddd2ba 0%, #c6b998 100%);
+  border-color: #a89a79;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 4px 0 #a89a79;
+}
+
+/* ==================================================================
+   Toast + floating feedback
+   ================================================================== */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(26px + env(safe-area-inset-bottom));
+  z-index: 40;
+  transform: translateX(-50%);
+  padding: 11px 22px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #fff6e4;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6b4520, #4a2d11);
+  border: 3px solid #35200b;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 220, 170, 0.25),
+    0 6px 0 rgba(30, 18, 4, 0.5),
+    0 14px 26px rgba(20, 10, 2, 0.45);
+  text-shadow: 0 1px 2px rgba(20, 10, 2, 0.8);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.toast.hidden {
+  /* Fade rather than vanish — override the global display:none. */
+  display: block !important;
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
+}
+
+/* Layer for "+3 🌾" numbers that float up from an action. */
+.fx-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------
+   Raids: crows and wolves arriving, guardians seeing them off.
+   Every actor is placed once with left/top and then moved on transform
+   alone, so a raid crossing the screen costs nothing to composite.
+   ------------------------------------------------------------------ */
+
+.raid-actor {
+  position: absolute;
+  font-size: 2.1rem;
+  line-height: 1;
+  margin: -1rem 0 0 -1rem;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 5px rgba(20, 10, 2, 0.5));
+  animation-duration: 2.4s;
+  animation-timing-function: cubic-bezier(.35, .05, .3, 1);
+  animation-fill-mode: both;
+}
+
+.raid-actor.crow { font-size: 1.7rem; }
+
+/* Crows come in over the top-left, converge on the plot, then leave with it. */
+.raid-actor.crow.steals { animation-name: crowSteals; }
+.raid-actor.crow.flees  { animation-name: crowScatters; }
+
+@keyframes crowSteals {
+  0%   { transform: translate(-65vw, calc(-32vh + var(--lane) * 14px)) scale(0.55); opacity: 0; }
+  18%  { opacity: 1; }
+  46%  { transform: translate(calc(var(--lane) * 20px), calc(var(--lane) * 9px)) scale(1); opacity: 1; }
+  62%  { transform: translate(calc(var(--lane) * 12px), 6px) scale(1.06); opacity: 1; }
+  100% { transform: translate(58vw, calc(-30vh + var(--lane) * 18px)) scale(0.5); opacity: 0; }
+}
+
+/* Chased off: they break upward the way they came instead of pressing on. */
+@keyframes crowScatters {
+  0%   { transform: translate(-65vw, calc(-32vh + var(--lane) * 14px)) scale(0.55); opacity: 0; }
+  18%  { opacity: 1; }
+  44%  { transform: translate(calc(var(--lane) * 20px), calc(var(--lane) * 9px)) scale(1); opacity: 1; }
+  58%  { transform: translate(calc(var(--lane) * 34px - 30px), -34px) scale(0.95); opacity: 1; }
+  100% { transform: translate(calc(var(--lane) * 60px - 30vw), -62vh) scale(0.4); opacity: 0; }
+}
+
+/* The wolf comes in low from the right. */
+.raid-actor.wolf.steals { animation-name: wolfSteals; }
+.raid-actor.wolf.flees  { animation-name: wolfBolts; }
+
+@keyframes wolfSteals {
+  0%   { transform: translate(68vw, 8vh) scale(0.7) scaleX(-1); opacity: 0; }
+  16%  { opacity: 1; }
+  46%  { transform: translate(0, 0) scale(1) scaleX(-1); opacity: 1; }
+  60%  { transform: translate(-6px, 4px) scale(1.08) scaleX(-1); opacity: 1; }
+  100% { transform: translate(72vw, 12vh) scale(0.6) scaleX(1); opacity: 0; }
+}
+
+/* Turned back: it never reaches the pens, and it leaves faster than it came. */
+@keyframes wolfBolts {
+  0%   { transform: translate(68vw, 8vh) scale(0.7) scaleX(-1); opacity: 0; }
+  16%  { opacity: 1; }
+  40%  { transform: translate(60px, 0) scale(0.95) scaleX(-1); opacity: 1; }
+  52%  { transform: translate(90px, -10px) scale(0.9) scaleX(1); opacity: 1; }
+  100% { transform: translate(80vw, -4vh) scale(0.55) scaleX(1); opacity: 0; }
+}
+
+/* The guardian charges in from the other side, holds the line, trots back. */
+.raid-actor.guard {
+  animation-name: guardCharges;
+  animation-delay: 0.42s;
+}
+
+@keyframes guardCharges {
+  0%   { transform: translate(-58vw, 6vh) scale(0.7); opacity: 0; }
+  20%  { opacity: 1; }
+  42%  { transform: translate(-34px, 2px) scale(1.12); opacity: 1; }
+  56%  { transform: translate(-18px, -6px) scale(1.16); opacity: 1; }
+  72%  { transform: translate(-34px, 2px) scale(1.06); opacity: 1; }
+  100% { transform: translate(-52vw, 6vh) scale(0.7); opacity: 0; }
+}
+
+/* The tile or card that just lost something. */
+.raid-hit {
+  animation: raidHit 0.85s ease-out 1;
+}
+
+@keyframes raidHit {
+  0%, 100% { transform: translate(0, 0); }
+  12%      { transform: translate(-5px, 0) scale(1.03); }
+  28%      { transform: translate(5px, 0) scale(1.03); }
+  44%      { transform: translate(-4px, 0) scale(1.01); }
+  60%      { transform: translate(3px, 0); }
+  76%      { transform: translate(-2px, 0); }
+}
+
+.float-text {
+  position: absolute;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff8e0;
+  white-space: nowrap;
+  text-shadow:
+    0 2px 0 rgba(70, 40, 10, 0.9),
+    0 4px 10px rgba(30, 16, 2, 0.6);
+  transform: translate(-50%, 0);
+  animation: floatUp 1.15s ease-out forwards;
+}
+
+.float-text.gain  { color: #d9ffc4; }
+.float-text.coins { color: #ffe89a; }
+
+@keyframes floatUp {
+  0%   { opacity: 0; transform: translate(-50%, 6px) scale(0.8); }
+  22%  { opacity: 1; transform: translate(-50%, -8px) scale(1.12); }
+  100% { opacity: 0; transform: translate(-50%, -58px) scale(1); }
+}
+
+/* ==================================================================
+   Footer
+   ================================================================== */
+
+.site-footer {
+  /* fit-content + auto margins centres the pill without the 50% margin trick,
+     which pushed the layout viewport far past the screen in landscape. */
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 22px auto 0;
+  padding: 9px 18px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fdffef;
+  border-radius: 18px;
+  background: rgba(56, 34, 12, 0.42);
+  text-shadow: 0 1px 3px rgba(30, 18, 4, 0.85);
+}
+
+.footer-line {
+  display: block;
+}
+
+.footer-line + .footer-line {
+  margin-top: 2px;
+}
+
+/* Keep neighbouring game links from reading as one run of text. */
+.footer-line a + a {
+  margin-left: 10px;
+}
+
+.site-footer a {
+  color: #ffe9a8;
+  font-weight: 800;
+}
+
+/* ==================================================================
+   Responsive
+   ================================================================== */
+
+@media (max-width: 620px) {
+  .logo { font-size: 1.2rem; }
+  .tab-btn { font-size: 0.86rem; padding: 10px 5px; }
+  .tab-icon { font-size: 0.95rem; }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --sky-band: 66px;
+    --celestial-size: 38px;
+  }
+
+  #app {
+    padding-top: calc(var(--sky-band) + 4px + env(safe-area-inset-top));
+    padding-right: max(11px, env(safe-area-inset-right));
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
+    padding-left: max(11px, env(safe-area-inset-left));
+  }
+
+  .plots-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 9px;
+  }
+
+  .plot { font-size: 1.75rem; }
+
+  /* Share the row evenly so all four seeds fit on one line; wrapping to a
+     second row pushed the plots most of a screen further down. */
+  .seed-bar { gap: 7px; }
+
+  .seed-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 4px 7px;
+    font-size: 0.72rem;
+  }
+
+  .seed-btn .seed-emoji { font-size: 1.35rem; }
+
+  .tabbar {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .tab-btn {
+    flex: 1 1 calc(50% - 7px);
+  }
+
+  .topbar { padding: 10px 12px; }
+  .stats { gap: 7px; }
+  .coin-badge, .day-badge { font-size: 0.9rem; padding: 5px 11px; }
+
+  .animal-list, .market-list, .inventory-list, .achievements-list {
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    gap: 9px;
+  }
+
+  .upgrade-list {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 9px;
+  }
+
+  /* Keep the cost on one line inside a half-width card. */
+  .upgrade-item button {
+    font-size: 0.74rem;
+    padding: 8px 3px;
+  }
+
+  .upgrade-item { font-size: 0.79rem; }
+  .upgrade-name { font-size: 0.88rem; }
+
+  .volume-control input[type="range"] { width: 120px; }
+}
+
+/* ==================================================================
+   Touch devices (Android phones and tablets)
+   ================================================================== */
+
+@media (pointer: coarse) {
+  /* Material's 48dp minimum. Everything the player taps repeatedly needs to
+     be comfortably hittable with a thumb. */
+  .tab-btn,
+  .seed-btn,
+  .animal-btn,
+  .buy-animal-btn,
+  .market-item button,
+  .upgrade-item button,
+  .sound-controls button,
+  .save-controls button,
+  .onboarding-banner button,
+  .welcome-banner button,
+  .barn-btn,
+  .dream-btn,
+  .difficulty-btn,
+  .farmer-swap,
+  .farmer-feed-btn,
+  .restart-btn,
+  .ending-btn,
+  .farmer-option {
+    min-height: 48px;
+  }
+
+  /* Kept visibly smaller than Feed so selling stays the harder tap of the
+     two, but still above the 44px accessibility floor. */
+  .animal-btn-sell {
+    min-height: 44px;
+  }
+
+  .mute-btn {
+    width: 48px;
+    height: 48px;
+    font-size: 1.15rem;
+  }
+
+  /* The native range track is only ~16px tall; pad out the grab area. */
+  .volume-control input[type="range"] {
+    height: 44px;
+  }
+
+  .site-footer a {
+    display: inline-block;
+    padding: 14px 4px;
+  }
+
+  /* Our own :active styles stand in for the grey Android tap flash, and
+     manipulation removes the double-tap-to-zoom delay on controls. */
+  button,
+  input[type="range"],
+  .plot {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /* Long-pressing a control should not select its label or raise a callout. */
+  button {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Short viewports — mostly phones held in landscape. Reclaim the vertical
+   space the sky strip and top bar would otherwise eat. */
+@media (max-height: 480px) and (orientation: landscape) {
+  :root {
+    --sky-band: 40px;
+    --celestial-size: 28px;
+  }
+
+  #app { padding-top: calc(var(--sky-band) + 4px); }
+  .topbar { padding: 7px 12px; }
+  .logo { font-size: 1.05rem; }
+  .logo-icon { display: none; }
+  .tabbar { margin: 9px 0; }
+  .tab-screen { padding: 12px; }
+  .plots-grid { grid-template-columns: repeat(6, 1fr); }
+}
+
+/* Respect users who prefer less motion: keep state, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

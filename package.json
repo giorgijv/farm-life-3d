@@ -1,0 +1,16 @@
+{
+  "name": "farm-life-3d",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A browser farming game in 3D: walk the yard, work the field, raise animals, sell goods.",
+  "scripts": {
+    "serve": "node tests/server.js",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:report": "playwright show-report",
+    "playtest": "node tools/playtest.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
