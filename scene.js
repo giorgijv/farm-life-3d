@@ -10,7 +10,7 @@
  * handle, `window.Farm3DBridge`, set up at the bottom of script.js. Read
  * that comment for what it does and — just as importantly — doesn't expose.
  *
- * What this file owns, for now (build steps 4-7 of the weekend plan):
+ * What this file owns, for now (build steps 4-9 of the weekend plan):
  *   - the render loop: a lit ground plane, a fence, sixteen soil tiles;
  *   - crop meshes on those tiles, grown from state the same way the 2D
  *     sprite swap was — a generic sprout/seedling early, a crop-coloured
@@ -18,7 +18,10 @@
  *     once it rots;
  *   - the farmer, and the queue that walks her to a plot before the rules
  *     for that plot run at all. That is the one part of this file the rest
- *     of the game can feel, and it has a long comment of its own below.
+ *     of the game can feel, and it has a long comment of its own below;
+ *   - a pen beside the field with the herd in it, on the same walk queue;
+ *   - the sun, on the same clock the 2D sky reads, and a camera the player
+ *     can now orbit and pan by hand.
  *
  * This file does not touch #plotsGrid at all — it is still a plain CSS
  * grid, invisible, sitting over the canvas exactly as before this scene
@@ -27,6 +30,7 @@
  * projection was wrong, not just more complicated.
  */
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -46,6 +50,13 @@ function startScene(bridge) {
   if (!container || !canvas || !grid) return;
 
   const PLOT_COUNT = bridge.PLOT_COUNT;
+
+  // Read in three places that all run before the farmer section below is
+  // reached at load time (the plot/animal tap handlers, and the OrbitControls
+  // setup in the camera section), so it is declared up here rather than
+  // alongside the rest of the farmer's own setup.
+  const reducedMotion = () =>
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* Grid geometry in world units, laid out in the plot array's own order:
      plots 0-3 are the back row, plot 0 the far left. The field then reads
@@ -73,13 +84,25 @@ function startScene(bridge) {
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   // Capped rather than left at the device's real ratio: a 3x phone screen
-  // would otherwise ask for nine times the pixels for no visible gain. The
-  // full performance pass is step 9; this is the cheap, obvious part of it
-  // done early so the first frame is never the slow one.
+  // would otherwise ask for nine times the pixels for no visible gain.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
+  /* Tried again for step 9, and dropped again: even pared all the way down
+     to one low-res (512px) caster — just the farmer — with nothing set to
+     receive her shadow at all, so the map was rendered but never sampled,
+     a stress test pinning this scene against three other Chromium instances
+     (mirroring how loaded CI actually runs) still cost an unrelated test its
+     five-second timing window on the same software-rendered path steps 4-6
+     first hit. Throttling the shadow map to a handful of redraws a second
+     instead of every frame did not rescue it either. Below the cost that's
+     worth paying here, twice now — shadowMap.enabled stays at its default
+     false; the sun still moves and dims correctly for day and night, see
+     syncSky() below, it just doesn't paint anything onto the ground for it. */
+
   const scene = new THREE.Scene();
+  // Mutated in place each frame by syncSky() rather than reassigned, so
+  // this is the day colour only until the first frame runs.
   scene.background = new THREE.Color(0xbfe4f5);
   scene.fog = new THREE.Fog(0xbfe4f5, 15, 28);
 
@@ -87,21 +110,83 @@ function startScene(bridge) {
   // the field and the pen at once, off to one side of this constructor.
   const camera = new THREE.PerspectiveCamera(48, 4 / 3, 0.1, 100);
 
-  scene.add(new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, 0.85));
+  const hemi = new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, 0.85);
+  scene.add(hemi);
 
-  // No shadow map yet — deliberately. It's a real cost (its own shader
-  // variant per shadow-casting mesh, plus a full extra depth pass every
-  // frame), it bought this scene nothing steps 4-6 asked for, and it was the
-  // one part of this file heavy enough to visibly slow down the rest of the
-  // page under CI's software-rendered Chromium: a genuinely unrelated test
-  // elsewhere started missing its 5-second timing window once this scene's
-  // render loop was competing for the same CPU core. Step 9 is where shadows
-  // earn their keep (the plan wants "long shadows at dusk" from there), and
-  // the render loop it needs is the one with an actual performance pass
-  // behind it, not this one.
+  /* The sun: colour, intensity and position all driven from daySkyState()
+     each frame, below, rather than fixed here. No mesh of its own, and (see
+     the renderer, above) nothing it casts is ever drawn — its low angle at
+     dawn and dusk still reads, just as dimmer, warmer light rather than a
+     shadow stretching across the yard. */
   const sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
-  sun.position.set(5, 9, 4);
   scene.add(sun);
+  scene.add(sun.target);
+
+  /* -------------------------------------------------------------- */
+  /* Sky — the same clock the 2D strip reads, driving colour, light    */
+  /* level, and where the sun sits over the yard                       */
+  /* -------------------------------------------------------------- */
+
+  /* The same three stops SKY_COLORS in script.js fades the 2D strip
+     between, as THREE.Colors instead of rgb() strings — reusing the
+     palette rather than inventing a second one is what keeps the yard from
+     ever reading as a different time of day than the UI above it. */
+  const BG_STOPS = {
+    day: new THREE.Color(0x7ec8f0), dusk: new THREE.Color(0xf7814a), night: new THREE.Color(0x0c1636),
+  };
+  /* The hemisphere light's own two colours get their own, much shallower
+     stops than the background above — the falloff from day to night is
+     already carried by hemi.intensity, below, so tinting its colour all the
+     way down to the background's near-black night stop too would darken the
+     ambient light twice over: once by colour, once by intensity, compounding
+     into a scene that reads as flat black well before intensity alone would
+     have. These stay moon-bright at every phase; only the hue shifts. */
+  const HEMI_SKY_STOPS = {
+    day: new THREE.Color(0xdcefff), dusk: new THREE.Color(0xffd7ad), night: new THREE.Color(0x8fa4d9),
+  };
+  const HEMI_GROUND_STOPS = {
+    day: new THREE.Color(0x3d5a2c), dusk: new THREE.Color(0x5a4a34), night: new THREE.Color(0x2c3550),
+  };
+  const SUN_STOPS = { day: new THREE.Color(0xfff3d6), dusk: new THREE.Color(0xff9d5c) };
+  const sunColorTmp = new THREE.Color();
+
+  // Both stop sets fade the same way: day to dusk across the first half of
+  // nightFactor's climb, dusk to night across the second — the dusk band is
+  // the midpoint of the ramp, not a separate timer of its own.
+  function lerpStops(target, stops, t) {
+    if (t < 0.5) target.copy(stops.day).lerp(stops.dusk, t * 2);
+    else target.copy(stops.dusk).lerp(stops.night, (t - 0.5) * 2);
+  }
+
+  function syncSky() {
+    const { phase, nightFactor } = bridge.daySkyState();
+
+    lerpStops(scene.background, BG_STOPS, nightFactor);
+    scene.fog.color.copy(scene.background);
+    lerpStops(hemi.color, HEMI_SKY_STOPS, nightFactor);
+    lerpStops(hemi.groundColor, HEMI_GROUND_STOPS, nightFactor);
+    hemi.intensity = 0.22 + 0.63 * (1 - nightFactor);
+
+    /* A single continuous circle driven straight off `phase`, rather than
+       the 2D moon/sun icon's day/night-split arc above — that formula
+       exists to place a flat sprite within a visible sky strip, which is a
+       different problem. `elevation` below is just cos(2*pi*phase),
+       reached through nightFactor's own definition (nightFactor =
+       (1-cos(2*pi*phase))/2) instead of a second cosine call that could
+       drift out of step with it: 1 at midday, 0 at each twilight, -1 at
+       midnight. Below the ground at midnight is harmless for a light with
+       no mesh of its own, and at that point intensity has already faded
+       low enough that its exact position doesn't read anyway. The sweep
+       moves the sun east-to-west (or back) through the day; direction is
+       still all a light with no shadow of its own (see the renderer, above)
+       has to say — it changes which faces catch the warm, low-angle light
+       at dawn and dusk, just not a shadow's length or where it falls. */
+    const angle = phase * Math.PI * 2;
+    const elevation = 1 - 2 * nightFactor;
+    sun.position.set(VIEW_CX + Math.sin(angle) * 9, elevation * 8 + 3, 3);
+    sun.intensity = Math.max(0.05, 1.15 * (1 - nightFactor * 0.94));
+    sun.color.copy(sunColorTmp.copy(SUN_STOPS.day).lerp(SUN_STOPS.dusk, Math.min(nightFactor * 2.2, 1)));
+  }
 
   /* -------------------------------------------------------------- */
   /* Ground and fence — static dressing, built once                    */
@@ -352,6 +437,27 @@ function startScene(bridge) {
   const VIEW_CX = (-yardHalf + (PEN_CX + PEN_HALF_X)) / 2;
   camera.position.set(VIEW_CX, 6.5, 6.3);
   camera.lookAt(VIEW_CX, 0.2, 0);
+  // The sun's own aim point, set now that VIEW_CX exists — syncSky(), above,
+  // only ever moves the light's position around this fixed target.
+  sun.target.position.set(VIEW_CX, 0, 0);
+
+  /* Free-look on top of that same framing: one finger orbits, two fingers
+     pinch-zoom or pan — OrbitControls' default touch mapping already, with
+     nothing to customise there. Clamped so a player can't drag the camera
+     under the ground or all the way to a flat top-down view, and damped for
+     everyone except a player who has asked for reduced motion, for whom the
+     coast-after-release drift is exactly the kind of motion they turned off. */
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(VIEW_CX, 0.4, 0);
+  controls.enableDamping = !reducedMotion();
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 5;
+  controls.maxDistance = 14;
+  controls.minPolarAngle = Math.PI / 6;
+  controls.maxPolarAngle = Math.PI / 2.05;
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
+  controls.update();
 
   const PEN_ROWS = ['cow', 'chicken', 'sheep', 'dog', 'cat'];
   // A wide margin, not the tile grid's tight 0.15-0.16: a short animal in
@@ -566,9 +672,6 @@ function startScene(bridge) {
     dressedAs = gender;
   }
 
-  const reducedMotion = () =>
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
   /* Where she is and which way she is looking. Deliberately not in the save:
      this is somebody's position in a yard, not something the farm depends on,
      and it starts at the gate again on every load. */
@@ -770,9 +873,11 @@ function startScene(bridge) {
     if (document.hidden || !farmTabVisible()) return;
     if (now - lastDrawAt < FRAME_INTERVAL_MS) return;
     lastDrawAt = now;
+    syncSky();
     syncPlots(now);
     syncAnimals(now);
     poseFarmer();
+    controls.update();
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);

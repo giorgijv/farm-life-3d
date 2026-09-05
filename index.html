@@ -264,7 +264,12 @@
      that. See vendor/README.md. The import map lets scene.js write a bare
      "three" import without a bundler. -->
 <script type="importmap">
-  { "imports": { "three": "./vendor/three.module.js" } }
+  {
+    "imports": {
+      "three": "./vendor/three.module.js",
+      "three/addons/": "./vendor/jsm/"
+    }
+  }
 </script>
 <script type="module" src="scene.js"></script>
 </body>

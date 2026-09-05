@@ -2135,6 +2135,9 @@ window.Farm3DBridge = {
   animalActionValid: animalActionStillValid,
   runAnimalAction,
   setAnimalActionHandler(handler) { animalActionHandler = handler; },
+  /* The same clock the 2D sky reads, so the sun over the 3D yard is never
+     telling a different time of day than the strip above the UI. */
+  daySkyState,
 };
 
 /* ------------------------------------------------------------------ */
@@ -3086,25 +3089,35 @@ function skyColorAt(band, nightFactor) {
     : lerpColor(SKY_COLORS.dusk[band], SKY_COLORS.night[band], (t - 0.5) * 2);
 }
 
-function updateDayNightVisuals() {
+/* Everything downstream of the clock — the sky's colour, where the sun or
+   moon sits, whether it's day or night at all — reduces to these four
+   numbers. Pulled out on its own so the 3D scene can read the same math
+   through the bridge rather than a duplicate copy of it drifting out of
+   sync with the 2D sky. */
+function daySkyState() {
   // Normalise into [0, 1) so a save from the future (clock change, edited
   // file) can't push the sun off the side of the sky.
   const rawPhase = state.dayElapsedMs / DAY_LENGTH_MS;
   const phase = ((rawPhase % 1) + 1) % 1;
   // Smooth sinusoid: 0 at midday, peaks at 1 in the middle of the cycle (midnight).
   const nightFactor = (1 - Math.cos(2 * Math.PI * phase)) / 2;
-  const root = document.documentElement.style;
-  root.setProperty('--sky-top', skyColorAt('top', nightFactor));
-  root.setProperty('--sky-bottom', skyColorAt('bottom', nightFactor));
-  root.setProperty('--sky-ground', skyColorAt('ground', nightFactor));
-  root.setProperty('--night', (nightFactor * 0.8).toFixed(3));
-
   // The sun rides an arc across the light half of the cycle, the moon across
   // the dark half. Shifting the phase by a quarter puts each at its zenith
   // exactly when the sky is brightest / darkest.
   const q = (phase + 0.25) % 1;
   const isNight = q > 0.5;
   const arc = isNight ? (q - 0.5) / 0.5 : q / 0.5;
+  return { phase, nightFactor, arc, isNight };
+}
+
+function updateDayNightVisuals() {
+  const { nightFactor, arc, isNight } = daySkyState();
+  const root = document.documentElement.style;
+  root.setProperty('--sky-top', skyColorAt('top', nightFactor));
+  root.setProperty('--sky-bottom', skyColorAt('bottom', nightFactor));
+  root.setProperty('--sky-ground', skyColorAt('ground', nightFactor));
+  root.setProperty('--night', (nightFactor * 0.8).toFixed(3));
+
   const body = document.getElementById('celestialBody');
   if (body) {
     // Arc through the clear sky strip above the UI, so it stays visible

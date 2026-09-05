@@ -773,6 +773,12 @@ body {
 
 .farm-scene {
   position: relative;
+  /* Above the tab's .night-veil (step 9): that veil is a flat multiply-tint
+     for evening light on 2D parchment panels, and now that this scene lights
+     itself honestly from the same clock (see syncSky() in scene.js), letting
+     the veil double up over it just made the yard black well before actual
+     midnight instead of the intended dusk-to-night fade. */
+  z-index: 1;
   width: 100%;
   aspect-ratio: 4 / 3;
   margin-bottom: 16px;
@@ -791,7 +797,11 @@ body {
   display: block;
   width: 100%;
   height: 100%;
-  touch-action: manipulation;
+  /* OrbitControls (step 9) needs to see a one-finger drag itself, not have
+     the browser treat it as a page pan/scroll first — "manipulation" was
+     fine when the canvas was untouchable set dressing, but now it would eat
+     the very gesture the orbit camera is listening for. */
+  touch-action: none;
 }
 
 /* Real <button>s, kept for exactly two audiences: a screen reader, which
@@ -808,7 +818,20 @@ body {
    the button stays invisible either way. */
 .plots-grid {
   position: absolute;
-  inset: 0;
+  /* A rough box around where the tiled field sits under the step 4-8 camera
+     framing — not the full inset:0 this was before the pen (step 8) and
+     OrbitControls (step 9) both needed the rest of the canvas back. Eyeballed
+     from a screenshot, not computed from the camera: pixel-perfect alignment
+     was already a non-goal (see the long comment above), so a box that's
+     roughly right costs nothing, while inset:0 was actively wrong once there
+     was a pen to its right that these sixteen buttons had no business
+     covering, and an orbit drag anywhere on the canvas to swallow. Left
+     free: the pen, and a margin all round — drag there to orbit; the field
+     itself still belongs to these buttons, same trade as ever. */
+  left: 14%;
+  right: 41%;
+  top: 27%;
+  bottom: 14%;
   z-index: 1;
   display: grid;
   grid-template-columns: repeat(4, 1fr);

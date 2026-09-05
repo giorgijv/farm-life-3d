@@ -22,8 +22,10 @@ sends her there, and the crop is worked when she arrives rather than when you ta
 — so clearing a ripe field is a round she walks rather than four instant taps. A
 fenced pen sits beside the field with the herd in it; feeding and collecting from
 the Animals tab send her there the same way, and a dog on duty trots the fence
-line while a hungry one waits it out. The camera and the day/night lighting are
-still the 2D versions.
+line while a hungry one waits it out. The sun tracks the same clock the 2D sky
+strip reads, warming and dimming the yard through dusk into a moonlit night, and
+the camera is no longer fixed — drag to orbit, pinch to zoom, two fingers to pan,
+clamped so it can't go underground or flip upside down.
 
 ### Its save is its own
 
@@ -226,6 +228,10 @@ offline once loaded.
 - `index.html` — markup and the scenery layers
 - `styles.css` — the whole visual system
 - `script.js` — game state, systems, rendering and audio
+- `scene.js` — the 3D farm scene (three.js), talking to `script.js` through
+  `window.Farm3DBridge`
+- `vendor/` — three.js itself, kept local so the game stays offline and
+  dependency-free
 - `sw.js` / `manifest.webmanifest` — offline caching and installability
 - `tests/` — Playwright end-to-end suite
 
