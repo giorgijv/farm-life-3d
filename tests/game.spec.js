@@ -1267,6 +1267,133 @@ test.describe('walking to work', () => {
     expect(await pending(quiet)).toBe(0);
     await context.close();
   });
+
+  /* ---------------------------------------------------------------- */
+  /* The pen shares the walk queue                                     */
+  /* ---------------------------------------------------------------- */
+
+  const readyCow = () => [{ id: 1, state: 'producing', feedAt: secondsAgo(60) }]; // produceTime 25
+  const hungryCowFixture = () => [{ id: 1, state: 'hungry', feedAt: null }];
+  const hungryDogFixture = () => [{ id: 90, state: 'hungry', feedAt: null }];
+
+  test('milk is only ever collected by a farmer standing next to a cow', async ({ page }) => {
+    await load(page, banked({ cows: readyCow() }));
+    await sceneReady(page);
+    await page.getByRole('button', { name: /Animals/ }).click();
+
+    await page.locator('#cowList .animal-btn').click();
+
+    // The tap was taken — nothing about the cow or the stores has moved yet.
+    expect(await pending(page)).toBe(1);
+    expect((await inventory(page)).milk).toBe(0);
+    expect((await readSave(page)).cows[0].state).toBe('producing');
+
+    await worked(page);
+    expect((await inventory(page)).milk).toBe(2);
+    expect((await readSave(page)).cows[0].state).toBe('hungry');
+  });
+
+  test('feeding a hungry animal also sends her to the pen', async ({ page }) => {
+    await load(page, banked({
+      cows: hungryCowFixture(),
+      inventory: { wheat: 0, corn: 4, carrot: 0, pumpkin: 0, milk: 0, egg: 0, wool: 0 },
+    }));
+    await sceneReady(page);
+    await page.getByRole('button', { name: /Animals/ }).click();
+
+    await page.locator('#cowList .animal-btn').click();
+    expect(await pending(page)).toBe(1);
+    expect((await readSave(page)).cows[0].state).toBe('hungry');
+
+    await worked(page);
+    expect((await readSave(page)).cows[0].state).toBe('producing');
+    expect((await inventory(page)).corn).toBe(2);
+  });
+
+  test('feeding a dog a chicken walks there too, after the confirmation', async ({ page }) => {
+    await load(page, banked({
+      dogs: hungryDogFixture(),
+      chickens: [{ id: 2, state: 'hungry', feedAt: null }],
+    }));
+    await sceneReady(page);
+    await page.getByRole('button', { name: /Animals/ }).click();
+
+    await page.locator('#dogList .prey-btn').first().click(); // chicken, no confirmation needed
+    expect(await pending(page)).toBe(1);
+    expect((await readSave(page)).chickens).toHaveLength(1); // not slaughtered yet — she has not arrived
+
+    await worked(page);
+    expect((await readSave(page)).chickens).toHaveLength(0);
+    expect((await readSave(page)).dogs[0].state).toBe('producing');
+  });
+
+  test('declining to slaughter a cow never sends her anywhere', async ({ page }) => {
+    page.on('dialog', (d) => d.dismiss());
+    await load(page, banked({ dogs: hungryDogFixture(), cows: hungryCowFixture() }));
+    await sceneReady(page);
+    await page.getByRole('button', { name: /Animals/ }).click();
+
+    await page.locator('#dogList .prey-btn').nth(2).click(); // cow — asks first
+    await page.waitForTimeout(300);
+
+    // The confirmation runs before any job is queued, so declining it never
+    // sends her walking in the first place.
+    expect(await pending(page)).toBe(0);
+    expect((await readSave(page)).cows).toHaveLength(1);
+  });
+
+  test('an animal refusal comes back straight away, without a walk', async ({ page }) => {
+    // The Feed button is disabled whenever this would fail, so a real click
+    // can never reach the refusal — the same defence plotIntentBlocker gives
+    // plants exists here too, just behind a UI door that never opens on it.
+    // Calling the handler directly is the only way to exercise it.
+    await load(page, banked({
+      cows: hungryCowFixture(),
+      inventory: { wheat: 0, corn: 0, carrot: 0, pumpkin: 0, milk: 0, egg: 0, wool: 0 },
+    }));
+    await sceneReady(page);
+    await page.getByRole('button', { name: /Animals/ }).click();
+    await expect(page.locator('#cowList .animal-btn')).toBeDisabled();
+
+    await page.evaluate(() => window.Farm3DBridge.handleAnimalTap('cow', 1, 'feed'));
+
+    await expect(page.locator('#toast')).toContainText('needs 2 Corn');
+    expect(await pending(page)).toBe(0);
+  });
+
+  test('an animal sold while she is on the way is not there when she arrives', async ({ page }) => {
+    await load(page, banked({ cows: readyCow() }));
+    await sceneReady(page);
+    await page.getByRole('button', { name: /Animals/ }).click();
+
+    await page.locator('#cowList .animal-btn').click();
+    expect(await pending(page)).toBe(1);
+
+    // Sold out from under the job, the way a starving death or another tab
+    // acting on the same save could also remove it mid-walk.
+    await page.evaluate(() => {
+      state.cows = [];
+      saveState();
+    });
+
+    await worked(page);
+    expect((await inventory(page)).milk).toBe(0);
+  });
+
+  test('reduced motion works the pen on the spot too', async ({ page, browser }) => {
+    const context = await browser.newContext({ reducedMotion: 'reduce' });
+    const quiet = await context.newPage();
+    await load(quiet, banked({ cows: readyCow() }));
+    await sceneReady(quiet);
+    await quiet.getByRole('button', { name: /Animals/ }).click();
+
+    await quiet.locator('#cowList .animal-btn').click();
+
+    // Collected immediately: producing -> hungry is what a tap does now.
+    expect((await readSave(quiet)).cows[0].state).toBe('hungry');
+    expect(await pending(quiet)).toBe(0);
+    await context.close();
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -1286,6 +1413,7 @@ test.describe('animals', () => {
     await expect(page.locator('#cowList .animal-card')).toHaveCount(1);
 
     await page.locator('#cowList .animal-btn').click(); // feed: 2 corn
+    await worked(page);
     await expect.poll(async () => (await inventory(page)).corn).toBe(18);
     await expect(page.locator('#cowList .animal-state.producing')).toHaveCount(1);
 
@@ -1295,6 +1423,7 @@ test.describe('animals', () => {
 
     await expect(page.locator('#cowList .animal-state.ready')).toHaveCount(1);
     await page.locator('#cowList .animal-btn').click(); // collect
+    await worked(page);
     await expect.poll(async () => (await inventory(page)).milk).toBe(2);
 
     const before = await coins(page);
@@ -1574,11 +1703,13 @@ test.describe('guardians', () => {
     await expect(page.locator('#dogList .prey-btn').first()).toHaveText('🐔 90s');
 
     await page.locator('#catList .animal-btn').click();
+    await worked(page);
     await expect.poll(async () => (await inventory(page)).milk).toBe(1);
     await expect(page.locator('#catList .animal-state.onduty')).toHaveCount(1);
 
     // Eggs are no longer dog food; the chicken itself is.
     await page.locator('#dogList .prey-btn').first().click();
+    await worked(page);
     await expect(page.locator('#dogList .animal-state.onduty')).toHaveCount(1);
     const s = await readSave(page);
     expect(s.chickens).toEqual([]);
@@ -1882,6 +2013,7 @@ test.describe('guardians', () => {
     await page.getByRole('button', { name: /Animals/ }).click();
 
     await preyBtn(page, 0).click(); // chicken, no confirmation
+    await worked(page);
 
     await expect(page.locator('#toast')).toContainText('Slaughtered a Chicken');
     const s = await readSave(page);
@@ -1900,6 +2032,7 @@ test.describe('guardians', () => {
     await page.getByRole('button', { name: /Animals/ }).click();
 
     await preyBtn(page, 2).click(); // cow
+    await worked(page);
 
     const s = await readSave(page);
     expect(s.cows).toEqual([]);
@@ -1951,6 +2084,7 @@ test.describe('guardians', () => {
     await page.getByRole('button', { name: /Animals/ }).click();
 
     await preyBtn(page, 0).click();
+    await worked(page);
 
     // The one mid-cycle is left alone; the idle one goes.
     const s = await readSave(page);
@@ -2160,6 +2294,7 @@ test.describe('starvation', () => {
     await setDeadline(page, Date.now() + 0.05 * ANIMAL_STARVE_MS);
     await expect(page.locator('#cowList .animal-state.starving')).toHaveCount(1);
     await page.locator('#cowList .animal-btn').click();
+    await worked(page);
 
     const s = await readSave(page);
     expect(s.cows[0].state).toBe('producing');
@@ -2169,6 +2304,7 @@ test.describe('starvation', () => {
     // ...and once the milk is collected it gets a full window again.
     await page.evaluate((t) => { state.cows[0].feedAt = t; }, secondsAgo(60));
     await page.locator('#cowList .animal-btn').click(); // collect
+    await worked(page);
     await expect.poll(async () => (await readSave(page)).cows[0].starvesAt)
       .toBeGreaterThan(Date.now() + 0.9 * ANIMAL_STARVE_MS);
   });

@@ -19,8 +19,11 @@ the save format are shared with the original.
 
 **Built so far:** the field is a 3D yard, and the farmer walks it. Tapping a plot
 sends her there, and the crop is worked when she arrives rather than when you tap
-— so clearing a ripe field is a round she walks rather than four instant taps.
-The animals, the camera and the day/night lighting are still the 2D versions.
+— so clearing a ripe field is a round she walks rather than four instant taps. A
+fenced pen sits beside the field with the herd in it; feeding and collecting from
+the Animals tab send her there the same way, and a dog on duty trots the fence
+line while a hungry one waits it out. The camera and the day/night lighting are
+still the 2D versions.
 
 ### Its save is its own
 

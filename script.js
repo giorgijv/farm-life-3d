@@ -1352,6 +1352,8 @@ function helpSections() {
         + 'lays eggs, a cow eats corn and gives milk, a sheep eats carrots and gives wool.',
         'Feed one to start it producing, then collect when the timer fills. Every '
         + 'cycle returns more than the feed cost.',
+        `Feeding and collecting send ${farmerPronouns().them} out to the pen beside `
+        + 'the field, the same as tending a crop — tap here, watch there.',
         'An animal you no longer want can be sold back for half its base price. '
         + 'Selling asks first, since buying a replacement costs more than the refund.',
       ],
@@ -2123,6 +2125,16 @@ window.Farm3DBridge = {
   plotIntent,
   runPlotIntent,
   setPlotActionHandler(handler) { plotActionHandler = handler; },
+  /* Same shape, for the pen: an action (which button was pressed) is already
+     known at tap time here, so there is nothing to infer the way plotIntent
+     infers one from a bare tap — just whether it is still good on arrival. */
+  ANIMALS,
+  LIVESTOCK_ORDER,
+  GUARDIAN_ORDER,
+  handleAnimalTap,
+  animalActionValid: animalActionStillValid,
+  runAnimalAction,
+  setAnimalActionHandler(handler) { animalActionHandler = handler; },
 };
 
 /* ------------------------------------------------------------------ */
@@ -2166,7 +2178,7 @@ function buildAnimalCard(card, animal, kind, def, ready, sig) {
     card.appendChild(stateLabel);
 
     btn.textContent = `Collect ${def.produceEmoji}`;
-    btn.onclick = () => collectAnimal(kind, animal.id);
+    btn.onclick = () => handleAnimalTap(kind, animal.id, 'collect');
     card.appendChild(btn);
   } else if (animal.state === 'producing') {
     const onDuty = Boolean(def.guards);
@@ -2222,7 +2234,7 @@ function buildAnimalCard(card, animal, kind, def, ready, sig) {
           `Slaughter a ${preyDef.name} to feed this dog for ${DOG_PREY[prey].shiftTime} seconds`
           + ` (${available} available)`,
         );
-        feedBtn.onclick = () => feedDog(animal.id, prey);
+        feedBtn.onclick = () => handleAnimalTap(kind, animal.id, 'feedDog', prey);
         card.appendChild(feedBtn);
       });
     } else {
@@ -2232,7 +2244,7 @@ function buildAnimalCard(card, animal, kind, def, ready, sig) {
         'aria-label',
         `Feed this ${def.name} ${def.feed.amount} ${GOODS[def.feed.good].name}`,
       );
-      btn.onclick = () => feedAnimal(kind, animal.id);
+      btn.onclick = () => handleAnimalTap(kind, animal.id, 'feed');
       card.appendChild(btn);
     }
 
@@ -2329,19 +2341,26 @@ function renderGuardStatus(kind) {
   el.classList.toggle('short', charges > 0 && short);
 }
 
+/* Why feeding this kind would fail outright — pulled out for the same
+   reason plantBlocker was: the tap handler needs the answer before it sends
+   the farmer walking, not after. */
+function feedBlocker(def) {
+  if (canFeed(def)) return null;
+  const good = GOODS[def.feed.good];
+  return `A ${def.name} needs ${def.feed.amount} ${good.name} — grow `
+    + `${CROPS[def.feed.good] ? 'and harvest it on the Farm tab' : 'some first'}.`;
+}
+
 function feedAnimal(kind, id) {
   const def = ANIMALS[kind];
   // Dogs are fed livestock, which is a different transaction entirely.
   if (def.eatsLivestock) return;
   const animal = state[def.stateKey].find((a) => a.id === id);
   if (!animal || animal.state !== 'hungry') return;
-  if (!canFeed(def)) {
-    SFX.error();
-    const good = GOODS[def.feed.good];
-    showToast(`A ${def.name} needs ${def.feed.amount} ${good.name} — grow `
-      + `${CROPS[def.feed.good] ? 'and harvest it on the Farm tab' : 'some first'}.`);
-    return;
-  }
+  // The blocker was already asked before any walk started; a failure here
+  // only means the world moved while she crossed the yard, and the job is
+  // silently dropped rather than explained a second time.
+  if (!canFeed(def)) return;
   state.inventory[def.feed.good] -= def.feed.amount;
   animal.state = 'producing';
   animal.feedAt = nowSec();
@@ -2360,6 +2379,14 @@ function pickForSlaughter(kind) {
   return idle === -1 ? (list.length > 0 ? 0 : -1) : idle;
 }
 
+// Same job as feedBlocker, for the one prey button under a dog's card.
+function feedDogBlocker(prey) {
+  const preyDef = ANIMALS[prey];
+  return pickForSlaughter(prey) === -1
+    ? `No ${pluralOf(preyDef)} to spare — a dog only eats livestock, so buy one from the pens below.`
+    : null;
+}
+
 function feedDog(id, prey) {
   const def = ANIMALS.dog;
   const dog = state[def.stateKey].find((a) => a.id === id);
@@ -2369,24 +2396,12 @@ function feedDog(id, prey) {
   const shift = DOG_PREY[prey];
   if (!preyDef || !shift) return;
 
+  // Both the blocker above and the confirmation below already ran before any
+  // walk started (see handleAnimalTap) — a miss here means the world moved
+  // while she crossed the yard, so the job is dropped rather than asked
+  // about a second time.
   const idx = pickForSlaughter(prey);
-  if (idx === -1) {
-    SFX.error();
-    showToast(`No ${pluralOf(preyDef)} to spare — a dog only eats livestock, `
-      + 'so buy one from the pens below.');
-    return;
-  }
-
-  // Losing a cow or a sheep is expensive enough to be worth confirming; a
-  // chicken is the intended staple and would only get in the way.
-  if (SLAUGHTER_CONFIRM.includes(prey)) {
-    const confirmed = window.confirm(
-      `Slaughter a ${preyDef.name} to feed this dog?\n\n`
-      + `It keeps the dog on duty for ${shift.shiftTime} seconds. The `
-      + `${preyDef.name} is gone for good.`,
-    );
-    if (!confirmed) return;
-  }
+  if (idx === -1) return;
 
   state[preyDef.stateKey].splice(idx, 1);
   dog.state = 'producing';
@@ -2710,6 +2725,59 @@ function buyAnimal(kind) {
   showToast(`Bought a new ${def.name}!`);
   saveState();
   render();
+}
+
+/* Whether the action a job was queued for is still the right one to run —
+   asked again on arrival, mirroring plotIntent. An animal that was sold,
+   fed some other way, or already collected while she crossed the yard no
+   longer wants what the tap was for. */
+function animalActionStillValid(kind, id, action, extra) {
+  const def = ANIMALS[kind];
+  const animal = state[def.stateKey].find((a) => a.id === id);
+  if (!animal) return false;
+  if (action === 'collect') return animal.state === 'producing' && animalProgress(animal, def) >= 1;
+  if (action === 'feed') return animal.state === 'hungry' && canFeed(def);
+  if (action === 'feedDog') return animal.state === 'hungry' && pickForSlaughter(extra) !== -1;
+  return false;
+}
+
+// Where an action actually runs, once whether it should have already been
+// decided. Mirrors runPlotIntent: naming what happens, apart from whether.
+function runAnimalAction(kind, id, action, extra) {
+  if (action === 'collect') collectAnimal(kind, id);
+  else if (action === 'feed') feedAnimal(kind, id);
+  else if (action === 'feedDog') feedDog(id, extra);
+}
+
+/* The 3D scene installs a handler here, exactly like plotActionHandler —
+   same contract, same fallback to running on the spot with no scene, no
+   farmer chosen, or reduced motion. */
+let animalActionHandler = null;
+
+function handleAnimalTap(kind, id, action, extra) {
+  const blocked = action === 'feed' ? feedBlocker(ANIMALS[kind])
+    : action === 'feedDog' ? feedDogBlocker(extra)
+    : null;
+  if (blocked) {
+    SFX.error();
+    showToast(blocked);
+    return;
+  }
+  // Losing a cow or a sheep is expensive enough to be worth confirming, and
+  // that has to happen now — walking the length of the yard and only then
+  // asking "are you sure?" would mean walking back empty-handed on No.
+  if (action === 'feedDog' && SLAUGHTER_CONFIRM.includes(extra)) {
+    const preyDef = ANIMALS[extra];
+    const shift = DOG_PREY[extra];
+    const confirmed = window.confirm(
+      `Slaughter a ${preyDef.name} to feed this dog?\n\n`
+      + `It keeps the dog on duty for ${shift.shiftTime} seconds. The `
+      + `${preyDef.name} is gone for good.`,
+    );
+    if (!confirmed) return;
+  }
+  if (animalActionHandler && animalActionHandler(kind, id, action, extra)) return;
+  runAnimalAction(kind, id, action, extra);
 }
 
 /* ------------------------------------------------------------------ */

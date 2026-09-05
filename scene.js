@@ -83,12 +83,9 @@ function startScene(bridge) {
   scene.background = new THREE.Color(0xbfe4f5);
   scene.fog = new THREE.Fog(0xbfe4f5, 15, 28);
 
-  const camera = new THREE.PerspectiveCamera(40, 4 / 3, 0.1, 100);
-  /* Looking down at roughly 40° over the yard from the south, close enough
-     that the fence line nearly fills the frame — at any more distance the
-     farmer is a speck and the whole point of the walk is lost. */
-  camera.position.set(0, 5.5, 5.3);
-  camera.lookAt(0, 0.2, 0);
+  // Aimed once the pen's position is known, below — it needs to frame both
+  // the field and the pen at once, off to one side of this constructor.
+  const camera = new THREE.PerspectiveCamera(48, 4 / 3, 0.1, 100);
 
   scene.add(new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, 0.85));
 
@@ -121,29 +118,39 @@ function startScene(bridge) {
   const fenceMat = new THREE.MeshStandardMaterial({ color: 0x8a6135, roughness: 0.9 });
   const yardHalf = SPAN / 2 + 0.55;
   const railGeo = new THREE.BoxGeometry(1, 0.5, 0.12);
-  [
-    { pos: [0, 0.25, yardHalf], rotY: 0 },
-    { pos: [0, 0.25, -yardHalf], rotY: 0 },
-    { pos: [yardHalf, 0.25, 0], rotY: Math.PI / 2 },
-    { pos: [-yardHalf, 0.25, 0], rotY: Math.PI / 2 },
-  ].forEach(({ pos, rotY }) => {
-    const rail = new THREE.Mesh(railGeo, fenceMat);
-    rail.position.set(...pos);
-    rail.scale.x = SPAN + 1.1;
-    rail.rotation.y = rotY;
-    scene.add(rail);
-  });
-
   const postGeo = new THREE.BoxGeometry(0.14, 0.7, 0.14);
-  const postMesh = new THREE.InstancedMesh(postGeo, fenceMat, 4);
   const m4 = new THREE.Matrix4();
-  [
-    [yardHalf, yardHalf], [yardHalf, -yardHalf], [-yardHalf, yardHalf], [-yardHalf, -yardHalf],
-  ].forEach(([x, z], i) => {
-    m4.makeTranslation(x, 0.35, z);
-    postMesh.setMatrixAt(i, m4);
-  });
-  scene.add(postMesh);
+
+  /* One rectangular fence, reused for the field and (below) the pen: four
+     rails scaled to the box's width or depth, a post InstancedMesh at each
+     corner. `cx`/`cz` is the box's centre, not the world origin — the pen
+     sits well off to one side of it. */
+  function buildFence(cx, cz, halfX, halfZ) {
+    [
+      { pos: [cx, 0.25, cz + halfZ], scaleX: halfX * 2, rotY: 0 },
+      { pos: [cx, 0.25, cz - halfZ], scaleX: halfX * 2, rotY: 0 },
+      { pos: [cx + halfX, 0.25, cz], scaleX: halfZ * 2, rotY: Math.PI / 2 },
+      { pos: [cx - halfX, 0.25, cz], scaleX: halfZ * 2, rotY: Math.PI / 2 },
+    ].forEach(({ pos, scaleX, rotY }) => {
+      const rail = new THREE.Mesh(railGeo, fenceMat);
+      rail.position.set(...pos);
+      rail.scale.x = scaleX;
+      rail.rotation.y = rotY;
+      scene.add(rail);
+    });
+
+    const posts = new THREE.InstancedMesh(postGeo, fenceMat, 4);
+    [
+      [cx + halfX, cz + halfZ], [cx + halfX, cz - halfZ],
+      [cx - halfX, cz + halfZ], [cx - halfX, cz - halfZ],
+    ].forEach(([x, z], i) => {
+      m4.makeTranslation(x, 0.35, z);
+      posts.setMatrixAt(i, m4);
+    });
+    scene.add(posts);
+  }
+
+  buildFence(0, 0, yardHalf, yardHalf);
 
   /* -------------------------------------------------------------- */
   /* Soil tiles — one instance per plot                                */
@@ -221,15 +228,27 @@ function startScene(bridge) {
   }
 
   /* The jobs the farmer has been given but not yet done, oldest first, and
-     the one she is on now. Declared up here only so a tile can show that it
-     has been spoken for; everything that fills and drains them is in "The
-     farmer, and the walk to work" below. */
+     the one she is on now. Declared up here only so a tile or a pen slot can
+     show that it has been spoken for; everything that fills and drains them
+     is in "The farmer, and the walk to work" below. A job is one of:
+       { type: 'plot', plot, kind }
+       { type: 'animal', kind, id, action, extra }
+     kind means two different things across those — a plot's harvest/plant/
+     clear/unlock versus an animal's stateKey — because both are just
+     whatever plotIntent or the tap handler already decided the job was. */
   const jobQueue = [];
   let activeJob = null;
 
-  function isSpokenFor(idx) {
-    if (activeJob && activeJob.plot === idx) return true;
-    return jobQueue.some((job) => job.plot === idx);
+  function isPlotSpokenFor(idx) {
+    const matches = (job) => job.type === 'plot' && job.plot === idx;
+    if (activeJob && matches(activeJob)) return true;
+    return jobQueue.some(matches);
+  }
+
+  function isAnimalSpokenFor(kind, id) {
+    const matches = (job) => job.type === 'animal' && job.kind === kind && job.id === id;
+    if (activeJob && matches(activeJob)) return true;
+    return jobQueue.some(matches);
   }
 
   function syncPlots(now) {
@@ -245,7 +264,7 @@ function startScene(bridge) {
       /* A tap no longer does anything on the spot, so the tile it landed on
          has to say that it was heard — otherwise the half-second before the
          farmer arrives reads as a dropped tap. */
-      if (isSpokenFor(i)) tmpColor.lerp(TARGETED_TILE, 0.55);
+      if (isPlotSpokenFor(i)) tmpColor.lerp(TARGETED_TILE, 0.55);
       tileMesh.setColorAt(i, tmpColor);
 
       const plot = plots[i];
@@ -294,6 +313,157 @@ function startScene(bridge) {
     if (stalkMesh.instanceColor) stalkMesh.instanceColor.needsUpdate = true;
     headMesh.instanceMatrix.needsUpdate = true;
     if (headMesh.instanceColor) headMesh.instanceColor.needsUpdate = true;
+  }
+
+  /* -------------------------------------------------------------- */
+  /* The pen — animals beside the field                                */
+  /* -------------------------------------------------------------- */
+
+  /* A second, smaller fenced rectangle east of the field, close enough that
+     both read as one yard rather than two separate scenes — the camera
+     below is framed to hold both, which is the only reason it no longer
+     matches the field-only shot steps 4-7 tuned. Each of the five kinds gets
+     one row, oldest animal in the leftmost column, so buying and selling
+     shuffles the row rather than the animal you were looking at jumping
+     somewhere new (a small, accepted imperfection — worth it against the
+     cost of tracking stable per-animal slots for something purely visual).
+
+     The pen is deep rather than wide on purpose. Width costs the camera —
+     every extra unit of PEN_HALF_X pushes the frame that has to hold both
+     fences wider still, shrinking the farmer and the crops along with it —
+     but depth is close to free, because the camera already pulls back far
+     enough to fit the field's own depth. Given the choice, the five rows
+     get that free dimension: keeping them apart is what makes a cow read
+     as a cow and not a paler chicken standing next to it. */
+  const PEN_GAP = 0.4;
+  const PEN_HALF_X = 1.05;
+  const PEN_HALF_Z = 2.2;
+  const PEN_CX = yardHalf + PEN_GAP + PEN_HALF_X;
+  const PEN_CAP = 6; // shown per kind; a bigger herd just crowds the last column
+
+  buildFence(PEN_CX, 0, PEN_HALF_X, PEN_HALF_Z);
+
+  /* The camera the constructor left unaimed: centred on the midpoint between
+     the field's west fence and the pen's east fence, pulled back and widened
+     (48° rather than steps 4-7's tighter 40°) just far enough that both
+     fences still fit the frame with room to spare. Everything in it reads
+     a little smaller than the field-only shot did — the trade for a farmer
+     who visibly has two places to be, not one. */
+  const VIEW_CX = (-yardHalf + (PEN_CX + PEN_HALF_X)) / 2;
+  camera.position.set(VIEW_CX, 6.5, 6.3);
+  camera.lookAt(VIEW_CX, 0.2, 0);
+
+  const PEN_ROWS = ['cow', 'chicken', 'sheep', 'dog', 'cat'];
+  // A wide margin, not the tile grid's tight 0.15-0.16: a short animal in
+  // the end row sitting close to a 0.5-tall rail was getting lost behind
+  // it from this camera's shallow angle, not just crowded by it.
+  const PEN_ROW_MARGIN = 0.45;
+  const PEN_ROW_STEP = (PEN_HALF_Z * 2 - PEN_ROW_MARGIN * 2) / (PEN_ROWS.length - 1);
+  const PEN_ROW_Z = {};
+  PEN_ROWS.forEach((kind, i) => { PEN_ROW_Z[kind] = -PEN_HALF_Z + PEN_ROW_MARGIN + i * PEN_ROW_STEP; });
+  const PEN_COL_STEP = (PEN_HALF_X * 2 - 0.3) / (PEN_CAP - 1);
+
+  // The position an animal is walked to, and rests at — never the position
+  // it is drawn at; idle motion (the bob, the trot) is layered on top of
+  // this at render time and never moves the point the farmer is aiming for.
+  function animalSlot(kind, index) {
+    return {
+      x: PEN_CX - PEN_HALF_X + 0.15 + Math.min(index, PEN_CAP - 1) * PEN_COL_STEP,
+      z: PEN_ROW_Z[kind],
+    };
+  }
+
+  const ANIMAL_COLOR = {
+    cow: 0xe8ded0, chicken: 0xf2ecd0, sheep: 0xefe9da, dog: 0x8a6a45, cat: 0x707680,
+  };
+  // Half the geometry's own height, so each block's underside rests on the
+  // ground instead of the block being centred through it.
+  const ANIMAL_BASE_Y = { cow: 0.11, chicken: 0.075, sheep: 0.2, dog: 0.08, cat: 0.07 };
+  const ANIMAL_GEO = {
+    cow: new THREE.BoxGeometry(0.34, 0.22, 0.5),
+    chicken: new THREE.BoxGeometry(0.15, 0.15, 0.15),
+    sheep: new THREE.IcosahedronGeometry(0.2, 0), // faceted "fleece", same low-poly language as a crop head
+    dog: new THREE.BoxGeometry(0.22, 0.16, 0.36),
+    // Smaller than the dog, but not so small it vanishes at this camera
+    // distance the way an accurately cat-sized block did.
+    cat: new THREE.BoxGeometry(0.17, 0.14, 0.28),
+  };
+
+  const animalMesh = {};
+  PEN_ROWS.forEach((kind) => {
+    const mesh = new THREE.InstancedMesh(
+      ANIMAL_GEO[kind],
+      new THREE.MeshStandardMaterial({ color: ANIMAL_COLOR[kind], roughness: 0.85 }),
+      PEN_CAP,
+    );
+    scene.add(mesh);
+    animalMesh[kind] = mesh;
+  });
+
+  /* Guardians are the cheap win: the state a trot or a sleeping pose needs —
+     hungry versus producing — already exists on every animal, so a dog on
+     duty gets a short patrol and a hungry one goes flat and still, no new
+     game state anywhere for it. Livestock get a slower, universal graze
+     bob — the only idle motion that has to work identically for a shape as
+     different as a boxy cow and a faceted sheep. */
+  function syncAnimals(now) {
+    const state = bridge.getState();
+
+    PEN_ROWS.forEach((kind) => {
+      const def = bridge.ANIMALS[kind];
+      const list = state[def.stateKey];
+      const mesh = animalMesh[kind];
+      const baseY = ANIMAL_BASE_Y[kind];
+      const guardian = !!def.guards;
+
+      for (let i = 0; i < PEN_CAP; i++) {
+        const slot = animalSlot(kind, i);
+        const animal = list[i];
+        if (!animal) {
+          setInstance(mesh, i, slot.x, 0, slot.z, 0, 0);
+          continue;
+        }
+
+        const seed = i * 1.7;
+        let x = slot.x;
+        let y = baseY;
+        let scaleXZ = 1;
+        let scaleY = 1;
+
+        if (guardian) {
+          if (animal.state === 'producing') {
+            // On duty: a short trot along its row. Clamped rather than just
+            // a small amplitude, because the leftmost column sits close
+            // enough to the pen's own west rail that an unclamped trot
+            // could carry a dog behind it — out of the pen fence's bounds
+            // and out of the camera's view of it, not merely a clipped
+            // model but a Now You See It vanishing act.
+            const reach = Math.min(0.4, PEN_HALF_X - 0.12);
+            x = Math.max(
+              PEN_CX - PEN_HALF_X + 0.12,
+              Math.min(PEN_CX + PEN_HALF_X - 0.12, x + Math.sin(now * 0.0026 + seed) * reach),
+            );
+            y = baseY + Math.abs(Math.sin(now * 0.009 + seed)) * 0.03;
+          } else {
+            // Hungry: asleep, low and still, waiting to be fed.
+            scaleY = 0.45;
+            y = baseY * scaleY;
+          }
+        } else {
+          // Livestock graze in place: a slow, gentle bob, nothing that
+          // would carry them off the spot the farmer is about to visit.
+          y = baseY + Math.sin(now * 0.0015 + seed) * 0.02;
+        }
+
+        setInstance(mesh, i, x, y, slot.z, scaleXZ, scaleY);
+        tmpColor.set(ANIMAL_COLOR[kind]);
+        if (isAnimalSpokenFor(kind, animal.id)) tmpColor.lerp(TARGETED_TILE, 0.55);
+        mesh.setColorAt(i, tmpColor);
+      }
+
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    });
   }
 
   /* -------------------------------------------------------------- */
@@ -419,9 +589,36 @@ function startScene(bridge) {
     if (!bridge.getState().farmer) return false;
     // A second tap on a tile already on the list is the player being
     // impatient, not a second job.
-    if (!isSpokenFor(idx)) jobQueue.push({ plot: idx, kind });
+    if (!isPlotSpokenFor(idx)) jobQueue.push({ type: 'plot', plot: idx, kind });
     return true;
   });
+
+  // Same contract, for the pen: which action a tap meant is already known
+  // (it came from a specific button on a specific animal's card), so there
+  // is nothing to infer here beyond whether it has already been queued.
+  bridge.setAnimalActionHandler((kind, id, action, extra) => {
+    if (reducedMotion()) return false;
+    if (!bridge.getState().farmer) return false;
+    if (!isAnimalSpokenFor(kind, id)) jobQueue.push({ type: 'animal', kind, id, action, extra });
+    return true;
+  });
+
+  // Where a queued animal currently sits — its index can shift as animals
+  // are bought and sold, so this is asked fresh each time rather than
+  // captured once when the job was queued. An animal that no longer exists
+  // (sold, or lost while she was on her way) falls back to its row's first
+  // column: she still walks and crouches, and finishJob's re-check is what
+  // actually drops a job for an animal that is not there any more.
+  function animalWorldPos(kind, id) {
+    const def = bridge.ANIMALS[kind];
+    const idx = bridge.getState()[def.stateKey].findIndex((a) => a.id === id);
+    return animalSlot(kind, idx === -1 ? 0 : idx);
+  }
+
+  function jobTarget(job) {
+    const spot = job.type === 'plot' ? tileWorldPos(job.plot) : animalWorldPos(job.kind, job.id);
+    return { x: spot.x, z: spot.z + STAND_OFF };
+  }
 
   function stepToward(tx, tz, dt) {
     const dx = tx - at.x;
@@ -442,7 +639,11 @@ function startScene(bridge) {
     const job = activeJob;
     activeJob = null;
     stance = 'idle';
-    if (bridge.plotIntent(job.plot) === job.kind) bridge.runPlotIntent(job.plot, job.kind);
+    if (job.type === 'plot') {
+      if (bridge.plotIntent(job.plot) === job.kind) bridge.runPlotIntent(job.plot, job.kind);
+    } else if (bridge.animalActionValid(job.kind, job.id, job.action, job.extra)) {
+      bridge.runAnimalAction(job.kind, job.id, job.action, job.extra);
+    }
   }
 
   /* Starting over, and picking up a newer save from another tab, both swap
@@ -469,8 +670,8 @@ function startScene(bridge) {
         if (crouchLeft <= 0) finishJob();
         return;
       }
-      const tile = tileWorldPos(activeJob.plot);
-      if (stepToward(tile.x, tile.z + STAND_OFF, dt)) {
+      const target = jobTarget(activeJob);
+      if (stepToward(target.x, target.z, dt)) {
         stance = 'crouching';
         crouchLeft = CROUCH_MS;
       } else {
@@ -570,6 +771,7 @@ function startScene(bridge) {
     if (now - lastDrawAt < FRAME_INTERVAL_MS) return;
     lastDrawAt = now;
     syncPlots(now);
+    syncAnimals(now);
     poseFarmer();
     renderer.render(scene, camera);
   }
