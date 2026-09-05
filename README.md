@@ -17,6 +17,11 @@ Everything below describes the game as it plays today. The 3D work is layered on
 top of these rules rather than replacing them — the simulation, the economy and
 the save format are shared with the original.
 
+**Built so far:** the field is a 3D yard, and the farmer walks it. Tapping a plot
+sends her there, and the crop is worked when she arrives rather than when you tap
+— so clearing a ripe field is a round she walks rather than four instant taps.
+The animals, the camera and the day/night lighting are still the 2D versions.
+
 ### Its save is its own
 
 Both games are served from `giorgijv.github.io`, and `localStorage` is scoped to

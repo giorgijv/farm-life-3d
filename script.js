@@ -1321,6 +1321,11 @@ function helpSections() {
       lines: [
         'Pick a seed, then tap an empty plot to plant it. Seeds cost coins up front '
         + 'and the crop sells for more than it cost, so every cycle is a profit.',
+        `The farmer does the work, so a tap sends ${farmerPronouns().them} to that `
+        + `plot and the job happens when ${farmerPronouns().they} arrives. Tap several `
+        + `and ${farmerPronouns().they} works them in turn — the tile `
+        + `${farmerPronouns().they} is on the way to stays lit while `
+        + `${farmerPronouns().they} crosses the yard.`,
         'The four crops trade speed for value: wheat is quick and cheap, pumpkin is '
         + 'slow and worth the most. The bar on each plot shows how far along it is.',
         `Eight of the ${PLOT_COUNT} plots start locked. Unlock the rest one at a time `
@@ -1824,15 +1829,21 @@ function plotUnlockCost() {
   return PLOT_UNLOCK_BASE_COST + (state.unlockedPlots - INITIAL_UNLOCKED_PLOTS) * PLOT_UNLOCK_INCREMENT;
 }
 
+// Same idea as plantBlocker: the reason to refuse, ready to be asked for
+// before the farmer sets off rather than after she arrives.
+function unlockBlocker() {
+  return state.coins < plotUnlockCost() ? 'Not enough coins!' : null;
+}
+
 function unlockPlot() {
   if (state.unlockedPlots >= PLOT_COUNT) return;
-  const cost = plotUnlockCost();
-  if (state.coins < cost) {
+  const blocked = unlockBlocker();
+  if (blocked) {
     SFX.error();
-    showToast('Not enough coins!');
+    showToast(blocked);
     return;
   }
-  state.coins -= cost;
+  state.coins -= plotUnlockCost();
   state.unlockedPlots += 1;
   SFX.unlockPlot();
   showToast('New plot unlocked!');
@@ -1982,20 +1993,25 @@ function renderPlots() {
   });
 }
 
+/* Why planting would fail outright, as the message to show for it — pulled
+   out of plantSeed so the tap handler can ask the question before sending
+   the farmer on a walk that could only end in "not enough coins". */
+function plantBlocker() {
+  if (!state.selectedSeed) return 'Pick a seed first!';
+  if (state.coins < CROPS[state.selectedSeed].seedCost) return 'Not enough coins!';
+  return null;
+}
+
 function plantSeed(idx) {
   const plot = state.plots[idx];
   if (plot.crop) return;
-  if (!state.selectedSeed) {
+  const blocked = plantBlocker();
+  if (blocked) {
     SFX.error();
-    showToast('Pick a seed first!');
+    showToast(blocked);
     return;
   }
   const crop = CROPS[state.selectedSeed];
-  if (state.coins < crop.seedCost) {
-    SFX.error();
-    showToast('Not enough coins!');
-    return;
-  }
   state.coins -= crop.seedCost;
   plot.crop = state.selectedSeed;
   plot.plantedAt = nowSec();
@@ -2033,23 +2049,51 @@ function harvestPlot(idx) {
   render();
 }
 
-/* One dispatcher for "the plot at this index got tapped", so every one of
-   buildPlotCell's onclick handlers below means the same thing. Also on the
-   bridge for the 3D scene: it isn't called from there yet (the accessible
-   DOM buttons still do the tapping — see the .plots-grid comment in
-   styles.css for why), but the walk-to-harvest step later in the plan
-   fires the same actions once the farmer arrives, and should call this
-   rather than re-deriving the branching. */
-function handlePlotTap(idx) {
-  if (idx >= state.unlockedPlots) {
-    if (idx === state.unlockedPlots) unlockPlot();
-    return;
-  }
+/* What tapping this plot would do as things stand, or null for a tap with
+   nothing behind it — a plot still growing, or one locked too far in.
+   Naming the intent, rather than immediately acting on it, is what lets the
+   3D farmer carry a tap across the yard and still check on arrival that it
+   is the same job she set out to do. */
+function plotIntent(idx) {
+  if (idx >= state.unlockedPlots) return idx === state.unlockedPlots ? 'unlock' : null;
   const plot = state.plots[idx];
-  if (!plot.crop) { plantSeed(idx); return; }
-  if (plot.rotten) { clearRottenPlot(idx); return; }
-  if (plotProgress(plot) >= 1) { harvestPlot(idx); return; }
-  // Still growing — nothing to do yet.
+  if (!plot.crop) return 'plant';
+  if (plot.rotten) return 'clear';
+  return plotProgress(plot) >= 1 ? 'harvest' : null;
+}
+
+/* The reason an intent could not go ahead at all, if there is one. */
+function plotIntentBlocker(kind) {
+  if (kind === 'plant') return plantBlocker();
+  if (kind === 'unlock') return unlockBlocker();
+  return null;
+}
+
+function runPlotIntent(idx, kind) {
+  if (kind === 'unlock') unlockPlot();
+  else if (kind === 'plant') plantSeed(idx);
+  else if (kind === 'clear') clearRottenPlot(idx);
+  else if (kind === 'harvest') harvestPlot(idx);
+}
+
+/* The 3D scene installs a handler here to take a tap and act on it later,
+   once the farmer has walked to the plot. It returns true when it has taken
+   the tap; anything else — no scene, no farmer, a player who asked for
+   reduced motion — and the action happens here and now, exactly as it did
+   before there was a farmer to walk anywhere. */
+let plotActionHandler = null;
+
+/* One dispatcher for "the plot at this index got tapped", so every one of
+   buildPlotCell's onclick handlers means the same thing however the tap
+   arrived — mouse, touch, or Enter on a focused tile. */
+function handlePlotTap(idx) {
+  const kind = plotIntent(idx);
+  if (!kind) return;
+  /* An intent that can only fail is refused on the spot. Walking the farmer
+     the length of the yard to tell her she cannot afford the seed would be a
+     worse answer than saying so immediately. */
+  if (!plotIntentBlocker(kind) && plotActionHandler && plotActionHandler(idx, kind)) return;
+  runPlotIntent(idx, kind);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2074,6 +2118,11 @@ window.Farm3DBridge = {
   isWilting,
   freshness,
   handlePlotTap,
+  /* The walk-to-work loop: name the job at the tile the farmer is sent to,
+     check on arrival that it is still that job, and only then run it. */
+  plotIntent,
+  runPlotIntent,
+  setPlotActionHandler(handler) { plotActionHandler = handler; },
 };
 
 /* ------------------------------------------------------------------ */

@@ -10,12 +10,15 @@
  * handle, `window.Farm3DBridge`, set up at the bottom of script.js. Read
  * that comment for what it does and — just as importantly — doesn't expose.
  *
- * What this file owns, for now (build steps 4-6 of the weekend plan):
+ * What this file owns, for now (build steps 4-7 of the weekend plan):
  *   - the render loop: a lit ground plane, a fence, sixteen soil tiles;
  *   - crop meshes on those tiles, grown from state the same way the 2D
  *     sprite swap was — a generic sprout/seedling early, a crop-coloured
  *     head once it is close to ripe, a bob once it's ripe, a grey slump
- *     once it rots.
+ *     once it rots;
+ *   - the farmer, and the queue that walks her to a plot before the rules
+ *     for that plot run at all. That is the one part of this file the rest
+ *     of the game can feel, and it has a long comment of its own below.
  *
  * This file does not touch #plotsGrid at all — it is still a plain CSS
  * grid, invisible, sitting over the canvas exactly as before this scene
@@ -44,9 +47,11 @@ function startScene(bridge) {
 
   const PLOT_COUNT = bridge.PLOT_COUNT;
 
-  /* Grid geometry in world units. Column-major-by-row, matching the plot
-     array's own order (row 0 = plots 0-3, nearest the camera) so tabbing
-     through the DOM grid still moves the way it used to visually. */
+  /* Grid geometry in world units, laid out in the plot array's own order:
+     plots 0-3 are the back row, plot 0 the far left. The field then reads
+     top-left to bottom-right on screen exactly as the flat grid did, so
+     tabbing through the DOM buttons still walks it the way it looks. The
+     camera sits to the south (+z), so later rows are the nearer ones. */
   const GRID = 4;
   const TILE = 1;
   const GAP = 0.16;
@@ -78,10 +83,12 @@ function startScene(bridge) {
   scene.background = new THREE.Color(0xbfe4f5);
   scene.fog = new THREE.Fog(0xbfe4f5, 15, 28);
 
-  const camera = new THREE.PerspectiveCamera(42, 4 / 3, 0.1, 100);
-  // Looking down at roughly 40° over the yard from the south.
-  camera.position.set(0, 6.4, 6.2);
-  camera.lookAt(0, 0, 0);
+  const camera = new THREE.PerspectiveCamera(40, 4 / 3, 0.1, 100);
+  /* Looking down at roughly 40° over the yard from the south, close enough
+     that the fence line nearly fills the frame — at any more distance the
+     farmer is a speck and the whole point of the walk is lost. */
+  camera.position.set(0, 5.5, 5.3);
+  camera.lookAt(0, 0.2, 0);
 
   scene.add(new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, 0.85));
 
@@ -157,6 +164,7 @@ function startScene(bridge) {
   const LOCKED_TILE = new THREE.Color(0x3d3a34);
   const UNLOCKABLE_TILE = new THREE.Color(0x8a6a3a);
   const SOIL_TILE = new THREE.Color(0x5a3d22);
+  const TARGETED_TILE = new THREE.Color(0xb59a5c); // a tile the farmer is on her way to
 
   /* -------------------------------------------------------------- */
   /* Crops — a generic sprout/seedling while young, a crop-coloured    */
@@ -212,6 +220,18 @@ function startScene(bridge) {
     setInstance(mesh, i, x, 0, z, 0, 0);
   }
 
+  /* The jobs the farmer has been given but not yet done, oldest first, and
+     the one she is on now. Declared up here only so a tile can show that it
+     has been spoken for; everything that fills and drains them is in "The
+     farmer, and the walk to work" below. */
+  const jobQueue = [];
+  let activeJob = null;
+
+  function isSpokenFor(idx) {
+    if (activeJob && activeJob.plot === idx) return true;
+    return jobQueue.some((job) => job.plot === idx);
+  }
+
   function syncPlots(now) {
     const state = bridge.getState();
     const plots = state.plots;
@@ -221,10 +241,12 @@ function startScene(bridge) {
       const { x, z } = tileWorldPos(i);
       const locked = i >= unlocked;
 
-      tileMesh.setColorAt(
-        i,
-        tmpColor.set(locked ? (i === unlocked ? UNLOCKABLE_TILE : LOCKED_TILE) : SOIL_TILE),
-      );
+      tmpColor.set(locked ? (i === unlocked ? UNLOCKABLE_TILE : LOCKED_TILE) : SOIL_TILE);
+      /* A tap no longer does anything on the spot, so the tile it landed on
+         has to say that it was heard — otherwise the half-second before the
+         farmer arrives reads as a dropped tap. */
+      if (isSpokenFor(i)) tmpColor.lerp(TARGETED_TILE, 0.55);
+      tileMesh.setColorAt(i, tmpColor);
 
       const plot = plots[i];
       if (locked || !plot.crop) {
@@ -275,6 +297,221 @@ function startScene(bridge) {
   }
 
   /* -------------------------------------------------------------- */
+  /* The farmer, and the walk to work                                  */
+  /* -------------------------------------------------------------- */
+
+  /* This is the one place the scene is allowed to stand between a tap and
+     the rules, and the order it does that in is the whole design:
+
+         queue  ->  walk  ->  fire on arrival
+
+     Until she reaches the tile, nothing about the farm has changed. That is
+     what makes a reload mid-walk harmless: the queue lives here, in the
+     scene, never in the save, so refreshing the page drops it and the crop
+     is still standing. The save never heard about the tap, and never needs
+     to. The tempting alternative — run the rules on tap and animate the walk
+     afterwards — is the broken one: the crop would vanish before she reached
+     it, and a reload halfway would leave the farm in a state no tap explains.
+
+     The cost of the delay is that the world can move while she walks. A crop
+     can ripen or rot, a hurricane can flatten the field, the player can pick
+     a different seed. So a job carries the intent it was created with, and on
+     arrival we ask the rules what that same tile would mean *now*: same
+     answer, do it; different answer, drop it. That way a walk can be wasted,
+     but a player is never charged for something they did not ask for. */
+
+  const WALK_SPEED = 4.2;                       // world units per second
+  const CROUCH_MS = 450;                        // the beat at the tile before the crop pops
+  const STAND_OFF = 0.66;                       // she stops this far south of a tile's centre
+  const FARMER_SCALE = 1.05;                     // big enough to read at this camera distance
+  /* Where she waits: inside the gate, off to one side of the field so she is
+     not standing in front of the front row, and far enough from the corner
+     to stay inside the frame. */
+  const HOME = { x: -1.45, z: SPAN / 2 + 0.2 };
+
+  const SKIN = 0xe8b98a;
+  const STRAW = 0xd8b25e;
+  const HAIR = 0x4a3220;
+  const SHIRT = { female: 0xd46a92, male: 0x4f86c6 };
+  const LEGS = { female: 0x8c4f6d, male: 0x3f5d80 };
+
+  const farmer = new THREE.Group();
+  farmer.visible = false;
+  scene.add(farmer);
+
+  const shirtMat = new THREE.MeshStandardMaterial({ color: SHIRT.female, roughness: 0.85 });
+  const legMat = new THREE.MeshStandardMaterial({ color: LEGS.female, roughness: 0.9 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.9 });
+  const hairMat = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 1 });
+  const strawMat = new THREE.MeshStandardMaterial({ color: STRAW, roughness: 1 });
+
+  /* A limb pivots at the shoulder or hip, so its geometry is shifted to hang
+     below the origin and the mesh is placed at the joint. */
+  function limb(w, h, d, material) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    geo.translate(0, -h / 2, 0);
+    return new THREE.Mesh(geo, material);
+  }
+
+  const legL = limb(0.13, 0.44, 0.14, legMat);
+  const legR = limb(0.13, 0.44, 0.14, legMat);
+  legL.position.set(-0.1, 0.44, 0);
+  legR.position.set(0.1, 0.44, 0);
+
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.24), shirtMat);
+  torso.position.y = 0.65;
+
+  const armL = limb(0.1, 0.36, 0.11, shirtMat);
+  const armR = limb(0.1, 0.36, 0.11, shirtMat);
+  armL.position.set(-0.22, 0.83, 0);
+  armR.position.set(0.22, 0.83, 0);
+
+  const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.145, 0), skinMat);
+  head.position.y = 1.0;
+
+  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.16), hairMat);
+  hair.position.set(0, 0.95, -0.09);
+
+  /* A straw hat says "farmer" at this distance better than any detail on a
+     face four pixels across — but the camera looks down at 40°, so a wide
+     brim becomes a disc with a person hidden under it. Narrow enough that
+     the shoulders still read. */
+  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.19, 0.15, 8), strawMat);
+  hat.position.y = 1.12;
+
+  const skirt = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.36, 8), legMat);
+  skirt.position.y = 0.34;
+
+  farmer.add(legL, legR, torso, armL, armR, head, hair, hat, skirt);
+
+  let dressedAs = null;
+
+  function dressFarmer(gender) {
+    shirtMat.color.set(SHIRT[gender] || SHIRT.female);
+    legMat.color.set(LEGS[gender] || LEGS.female);
+    // The only two silhouette changes: the skirt, and how far the hair falls.
+    skirt.visible = gender === 'female';
+    hair.scale.y = gender === 'female' ? 1.35 : 1;
+    hair.position.y = gender === 'female' ? 0.9 : 0.95;
+    dressedAs = gender;
+  }
+
+  const reducedMotion = () =>
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* Where she is and which way she is looking. Deliberately not in the save:
+     this is somebody's position in a yard, not something the farm depends on,
+     and it starts at the gate again on every load. */
+  const at = { x: HOME.x, z: HOME.z };
+  let facing = 0;
+  let stance = 'idle'; // idle | walking | crouching | returning
+  let crouchLeft = 0;
+  let walkPhase = 0;
+
+  /* The handler script.js calls on a tap. Returning true means this scene has
+     taken the job on and will run the rules itself, later. Returning false
+     leaves the tap to fire immediately, exactly as it did before there was a
+     farmer to walk anywhere — which is what happens with no farmer chosen
+     yet, and for a player who has asked for reduced motion, for whom a
+     journey across the yard is precisely the thing they turned off. */
+  bridge.setPlotActionHandler((idx, kind) => {
+    if (reducedMotion()) return false;
+    if (!bridge.getState().farmer) return false;
+    // A second tap on a tile already on the list is the player being
+    // impatient, not a second job.
+    if (!isSpokenFor(idx)) jobQueue.push({ plot: idx, kind });
+    return true;
+  });
+
+  function stepToward(tx, tz, dt) {
+    const dx = tx - at.x;
+    const dz = tz - at.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.001) return true;
+    const step = Math.min(WALK_SPEED * dt, dist);
+    at.x += (dx / dist) * step;
+    at.z += (dz / dist) * step;
+    facing = Math.atan2(dx, dz);
+    // Tied to distance rather than time, so the legs cannot windmill on a
+    // frame that took too long.
+    walkPhase += step * 7;
+    return step >= dist;
+  }
+
+  function finishJob() {
+    const job = activeJob;
+    activeJob = null;
+    stance = 'idle';
+    if (bridge.plotIntent(job.plot) === job.kind) bridge.runPlotIntent(job.plot, job.kind);
+  }
+
+  /* Starting over, and picking up a newer save from another tab, both swap
+     the whole world for a different one. A job queued against the old farm
+     means nothing against the new one — plot 3 is a different plot now — so
+     the round is dropped rather than carried over. The object identity is the
+     signal: the rules replace `state` wholesale in both cases. */
+  let worldRef = bridge.getState();
+
+  function advanceFarmer(dt) {
+    const world = bridge.getState();
+    if (world !== worldRef) {
+      worldRef = world;
+      jobQueue.length = 0;
+      activeJob = null;
+      stance = 'idle';
+    }
+
+    if (!activeJob && jobQueue.length > 0) activeJob = jobQueue.shift();
+
+    if (activeJob) {
+      if (stance === 'crouching') {
+        crouchLeft -= dt * 1000;
+        if (crouchLeft <= 0) finishJob();
+        return;
+      }
+      const tile = tileWorldPos(activeJob.plot);
+      if (stepToward(tile.x, tile.z + STAND_OFF, dt)) {
+        stance = 'crouching';
+        crouchLeft = CROUCH_MS;
+      } else {
+        stance = 'walking';
+      }
+      return;
+    }
+
+    stance = stepToward(HOME.x, HOME.z, dt) ? 'idle' : 'returning';
+  }
+
+  function poseFarmer() {
+    const gender = bridge.getState().farmer;
+    farmer.visible = !!gender;
+    if (!gender) return;
+    if (gender !== dressedAs) dressFarmer(gender);
+
+    const moving = stance === 'walking' || stance === 'returning';
+    const swing = moving ? Math.sin(walkPhase) * 0.5 : 0;
+    legL.rotation.x = swing;
+    legR.rotation.x = -swing;
+    armL.rotation.x = -swing * 0.8;
+    armR.rotation.x = swing * 0.8;
+
+    // Down and back up across the crouch, so the crop pops as she rises.
+    const crouch = stance === 'crouching'
+      ? 1 - 0.24 * Math.sin(Math.PI * (1 - Math.max(crouchLeft, 0) / CROUCH_MS))
+      : 1;
+    farmer.scale.set(FARMER_SCALE, FARMER_SCALE * crouch, FARMER_SCALE);
+    farmer.position.set(at.x, moving ? Math.abs(Math.sin(walkPhase)) * 0.035 : 0, at.z);
+    farmer.rotation.y = facing;
+  }
+
+  /* How much work is outstanding. The tests wait on this rather than on a
+     stopwatch, and it is the honest question to ask when debugging: has the
+     tap been taken, and has it been carried out? */
+  window.Farm3DScene = {
+    pendingActions: () => jobQueue.length + (activeJob ? 1 : 0),
+  };
+
+  /* -------------------------------------------------------------- */
   /* Resize and the render loop                                        */
   /* -------------------------------------------------------------- */
 
@@ -306,21 +543,34 @@ function startScene(bridge) {
     return !!tab && !tab.classList.contains('hidden');
   }
 
-  // Nothing in this scene needs 60fps — the only motion is a slow bob on
-  // ripe crops — so the loop is paced to 30 rather than however fast
+  // Nothing in this scene needs 60fps — the fastest thing in it is a farmer
+  // walking — so drawing is paced to 30 rather than however fast
   // requestAnimationFrame wants to run. Halving the render calls halves the
   // main thread time this scene takes from everything else on the page.
   const FRAME_INTERVAL_MS = 1000 / 30;
-  let lastFrameAt = 0;
+  let lastDrawAt = 0;
+  let lastStepAt = 0;
 
   function frame(now) {
     requestAnimationFrame(frame);
+
+    /* She keeps walking whether or not the field is on screen. A job taken
+       on the Farm tab has to finish even if the player flicks over to the
+       Market a moment later, or the tap would be quietly lost — so only the
+       drawing below is skipped, never the walking. The step is capped so
+       that coming back to a backgrounded tab, where rAF stops entirely,
+       resumes at walking pace instead of teleporting her across the yard. */
+    const dt = lastStepAt ? Math.min((now - lastStepAt) / 1000, 0.1) : 0;
+    lastStepAt = now;
+    advanceFarmer(dt);
+
     // Backgrounded tab, or a different in-game tab open: nothing to draw,
     // so skip the GPU work entirely rather than render an invisible scene.
     if (document.hidden || !farmTabVisible()) return;
-    if (now - lastFrameAt < FRAME_INTERVAL_MS) return;
-    lastFrameAt = now;
+    if (now - lastDrawAt < FRAME_INTERVAL_MS) return;
+    lastDrawAt = now;
     syncPlots(now);
+    poseFarmer();
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);

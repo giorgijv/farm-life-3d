@@ -826,6 +826,11 @@ body {
   align-items: center;
   justify-content: center;
   opacity: 0;
+  /* A keyframe animation outranks the line above, so any rule further down
+     that animates opacity on a plot would put its flat 2D face back on top
+     of the 3D scene — which is exactly what the unlockable tile's pulse did.
+     The tile is invisible either way; the pulse has nothing to say here. */
+  animation: none !important;
   transition: opacity 0.12s ease, transform 0.12s cubic-bezier(.34, 1.56, .64, 1), box-shadow 0.12s ease;
   /* Plots are real <button>s so they are keyboard reachable; reset the
      inherited control styling that comes with that. */

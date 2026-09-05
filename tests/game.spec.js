@@ -80,6 +80,19 @@ const inventory = async (page) => (await readSave(page)).inventory;
 
 const secondsAgo = (s) => Date.now() / 1000 - s;
 
+/**
+ * Waits until the farmer has finished everything she has been asked to do.
+ *
+ * Tapping a plot no longer works it: it sends her walking, and the rules run
+ * when she arrives. Assertions that used to read the save on the line after a
+ * click need this in between. It waits on the queue rather than a stopwatch,
+ * so it is as fast as the walk and never flaky, and it is a no-op when there
+ * is no scene (or the player asked for reduced motion, which skips the walk).
+ */
+const worked = (page) => page.waitForFunction(
+  () => !window.Farm3DScene || window.Farm3DScene.pendingActions() === 0,
+);
+
 /* ------------------------------------------------------------------ */
 /* Core loop                                                           */
 /* ------------------------------------------------------------------ */
@@ -234,6 +247,12 @@ test.describe('hurricanes', () => {
   /** Runs the storm the way a tick would, without waiting 84 minutes for it. */
   const storm = (page) => page.evaluate((d) => {
     state.day = d + 1;
+    /* Jumping the calendar leaves eight weeks of subsidy formally unpaid, so
+       the next tick pays them and its toast pushes the storm's own report off
+       the screen — which cannot happen in a real run, where a tick settles the
+       subsidy before it resolves the storm. Settle the books here rather than
+       pay them, so the coin arithmetic these tests do is untouched. */
+    state.subsidiesPaid = weeksSurvived();
     updateHurricane();
     render();
   }, HURRICANE_DAYS);
@@ -816,6 +835,7 @@ test.describe('the farmer', () => {
 
     // Wheat yields 3; exhausted, that halves to 1.
     await page.locator('#plotsGrid > *').first().click();
+    await worked(page);
     expect((await readSave(page)).inventory.wheat).toBe(1);
   });
 
@@ -828,6 +848,7 @@ test.describe('the farmer', () => {
     }));
 
     await page.locator('#plotsGrid > *').first().click();
+    await worked(page);
     expect((await readSave(page)).inventory.wheat).toBe(3);
   });
 
@@ -844,6 +865,7 @@ test.describe('the farmer', () => {
     }));
 
     await page.locator('#plotsGrid > *').first().click();
+    await worked(page);
     expect((await readSave(page)).inventory.pumpkin).toBeGreaterThanOrEqual(1);
   });
 
@@ -1081,6 +1103,169 @@ test.describe('core loop', () => {
 
     await expect(page.locator('#toast')).toHaveText(/not enough coins/i);
     await expect.poll(async () => (await readSave(page)).unlockedPlots).toBe(8);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The farmer walks to work                                            */
+/* ------------------------------------------------------------------ */
+
+/* The one property worth pinning here is the order of events: queue, walk,
+   then fire. Everything else in this block is a consequence of it. */
+test.describe('walking to work', () => {
+  const ripeAt = (...indices) => Array.from({ length: PLOT_COUNT }, (_, i) => (
+    indices.includes(i)
+      ? { crop: 'wheat', plantedAt: secondsAgo(60) }
+      : { crop: null, plantedAt: null }
+  ));
+
+  const banked = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
+
+  /** scene.js is a deferred module, so it starts a beat after the grid exists. */
+  const sceneReady = (page) => page.waitForFunction(() => !!window.Farm3DScene);
+  const pending = (page) => page.evaluate(() => window.Farm3DScene.pendingActions());
+  const livePlot = (page, i) => page.evaluate((n) => {
+    const s = window.Farm3DBridge.getState();
+    return { crop: s.plots[n].crop, rotten: !!s.plots[n].rotten, wheat: s.inventory.wheat };
+  }, i);
+
+  test('the crop is picked when she arrives, not when the plot is tapped', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(0) }));
+    await sceneReady(page);
+
+    await page.locator('#plotsGrid > *').first().click();
+
+    // The tap has been taken on — and nothing whatever has happened yet.
+    expect(await pending(page)).toBe(1);
+    expect((await inventory(page)).wheat).toBe(0);
+    expect((await readSave(page)).plots[0].crop).toBe('wheat');
+
+    await worked(page);
+    expect((await inventory(page)).wheat).toBe(3);
+  });
+
+  test('a reload mid-walk drops the tap and the crop is still standing', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(3) }));
+    await sceneReady(page);
+
+    await page.locator('#plotsGrid > *').nth(3).click();
+    expect(await pending(page)).toBe(1);
+
+    await page.reload();
+    await page.waitForSelector('#plotsGrid .plot');
+
+    /* This is why the queue is not in the save: there is no half-finished
+       tap to recover, because the farm never knew about it. */
+    expect((await readSave(page)).plots[3].crop).toBe('wheat');
+    expect((await inventory(page)).wheat).toBe(0);
+    await sceneReady(page);
+    expect(await pending(page)).toBe(0);
+  });
+
+  test('a round of taps is worked through one plot at a time', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(0, 1, 2, 3) }));
+    await sceneReady(page);
+
+    for (const i of [0, 1, 2, 3]) await page.locator('#plotsGrid > *').nth(i).click();
+
+    /* One plot at a time is the point: four taps cannot all have been
+       carried out by the time the fourth one is made, however fast they
+       arrive. (Asserting the queue is exactly four deep would instead be
+       asserting how quickly the test can click, which is not a property of
+       the game — and duly failed on a loaded machine.) */
+    expect((await inventory(page)).wheat).toBeLessThan(12);
+
+    await worked(page);
+    expect((await inventory(page)).wheat).toBe(12);
+  });
+
+  test('tapping the same plot twice does not queue it twice', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(3) }));
+    await sceneReady(page);
+
+    const plot = page.locator('#plotsGrid > *').nth(3);
+    await plot.click();
+    await plot.click();
+
+    expect(await pending(page)).toBe(1);
+  });
+
+  test('a job the world has changed under is dropped, not swapped for another', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(3) }));
+    await sceneReady(page);
+
+    await page.locator('#plotsGrid > *').nth(3).click();
+    // While she is still crossing the yard, the crop she set out to harvest
+    // rots. Clearing it is a different job, and not one anybody asked for.
+    await page.evaluate(() => {
+      const plot = window.Farm3DBridge.getState().plots[3];
+      plot.rotten = true;
+      plot.spoilsAt = Date.now() - 1;
+    });
+
+    await worked(page);
+    expect(await livePlot(page, 3)).toEqual({ crop: 'wheat', rotten: true, wheat: 0 });
+  });
+
+  test('a farm replaced under her drops the round she was on', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(3) }));
+    await sceneReady(page);
+
+    await page.locator('#plotsGrid > *').nth(3).click();
+    expect(await pending(page)).toBe(1);
+
+    /* What Start Over does, and what picking up a newer save from another tab
+       does: replace the farm wholesale. The new one is set up to look exactly
+       like the old one at plot 3, so re-checking the intent would happily
+       harvest it — only noticing that the world itself changed can tell that
+       this is somebody else's plot 3 now. */
+    await page.evaluate(() => {
+      const fresh = freshState();
+      fresh.farmer = 'female';
+      fresh.plots[3] = { crop: 'wheat', plantedAt: Date.now() / 1000 - 60, spoilsAt: null, rotten: false };
+      state = fresh;
+      render();
+    });
+
+    await worked(page);
+    expect(await livePlot(page, 3)).toEqual({ crop: 'wheat', rotten: false, wheat: 0 });
+  });
+
+  test('a job taken on the farm tab still finishes from another tab', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(0) }));
+    await sceneReady(page);
+
+    await page.locator('#plotsGrid > *').first().click();
+    await page.getByRole('button', { name: /Market/ }).click();
+
+    // Walking is not drawn while the field is off screen, but it still
+    // happens: a tap must not be swallowed by changing tabs.
+    await worked(page);
+    expect((await inventory(page)).wheat).toBe(3);
+  });
+
+  test('a refusal comes back straight away, without a walk', async ({ page }) => {
+    await load(page, makeSave({ coins: 0, selectedSeed: 'wheat' }));
+    await sceneReady(page);
+
+    await page.locator('#plotsGrid .plot.empty').first().click();
+
+    await expect(page.locator('#toast')).toHaveText(/not enough coins/i);
+    expect(await pending(page)).toBe(0);
+  });
+
+  test('reduced motion works the plot on the spot', async ({ page, browser }) => {
+    const context = await browser.newContext({ reducedMotion: 'reduce' });
+    const quiet = await context.newPage();
+    await load(quiet, banked({ plots: ripeAt(0) }));
+    await sceneReady(quiet);
+
+    await quiet.locator('#plotsGrid > *').first().click();
+
+    // Nothing to wait for: a player who turned motion off gets the old game.
+    expect((await readSave(quiet)).inventory.wheat).toBe(3);
+    expect(await pending(quiet)).toBe(0);
+    await context.close();
   });
 });
 
@@ -1844,6 +2029,7 @@ test.describe('spoilage', () => {
 
     // Tapping it clears the plot rather than paying out a harvest.
     await firstPlot(page).click();
+    await worked(page);
     const s = await readSave(page);
     expect(s.inventory.wheat).toBe(0);
     expect(s.stats.totalHarvested).toBe(0);
@@ -2357,6 +2543,7 @@ test.describe('save migration', () => {
     // A save this old predates the farmer, so the picker is in the way.
     await page.locator('.farmer-option').first().click();
     await page.locator('#plotsGrid > *').first().click(); // harvest
+    await worked(page);
 
     const inv = await inventory(page);
     for (const [good, count] of Object.entries(inv)) {
@@ -3066,6 +3253,7 @@ test.describe('progress is never lost', () => {
     }));
 
     await page.locator('#plotsGrid > *').first().click();          // +3 wheat
+    await worked(page); // the plot is only free to plant once she has picked it
     await page.locator('.seed-btn').first().click();
     await page.locator('#plotsGrid .plot.empty').first().click();  // -5 coins
     await expect.poll(() => coins(page)).toBe(495);

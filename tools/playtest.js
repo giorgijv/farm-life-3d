@@ -108,7 +108,16 @@ async function playOnce(browser, tier, run) {
   await page.locator('.farmer-option').nth(run % 2).click();
   await page.waitForSelector('#farmerPicker.hidden', { state: 'attached' });
 
+  /* The farmer walks to a plot before working it, so a sweep of taps is not
+     finished when the last click returns. Every invariant check waits for her
+     to catch up first, or it would be reading a farm mid-stride. */
+  const settle = () => page.waitForFunction(
+    () => !window.Farm3DScene || window.Farm3DScene.pendingActions() === 0,
+    null, { timeout: 20_000 },
+  ).catch(() => {});
+
   const check = async (where) => {
+    await settle();
     let bad = [];
     try { bad = await page.evaluate(`(${INVARIANTS})()`); }
     catch (e) { note(tier, run, `invariant eval failed after ${where}: ${e.message.slice(0, 120)}`); return; }
@@ -224,6 +233,11 @@ async function stressOnce(browser, tier) {
   await page.waitForSelector('#farmerPicker.hidden', { state: 'attached' });
 
   const check = async (where) => {
+    // As above: never read the farm while the farmer is still walking to it.
+    await page.waitForFunction(
+      () => !window.Farm3DScene || window.Farm3DScene.pendingActions() === 0,
+      null, { timeout: 20_000 },
+    ).catch(() => {});
     let bad = [];
     try { bad = await page.evaluate(`(${INVARIANTS})()`); }
     catch (e) { note(tier, 'stress', `invariant eval failed at ${where}: ${e.message.slice(0, 120)}`); return; }
