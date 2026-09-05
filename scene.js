@@ -72,8 +72,6 @@ function startScene(bridge) {
   // full performance pass is step 9; this is the cheap, obvious part of it
   // done early so the first frame is never the slow one.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
@@ -87,16 +85,19 @@ function startScene(bridge) {
 
   scene.add(new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, 0.85));
 
+  // No shadow map yet — deliberately. It's a real cost (its own shader
+  // variant per shadow-casting mesh, plus a full extra depth pass every
+  // frame), it bought this scene nothing steps 4-6 asked for, and it was the
+  // one part of this file heavy enough to visibly slow down the rest of the
+  // page under CI's software-rendered Chromium: a genuinely unrelated test
+  // elsewhere started missing its 5-second timing window once this scene's
+  // render loop was competing for the same CPU core. Step 9 is where shadows
+  // earn their keep (the plan wants "long shadows at dusk" from there), and
+  // the render loop it needs is the one with an actual performance pass
+  // behind it, not this one.
   const sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
   sun.position.set(5, 9, 4);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  Object.assign(sun.shadow.camera, {
-    left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 20,
-  });
-  sun.shadow.bias = -0.002;
   scene.add(sun);
-  scene.add(sun.target);
 
   /* -------------------------------------------------------------- */
   /* Ground and fence — static dressing, built once                    */
@@ -108,7 +109,6 @@ function startScene(bridge) {
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.08;
-  ground.receiveShadow = true;
   scene.add(ground);
 
   const fenceMat = new THREE.MeshStandardMaterial({ color: 0x8a6135, roughness: 0.9 });
@@ -124,13 +124,11 @@ function startScene(bridge) {
     rail.position.set(...pos);
     rail.scale.x = SPAN + 1.1;
     rail.rotation.y = rotY;
-    rail.castShadow = true;
     scene.add(rail);
   });
 
   const postGeo = new THREE.BoxGeometry(0.14, 0.7, 0.14);
   const postMesh = new THREE.InstancedMesh(postGeo, fenceMat, 4);
-  postMesh.castShadow = true;
   const m4 = new THREE.Matrix4();
   [
     [yardHalf, yardHalf], [yardHalf, -yardHalf], [-yardHalf, yardHalf], [-yardHalf, -yardHalf],
@@ -149,7 +147,6 @@ function startScene(bridge) {
     new THREE.MeshStandardMaterial({ roughness: 1 }),
     PLOT_COUNT,
   );
-  tileMesh.receiveShadow = true;
   for (let i = 0; i < PLOT_COUNT; i++) {
     const { x, z } = tileWorldPos(i);
     m4.makeTranslation(x, 0, z);
@@ -175,7 +172,6 @@ function startScene(bridge) {
     new THREE.MeshStandardMaterial({ roughness: 0.85 }),
     PLOT_COUNT,
   );
-  stalkMesh.castShadow = true;
   scene.add(stalkMesh);
 
   const headMesh = new THREE.InstancedMesh(
@@ -183,7 +179,6 @@ function startScene(bridge) {
     new THREE.MeshStandardMaterial({ roughness: 0.55 }),
     PLOT_COUNT,
   );
-  headMesh.castShadow = true;
   scene.add(headMesh);
 
   const SPROUT_COLOR = 0x74b750;
@@ -311,11 +306,20 @@ function startScene(bridge) {
     return !!tab && !tab.classList.contains('hidden');
   }
 
+  // Nothing in this scene needs 60fps — the only motion is a slow bob on
+  // ripe crops — so the loop is paced to 30 rather than however fast
+  // requestAnimationFrame wants to run. Halving the render calls halves the
+  // main thread time this scene takes from everything else on the page.
+  const FRAME_INTERVAL_MS = 1000 / 30;
+  let lastFrameAt = 0;
+
   function frame(now) {
     requestAnimationFrame(frame);
     // Backgrounded tab, or a different in-game tab open: nothing to draw,
     // so skip the GPU work entirely rather than render an invisible scene.
     if (document.hidden || !farmTabVisible()) return;
+    if (now - lastFrameAt < FRAME_INTERVAL_MS) return;
+    lastFrameAt = now;
     syncPlots(now);
     renderer.render(scene, camera);
   }
