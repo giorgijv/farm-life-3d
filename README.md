@@ -230,8 +230,13 @@ offline once loaded.
 - `script.js` — game state, systems, rendering and audio
 - `scene.js` — the 3D farm scene (three.js), talking to `script.js` through
   `window.Farm3DBridge`
+- `assets.js` — loads the 3D models, and normalises them to a world scale
+- `assets/` — the models themselves (CC0, from Kenney), and a manifest the
+  service worker precaches from
 - `vendor/` — three.js itself, kept local so the game stays offline and
   dependency-free
+- `tools/vendor.mjs` — fetches everything in `vendor/` and `assets/`; run it
+  rather than editing those by hand
 - `sw.js` / `manifest.webmanifest` — offline caching and installability
 - `tests/` — Playwright end-to-end suite
 

@@ -1,13 +1,14 @@
 /* Farm Life service worker.
  *
- * The game is a handful of static files with no external assets, so the whole
- * app shell is precached on install and the game runs fully offline.
+ * The game is a handful of static files plus a set of vendored 3D models, all
+ * served from this origin, so the whole app shell is precached on install and
+ * the game runs fully offline.
  *
  * Bump CACHE_VERSION whenever the shell changes; the activate step clears
  * every older cache.
  */
 
-const CACHE_VERSION = 'farm-life-3d-v3';
+const CACHE_VERSION = 'farm-life-3d-v4';
 
 // Relative so the worker works both at a domain root and under a project
 // path such as /farm-game/ on GitHub Pages.
@@ -17,20 +18,43 @@ const SHELL = [
   './styles.css',
   './script.js',
   './scene.js',
+  './assets.js',
   './vendor/three.module.js',
   './vendor/jsm/controls/OrbitControls.js',
+  './vendor/jsm/loaders/GLTFLoader.js',
+  './vendor/jsm/utils/BufferGeometryUtils.js',
+  './assets/manifest.json',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];
 
+/* The models are listed in assets/manifest.json rather than here, because
+   tools/vendor.mjs writes that file and would otherwise be editing this one
+   too. Whole set is under 2 MB (see docs/ART_BIBLE.md), which is what makes
+   precaching all of it reasonable rather than loading it lazily and losing
+   the offline promise for anyone who hasn't walked past a cow yet. */
+async function assetUrls() {
+  try {
+    const res = await fetch('./assets/manifest.json', { cache: 'no-cache' });
+    if (!res.ok) return [];
+    const manifest = await res.json();
+    return Array.isArray(manifest.files) ? manifest.files : [];
+  } catch {
+    // An install that can't read the manifest still gets a playable shell.
+    return [];
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE_VERSION)
+    (async () => {
+      const cache = await caches.open(CACHE_VERSION);
+      const urls = [...SHELL, ...(await assetUrls())];
       // Individually, so one failed entry cannot abort the whole install.
-      .then((cache) => Promise.allSettled(SHELL.map((url) => cache.add(url))))
-      .then(() => self.skipWaiting()),
+      await Promise.allSettled(urls.map((url) => cache.add(url)));
+      await self.skipWaiting();
+    })(),
   );
 });
 

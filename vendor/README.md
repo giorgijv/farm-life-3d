@@ -8,12 +8,23 @@ app shell already makes.
   module build (`build/three.module.min.js` from the `three` npm package),
   loaded through the import map in `index.html`. License: `THREE_LICENSE`
   (MIT).
-- `jsm/controls/OrbitControls.js` — the same r169's
-  `examples/jsm/controls/OrbitControls.js`, unminified (32K, not worth a
-  build step for). Resolves its own `import ... from 'three'` through the
-  same import map entry as everything else. Same license.
+- `jsm/**` — modules from the same r169's `examples/jsm/`, unminified, laid
+  out in their original directory structure so their relative imports
+  resolve unchanged. They reach `three` itself through the same import map
+  entry as everything else. Same license. Currently:
+  `controls/OrbitControls.js`, `loaders/GLTFLoader.js`, and
+  `utils/BufferGeometryUtils.js` — the last of which is here because
+  GLTFLoader imports it, not because the game asks for it directly.
 
-To update the version, fetch the new `three.module.min.js` and
-`examples/jsm/controls/OrbitControls.js` from the `three` npm package,
-overwrite these files, and bump `CACHE_VERSION` in `sw.js` so the service
-worker re-caches them.
+Everything in here is written by `tools/vendor.mjs`, which also fetches the
+3D models into `assets/`. Don't edit these files by hand — add an entry to
+that script and re-run it:
+
+```bash
+node tools/vendor.mjs
+```
+
+To move to a new three.js release, bump `THREE_REF` in that script, replace
+`three.module.js` with the matching `build/three.module.min.js` from the
+`three` npm package, re-run, and bump `CACHE_VERSION` in `sw.js` so the
+service worker re-caches.

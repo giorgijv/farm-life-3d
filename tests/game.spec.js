@@ -3342,6 +3342,108 @@ test.describe('progressive web app', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* The vendored asset pipeline                                         */
+/* ------------------------------------------------------------------ */
+
+/* The models are third-party files fetched by tools/vendor.mjs and committed.
+   What these pin down is that they are reachable, that they parse through the
+   game's own import map with no build step in the way, that the loader gives
+   them a sane world scale, and — the one that matters most — that they are
+   precached, because an offline game that renders an empty field is a broken
+   promise rather than a degraded one. */
+test.describe('asset pipeline', () => {
+  /* Runs inside the page so the import map, the vendored GLTFLoader and its
+     transitive imports are all exercised exactly as the game will use them. */
+  const loadInPage = (page, id) => page.evaluate(async (modelId) => {
+    const [{ loadModel }, THREE] = await Promise.all([
+      import('./assets.js'),
+      import('three'),
+    ]);
+    const { object, animations } = await loadModel(modelId);
+    const size = new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
+    let meshes = 0;
+    object.traverse((child) => { if (child.isMesh) meshes += 1; });
+    return { meshes, height: size.y, clips: animations.map((clip) => clip.name) };
+  }, id);
+
+  test('a model parses through the import map, with no build step', async ({ page }) => {
+    await load(page, makeSave());
+
+    const tree = await loadInPage(page, 'nature/tree_default');
+    expect(tree.meshes).toBeGreaterThan(0);
+    // The Nature Kit is the scale reference, so it is placed as authored.
+    expect(tree.height).toBeGreaterThan(1.5);
+    expect(tree.height).toBeLessThan(2);
+  });
+
+  test('models are normalised to a target height, not their authored one', async ({ page }) => {
+    await load(page, makeSave());
+
+    /* Authored, these two are nonsense next to each other: the chicken's model
+       is larger than the cow's. Normalising is what makes a herd read. */
+    const cow = await loadInPage(page, 'cube-pets/animal-cow');
+    const chicken = await loadInPage(page, 'cube-pets/animal-chick');
+
+    expect(cow.height).toBeCloseTo(0.9, 2);
+    expect(chicken.height).toBeCloseTo(0.4, 2);
+    expect(cow.height).toBeGreaterThan(chicken.height);
+  });
+
+  test('the farmer arrives with the clips she needs to be animated', async ({ page }) => {
+    await load(page, makeSave());
+
+    const farmer = await loadInPage(page, 'blocky-characters/character-a');
+    expect(farmer.height).toBeCloseTo(1.7, 2);
+    // Step 6 drives her from these; step 1 rejected a kit that lacked them.
+    expect(farmer.clips).toEqual(expect.arrayContaining(['idle', 'walk', 'sprint']));
+  });
+
+  test('every model in the manifest is served', async ({ request }) => {
+    const res = await request.get('/assets/manifest.json');
+    expect(res.status()).toBe(200);
+
+    const manifest = await res.json();
+    expect(manifest.files.length).toBeGreaterThan(20);
+
+    const missing = [];
+    for (const file of manifest.files) {
+      const fileRes = await request.get(`/${file.replace(/^\.\//, '')}`);
+      if (fileRes.status() !== 200) missing.push(file);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test('the models are precached, so an offline farm is not an empty one', async ({ page, context }) => {
+    await load(page, makeSave());
+
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (await page.evaluate(() => navigator.serviceWorker.controller !== null)) break;
+      await page.reload();
+      await page.waitForSelector('#plotsGrid .plot');
+    }
+
+    /* The worker precaches from assets/manifest.json, which it fetches during
+       install — so this also covers the case where that fetch silently fails
+       and the shell installs without any models. */
+    await expect.poll(async () => page.evaluate(async () => {
+      const cache = await caches.open('farm-life-3d-v4');
+      const keys = await cache.keys();
+      return keys.filter((req) => req.url.includes('/assets/models/')).length;
+    }), { timeout: 15_000 }).toBeGreaterThan(20);
+
+    await context.setOffline(true);
+    await page.reload();
+    await page.waitForSelector('#plotsGrid .plot');
+
+    const tree = await loadInPage(page, 'nature/tree_default');
+    expect(tree.meshes, 'a model should still load with the network down').toBeGreaterThan(0);
+
+    await context.setOffline(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* Sustained-play performance                                          */
 /* ------------------------------------------------------------------ */
 

@@ -46,8 +46,10 @@ Secondary source, for engine pieces rather than art —
 cycle), `objects/Water.js` + `textures/waternormals.jpg` (step 9),
 `jsm/loaders/GLTFLoader.js`, `jsm/postprocessing/*` (step 4).
 
-> `GLTFLoader.js` imports `../utils/BufferGeometryUtils.js`. Hand-vendoring
-> jsm files pulls a dependency tree — one more reason step 2 moves to npm.
+> `GLTFLoader.js` imports `../utils/BufferGeometryUtils.js`, so vendoring a jsm
+> module means vendoring its dependency tree. Step 2 read this as an argument
+> for npm and a bundler; it turned out to be twenty lines of `tools/vendor.mjs`
+> instead, and the game kept its zero-build-step property. See that file.
 
 ## 3. Kits in, kits out
 
@@ -95,17 +97,24 @@ The kits do **not** share a world scale. Measured bounding boxes:
 that already matches this game's 1-unit plot tiles, so it maps onto the existing
 world with no conversion. Everything else is normalised to it on load:
 
-| Kit | Factor | Result |
-|---|---|---|
-| `nature` | ×1.0 | reference |
-| `blocky-characters` | ×0.63 | farmer ≈ 1.70 tall |
-| `cube-pets` cow | ×0.55 | ≈ 0.90 |
-| `cube-pets` chicken | ×0.18 | ≈ 0.40 |
-| `cube-pets` dog / cat | ×0.30 / ×0.22 | ≈ 0.45 / 0.35 |
-
 Cube Pets are authored at a uniform "pet" size regardless of the real animal, so
-each species needs its own factor to restore relative size. These belong in one
-table in code, applied at load — never as per-instance magic numbers.
+each species needs its own correction to restore relative size.
+
+**Implemented as target heights, not multipliers.** `assets.js` measures the
+model on load and scales it to a stated height, so the table reads as what it
+means and survives an asset being swapped for one of a different authored size:
+
+| Model | Target height |
+|---|---|
+| `nature/*` | as authored — the reference |
+| `blocky-characters/character-{a,b}` | 1.7 |
+| `cube-pets/animal-cow` | 0.9 |
+| `cube-pets/animal-polar` (sheep stand-in) | 0.75 |
+| `cube-pets/animal-dog` | 0.45 |
+| `cube-pets/animal-chick` | 0.4 |
+| `cube-pets/animal-cat` | 0.35 |
+
+One table, in `assets.js`, applied at load — never per-instance magic numbers.
 
 ## 5. Entity → asset map
 
