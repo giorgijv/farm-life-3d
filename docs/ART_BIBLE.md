@@ -204,6 +204,57 @@ and free movement invalidates it. Step 12 replaces it, and step 12 is on the
 
 ---
 
+## 10. Sky, terrain and tone mapping — step 3 addendum
+
+Step 1 called for "an HDRI sky". What shipped is
+[`three.js`'s own `Sky.js`](https://github.com/mrdoob/three.js/blob/r169/examples/jsm/objects/Sky.js)
+— a real-time Preetham atmospheric scattering shader, not a baked `.hdr` file —
+and that turned out to be the better fit, not a fallback: a static HDRI would
+need a different capture per time of day, or fading between several; Sky.js
+takes nothing but a sun direction and produces the whole day/dusk/night range
+on its own, already in sync with `daySkyState()` through `syncSky()`. No new
+asset to license or vendor beyond the module itself (MIT, same as three.js
+core).
+
+**It does not work without tone mapping.** Sky.js's shader outputs unclamped
+HDR radiance by design; without a tone-mapping curve, every pixel above 1.0
+clips to flat white — confirmed by screenshot before this was understood,
+hills in silhouette against a blown-out sheet instead of a sky. `renderer.
+toneMapping = THREE.ACESFilmicToneMapping` (exposure `0.5`, matching three.js's
+own Sky.js example) fixes it, but it is not free: applied globally, it also
+recompressed the day/night lighting curve step 9 tuned — night went darker
+than the double-darkening bug that step 9 itself found and fixed, confirmed by
+sweeping exposure from 0.5 to 2.4 and watching night stay black regardless,
+because ACES crushes near-black input toward zero independent of exposure.
+
+**The fix was `material.toneMapped = false`** on every material except the
+sky's, set in one pass over the finished scene rather than at each material's
+own construction. Nothing but the sky dome needed ACES in the first place, so
+nothing else pays for it, and step 9's lighting curve is provably untouched —
+confirmed by screenshot, pixel for pixel, before and after. **Anything step 4
+adds — bloom, SSAO, colour grading — needs the same check**: verify it doesn't
+also reach into materials that were tuned for a different renderer state.
+
+**Terrain is a hand-built heightfield, not a Kenney model**: flat under the
+field and pen (a rounded rectangle, margined so no fence post sits in the
+transition band), rising into gentle hills beyond via a two-octave value noise
+(hashed lattice, smooth-interpolated — not gradient/Perlin noise, deliberately
+the cheapest thing that isn't a flat plane, since it only ever runs once at
+load). Vertex-coloured rather than textured: a mottled two-tone grass blended
+toward dirt by slope, standing in for "blended textures" without a photographic
+tileable that would have clashed with the kit models' flat-shaded look anyway.
+
+**Deliberately not done: a PMREM environment map for image-based lighting**,
+the other half of step 1's ask. A captured environment needs to track day/night
+like everything else here, and re-rendering one on any real cadence is the
+same class of per-frame cost steps 4-6 and step 9 both found this scene's
+CI path has no patience for; a single fixed capture would just paint a
+permanent noon-bright sheen across materials through midnight. It would also
+duplicate the hemisphere light's own job. Fog already ties distant surfaces to
+the horizon colour, which is most of what "something to reflect" was for.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -217,6 +268,16 @@ Everything above was checked before it was written:
   `blocky-characters` chosen.
 - Sizes are measured bounding boxes, not estimates. The shortlist total is
   measured `content-length`, not a guess.
+- Sky.js's need for tone mapping, and tone mapping's effect on the existing
+  lighting, were both found by screenshot before being written down here —
+  the first from a render that was visibly wrong, the second from an exposure
+  sweep (0.5 to 2.4) that showed night staying black regardless, which is what
+  ruled out "just raise the exposure" as a fix.
+- The full test suite (237 tests, including every walk-queue and interaction
+  test) passes unchanged with the new terrain and sky in place, and a 4-worker
+  contention stress run was compared against a clean pre-step-3 baseline
+  rather than assumed safe — both show the same pre-existing flakiness in the
+  same two tests, not a new one.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

@@ -3425,11 +3425,17 @@ test.describe('asset pipeline', () => {
 
     /* The worker precaches from assets/manifest.json, which it fetches during
        install — so this also covers the case where that fetch silently fails
-       and the shell installs without any models. */
+       and the shell installs without any models. Checked across every named
+       cache rather than one hardcoded CACHE_VERSION string, so a version
+       bump in sw.js does not also require finding and updating this test. */
     await expect.poll(async () => page.evaluate(async () => {
-      const cache = await caches.open('farm-life-3d-v4');
-      const keys = await cache.keys();
-      return keys.filter((req) => req.url.includes('/assets/models/')).length;
+      const names = await caches.keys();
+      let total = 0;
+      for (const name of names) {
+        const keys = await (await caches.open(name)).keys();
+        total += keys.filter((req) => req.url.includes('/assets/models/')).length;
+      }
+      return total;
     }), { timeout: 15_000 }).toBeGreaterThan(20);
 
     await context.setOffline(true);

@@ -10,8 +10,9 @@
  * handle, `window.Farm3DBridge`, set up at the bottom of script.js. Read
  * that comment for what it does and — just as importantly — doesn't expose.
  *
- * What this file owns, for now (build steps 4-9 of the weekend plan):
- *   - the render loop: a lit ground plane, a fence, sixteen soil tiles;
+ * What this file owns, for now (the weekend plan's steps 4-9, plus the
+ * two-week overhaul's step 3):
+ *   - the render loop: rolling terrain, a fence, sixteen soil tiles;
  *   - crop meshes on those tiles, grown from state the same way the 2D
  *     sprite swap was — a generic sprout/seedling early, a crop-coloured
  *     head once it is close to ripe, a bob once it's ripe, a grey slump
@@ -20,8 +21,8 @@
  *     for that plot run at all. That is the one part of this file the rest
  *     of the game can feel, and it has a long comment of its own below;
  *   - a pen beside the field with the herd in it, on the same walk queue;
- *   - the sun, on the same clock the 2D sky reads, and a camera the player
- *     can now orbit and pan by hand.
+ *   - the sun and a real atmospheric sky, on the same clock the 2D sky
+ *     reads, and a camera the player can orbit and pan by hand.
  *
  * This file does not touch #plotsGrid at all — it is still a plain CSS
  * grid, invisible, sitting over the canvas exactly as before this scene
@@ -31,6 +32,7 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Sky } from 'three/addons/objects/Sky.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -87,6 +89,20 @@ function startScene(bridge) {
   // would otherwise ask for nine times the pixels for no visible gain.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  /* Not an early start on step 4's post-processing pass — this is here
+     because the sky below does not work without it. Sky.js's atmospheric
+     model outputs unclamped HDR radiance by design (the same Preetham
+     model most engines use it for); with the default NoToneMapping every
+     pixel above 1.0 just clips to flat white, which is exactly what an
+     early screenshot here showed before this line existed — hills in
+     silhouette against a blown-out sheet, not a sky. three.js's own Sky.js
+     example pairs it with this same tone mapping and exposure for that
+     reason, not as a style choice. Step 4 still has real work of its own —
+     bloom, SSAO, colour grading through EffectComposer — layered on top of
+     a tone-mapped render, not overlapping with what makes this render
+     tone-mapped in the first place. */
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.5;
 
   /* Tried again for step 9, and dropped again: even pared all the way down
      to one low-res (512px) caster — just the farmer — with nothing set to
@@ -104,7 +120,11 @@ function startScene(bridge) {
   // Mutated in place each frame by syncSky() rather than reassigned, so
   // this is the day colour only until the first frame runs.
   scene.background = new THREE.Color(0xbfe4f5);
-  scene.fog = new THREE.Fog(0xbfe4f5, 15, 28);
+  // Reaches a little further than steps 4-9 needed: fog's only job used to be
+  // hiding a flat plane's featureless edge, and hiding it early cost nothing.
+  // Now there is real relief out there worth letting fade into haze instead
+  // of vanishing outright — see the terrain section, below.
+  scene.fog = new THREE.Fog(0xbfe4f5, 16, 34);
 
   // Aimed once the pen's position is known, below — it needs to frame both
   // the field and the pen at once, off to one side of this constructor.
@@ -149,6 +169,7 @@ function startScene(bridge) {
   };
   const SUN_STOPS = { day: new THREE.Color(0xfff3d6), dusk: new THREE.Color(0xff9d5c) };
   const sunColorTmp = new THREE.Color();
+  const skySunDir = new THREE.Vector3();
 
   // Both stop sets fade the same way: day to dusk across the first half of
   // nightFactor's climb, dusk to night across the second — the dusk band is
@@ -186,19 +207,31 @@ function startScene(bridge) {
     sun.position.set(VIEW_CX + Math.sin(angle) * 9, elevation * 8 + 3, 3);
     sun.intensity = Math.max(0.05, 1.15 * (1 - nightFactor * 0.94));
     sun.color.copy(sunColorTmp.copy(SUN_STOPS.day).lerp(SUN_STOPS.dusk, Math.min(nightFactor * 2.2, 1)));
+
+    /* The sky dome (below) wants a unit direction, not a lit position, so
+       this is the same angle/elevation turned into a point on a sphere
+       rather than reaching for a second formula. At elevation 1 (midday)
+       that's straight up; at 0 (either twilight) it's level with the
+       horizon, sweeping with `angle` exactly as the light above does; at -1
+       (midnight) it's straight down. Everything else about the dome —
+       turbidity, rayleigh, the warm horizon band at dusk — falls out of
+       Preetham's own atmospheric model just from knowing where the sun is,
+       which is the whole reason to reach for a real sky shader instead of
+       hand-tuning a third gradient to match the two above. */
+    const elevRad = elevation * (Math.PI / 2);
+    skySunDir.set(
+      Math.cos(elevRad) * Math.sin(angle),
+      Math.sin(elevRad),
+      Math.cos(elevRad) * Math.cos(angle),
+    ).normalize();
+    sky.material.uniforms.sunPosition.value.copy(skySunDir);
   }
 
   /* -------------------------------------------------------------- */
-  /* Ground and fence — static dressing, built once                    */
+  /* Fence — static dressing, built once. The ground itself is built    */
+  /* further down, once the pen's extent is known too: it needs both     */
+  /* the field's and the pen's footprint to know where "flat" ends.      */
   /* -------------------------------------------------------------- */
-
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(40, 40),
-    new THREE.MeshStandardMaterial({ color: 0x5a9142, roughness: 1 }),
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.08;
-  scene.add(ground);
 
   const fenceMat = new THREE.MeshStandardMaterial({ color: 0x8a6135, roughness: 0.9 });
   const yardHalf = SPAN / 2 + 0.55;
@@ -427,6 +460,177 @@ function startScene(bridge) {
   const PEN_CAP = 6; // shown per kind; a bigger herd just crowds the last column
 
   buildFence(PEN_CX, 0, PEN_HALF_X, PEN_HALF_Z);
+
+  /* -------------------------------------------------------------- */
+  /* The ground — flat under the yard, rolling into hills beyond it     */
+  /* -------------------------------------------------------------- */
+
+  /* Now that the field's and the pen's footprints both exist, here is
+     where "flat" stops: a rectangle enclosing both fences plus enough
+     margin that a post never sits in the transition band. Outside it the
+     ground is free to rise — the tile grid, the pen floor and the farmer's
+     walk all assume y=0, so nothing gameplay touches may tilt. */
+  const FLAT_MARGIN = 0.6;
+  const FLAT_LEFT = -yardHalf - FLAT_MARGIN;
+  const FLAT_RIGHT = PEN_CX + PEN_HALF_X + FLAT_MARGIN;
+  const FLAT_HALF_Z = Math.max(yardHalf, PEN_HALF_Z) + FLAT_MARGIN;
+  const FLAT_CENTER_X = (FLAT_LEFT + FLAT_RIGHT) / 2;
+  const FLAT_HALF_X = (FLAT_RIGHT - FLAT_LEFT) / 2;
+
+  const TRANSITION_WIDTH = 5; // how far beyond the flat rectangle the rise ramps in over
+  const HILL_AMPLITUDE = 2.2;
+  const TERRAIN_HALF = 30; // comfortably past the fog below, so its own edge is never seen
+  const TERRAIN_SEGMENTS = 48;
+
+  /* A cheap value noise — hash the integer lattice, smooth-interpolate
+     between corners — not Perlin, not gradient noise, just enough to break
+     up a grid without a library. It only ever runs while building this
+     mesh once at load, never per frame, so "cheap" matters more than
+     "textbook". */
+  function hash2(x, z) {
+    const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
+    return s - Math.floor(s);
+  }
+  function valueNoise(x, z) {
+    const x0 = Math.floor(x);
+    const z0 = Math.floor(z);
+    const fx = THREE.MathUtils.smoothstep(x - x0, 0, 1);
+    const fz = THREE.MathUtils.smoothstep(z - z0, 0, 1);
+    const a = hash2(x0, z0);
+    const b = hash2(x0 + 1, z0);
+    const c = hash2(x0, z0 + 1);
+    const d = hash2(x0 + 1, z0 + 1);
+    return THREE.MathUtils.lerp(
+      THREE.MathUtils.lerp(a, b, fx),
+      THREE.MathUtils.lerp(c, d, fx),
+      fz,
+    );
+  }
+  // Two octaves — one broad, one finer on top — so the hills have some
+  // texture to them rather than reading as one smooth blob each.
+  function terrainNoise(x, z) {
+    return valueNoise(x * 0.08, z * 0.08) * 0.7 + valueNoise(x * 0.19, z * 0.19) * 0.3;
+  }
+
+  function terrainHeight(x, z) {
+    const dx = Math.max(0, Math.abs(x - FLAT_CENTER_X) - FLAT_HALF_X);
+    const dz = Math.max(0, Math.abs(z) - FLAT_HALF_Z);
+    const distOut = Math.hypot(dx, dz);
+    if (distOut <= 0) return 0;
+    const t = THREE.MathUtils.smoothstep(distOut, 0, TRANSITION_WIDTH);
+    const n = (terrainNoise(x, z) - 0.5) * 2; // recenter to roughly [-1, 1]
+    return t * n * HILL_AMPLITUDE;
+  }
+
+  const GRASS_A = new THREE.Color(0x6fa04a);
+  const GRASS_B = new THREE.Color(0x82ae57); // a second grass tone, mottled in below
+  const TERRAIN_DIRT = new THREE.Color(0x8a7256);
+  const terrainColorTmp = new THREE.Color();
+
+  /* Even on the flat yard, a single flat green would still read as a green
+     rectangle up close — the thing this whole step exists to stop being
+     true. So every vertex, flat ground included, mixes in a little of a
+     second grass tone from the same noise function at a different
+     frequency; slopes further out mix toward bare dirt, standing in for
+     the "blended textures" ask without needing a photographic tileable
+     texture the low-poly kit assets were never going to match anyway. */
+  function terrainVertexColor(target, x, z, normalY) {
+    const mottle = valueNoise(x * 0.35 + 100, z * 0.35 + 100);
+    target.copy(GRASS_A).lerp(GRASS_B, mottle * 0.5);
+    const slope = THREE.MathUtils.clamp(1 - normalY, 0, 1);
+    const rockAmount = THREE.MathUtils.smoothstep(slope, 0.18, 0.55);
+    target.lerp(TERRAIN_DIRT, rockAmount);
+  }
+
+  function buildTerrain() {
+    const verts = TERRAIN_SEGMENTS + 1;
+    const step = (TERRAIN_HALF * 2) / TERRAIN_SEGMENTS;
+    const positions = new Float32Array(verts * verts * 3);
+
+    let p = 0;
+    for (let iz = 0; iz <= TERRAIN_SEGMENTS; iz++) {
+      const z = -TERRAIN_HALF + iz * step;
+      for (let ix = 0; ix <= TERRAIN_SEGMENTS; ix++) {
+        const x = -TERRAIN_HALF + ix * step;
+        positions[p++] = x;
+        positions[p++] = terrainHeight(x, z);
+        positions[p++] = z;
+      }
+    }
+
+    const indices = [];
+    for (let iz = 0; iz < TERRAIN_SEGMENTS; iz++) {
+      for (let ix = 0; ix < TERRAIN_SEGMENTS; ix++) {
+        const a = iz * verts + ix;
+        const b = a + 1;
+        const c = a + verts;
+        const d = c + 1;
+        indices.push(a, c, b, b, c, d);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals(); // needed below, to know how steep each vertex is
+
+    const normalAttr = geo.getAttribute('normal');
+    const posAttr = geo.getAttribute('position');
+    const colors = new Float32Array(verts * verts * 3);
+    for (let i = 0; i < verts * verts; i++) {
+      terrainVertexColor(terrainColorTmp, posAttr.getX(i), posAttr.getZ(i), normalAttr.getY(i));
+      colors[i * 3] = terrainColorTmp.r;
+      colors[i * 3 + 1] = terrainColorTmp.g;
+      colors[i * 3 + 2] = terrainColorTmp.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    return geo;
+  }
+
+  const terrain = new THREE.Mesh(
+    buildTerrain(),
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
+  );
+  terrain.position.y = -0.08; // the same offset the flat ground used to sit at
+  scene.add(terrain);
+
+  /* -------------------------------------------------------------- */
+  /* Sky — a real atmospheric dome, not a flat colour                  */
+  /* -------------------------------------------------------------- */
+
+  /* Preetham's scattering model, the same one most engines reach for —
+     given nothing but where the sun is, it produces the warm horizon band
+     at dusk and the deep blue overhead at noon on its own, which is the
+     whole reason to use it instead of hand-tuning a third gradient to sit
+     alongside BG_STOPS and HEMI_SKY_STOPS above. Scaled to sit well inside
+     the camera's far plane (100) and outside anywhere the orbit camera can
+     reach (its own maxDistance tops out around 15 from a target near the
+     origin), so it always fills the background with no visible edge. */
+  const sky = new Sky();
+  sky.scale.setScalar(80);
+  scene.add(sky);
+  sky.material.uniforms.turbidity.value = 3;
+  sky.material.uniforms.rayleigh.value = 1.2;
+  sky.material.uniforms.mieCoefficient.value = 0.006;
+  sky.material.uniforms.mieDirectionalG.value = 0.8;
+
+  /* What this deliberately doesn't do: generate a PMREM environment map
+     from the dome for image-based lighting, the other half of what this
+     step's plan asked for. Tried and backed out of, for two reasons found
+     before it shipped rather than after. First, a captured environment
+     would need to track day/night the way everything else here does, and
+     doing that by re-rendering a cubemap on any real cadence is exactly
+     the class of per-frame cost steps 4-6 and step 9 both found this
+     scene's software-rendered CI path has no patience for — a single
+     capture at load wouldn't cost that, but it also wouldn't update, so
+     materials would carry a fixed noon-bright sheen straight through
+     midnight. Second, it would be fighting the hemisphere light already
+     tuned in step 9 for the same job — both are ambient fill colour tied
+     to the sky, and stacking a second one risks a wash rather than a
+     visible improvement. The dome still does real work without it: fog
+     already ties every distant surface to its horizon colour, which is
+     most of what "something to reflect" was asking for. */
 
   /* The camera the constructor left unaimed: centred on the midpoint between
      the field's west fence and the pen's east fence, pulled back and widened
@@ -807,6 +1011,25 @@ function startScene(bridge) {
     farmer.position.set(at.x, moving ? Math.abs(Math.sin(walkPhase)) * 0.035 : 0, at.z);
     farmer.rotation.y = facing;
   }
+
+  /* Every material but the sky's opts out of the tone mapping the renderer
+     turned on above. That mapping exists because Sky.js's HDR output clips
+     to white without it — nothing else in this scene has that problem,
+     and everything else was tuned, carefully, entirely without it (the
+     day/night lighting curve is step 9's, and ACES's toe crushes toward
+     black hard enough at low intensity that reaching for it there would
+     mean re-deriving that whole curve rather than trusting what already
+     shipped and was already verified). One pass over everything already
+     built, instead of setting the flag at each material's own
+     construction, is what keeps this true as the farmer and the herd —
+     built above but never named here — join the scene without each one
+     having to remember to opt out. */
+  scene.traverse((obj) => {
+    if (obj === sky || !obj.material) return;
+    for (const mat of Array.isArray(obj.material) ? obj.material : [obj.material]) {
+      mat.toneMapped = false;
+    }
+  });
 
   /* How much work is outstanding. The tests wait on this rather than on a
      stopwatch, and it is the honest question to ask when debugging: has the

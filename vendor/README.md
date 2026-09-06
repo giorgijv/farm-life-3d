@@ -12,7 +12,7 @@ app shell already makes.
   out in their original directory structure so their relative imports
   resolve unchanged. They reach `three` itself through the same import map
   entry as everything else. Same license. Currently:
-  `controls/OrbitControls.js`, `loaders/GLTFLoader.js`, and
+  `controls/OrbitControls.js`, `loaders/GLTFLoader.js`, `objects/Sky.js`, and
   `utils/BufferGeometryUtils.js` — the last of which is here because
   GLTFLoader imports it, not because the game asks for it directly.
 

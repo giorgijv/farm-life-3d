@@ -42,6 +42,7 @@ const KENNEY_BASE = `https://raw.githubusercontent.com/shorepine/kenney/${KENNEY
 const JSM_ENTRIES = [
   'controls/OrbitControls.js',
   'loaders/GLTFLoader.js',
+  'objects/Sky.js', // step 3 — the physical sky dome; only imports from 'three' itself
 ];
 
 /* The models, by the kit they come from. Kept to what the art bible's entity
