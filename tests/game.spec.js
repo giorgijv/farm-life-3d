@@ -49,6 +49,13 @@ function makeSave(overrides = {}) {
  * its own state on pagehide, overwriting whatever the test just wrote. The
  * nonce makes seeding happen once per load() call, so a later reload in the
  * same test keeps whatever the game itself saved.
+ *
+ * Timestamps written by secondsAgo() are resolved here rather than in Node,
+ * because "twelve seconds ago" has to mean twelve seconds before the *game*
+ * boots. Resolving them when the fixture is authored instead charges the
+ * clock for however long the page then took to start — measured at 1.6s to
+ * 5.0s on a loaded four-worker run — which silently ages every animal and
+ * crop the test seeded. See secondsAgo() below.
  */
 let seedCounter = 0;
 async function load(page, save, key = SAVE_KEY) {
@@ -56,8 +63,21 @@ async function load(page, save, key = SAVE_KEY) {
     const nonce = `__seeded_${(seedCounter += 1)}`;
     await page.addInitScript(([k, v, n]) => {
       if (sessionStorage.getItem(n)) return;
+      const now = Date.now() / 1000;
+      const resolve = (node) => {
+        if (Array.isArray(node)) return node.map(resolve);
+        if (node && typeof node === 'object') {
+          if (typeof node.__agoSeconds === 'number') return now - node.__agoSeconds;
+          return Object.fromEntries(
+            Object.entries(node).map(([field, val]) => [field, resolve(val)]),
+          );
+        }
+        return node;
+      };
       localStorage.clear();
-      localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+      // A save passed as a string is raw fixture text — usually deliberate
+      // garbage — so it is stored exactly as written.
+      localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(resolve(v)));
       sessionStorage.setItem(n, '1');
     }, [key, save, nonce]);
   }
@@ -78,7 +98,17 @@ const readSave = (page) =>
 const coins = async (page) => (await readSave(page)).coins;
 const inventory = async (page) => (await readSave(page)).inventory;
 
-const secondsAgo = (s) => Date.now() / 1000 - s;
+/**
+ * A fixture timestamp, as a marker rather than a number: load() turns it into
+ * `now - s` in the browser, at the instant the game boots.
+ *
+ * It reads as a plain value at every call site and survives JSON.stringify as
+ * one, so nothing downstream knows the difference. Use it only inside a save
+ * handed to load(); anywhere else — setting a field through page.evaluate on
+ * an already-loaded page, say — the page's own clock is right there, so write
+ * the arithmetic out instead.
+ */
+const secondsAgo = (s) => ({ __agoSeconds: s });
 
 /**
  * Waits until the farmer has finished everything she has been asked to do.
@@ -1419,7 +1449,7 @@ test.describe('animals', () => {
 
     // Fast-forward past the production timer. Mutating the live state avoids
     // a reload, during which the outgoing page would save over the edit.
-    await page.evaluate((t) => { state.cows[0].feedAt = t; }, secondsAgo(60));
+    await page.evaluate(() => { state.cows[0].feedAt = Date.now() / 1000 - 60; });
 
     await expect(page.locator('#cowList .animal-state.ready')).toHaveCount(1);
     await page.locator('#cowList .animal-btn').click(); // collect
@@ -1886,9 +1916,32 @@ test.describe('guardians', () => {
     await load(page, makeSave({ plots: oneWheat() }));
     await openFarm(page);
 
+    /* The flag takes itself off again after 900ms, which is shorter than a
+       round trip from Node reliably is, so polling for it afterwards caught
+       the pulse only about half the time. Watching for it instead records the
+       flag as it goes on and races nothing — and it can say which plot was
+       marked, which is the half of this test the name promises and a bare
+       count never checked.
+
+       Plots are collected rather than counted because redrawing one rewrites
+       its class attribute, so a single pulse can be seen more than once. */
+    await page.evaluate(() => {
+      const grid = document.querySelector('#plotsGrid');
+      const hits = new Set();
+      window.__raidHits = () => [...hits].sort();
+      new MutationObserver((records) => {
+        for (const { target } of records) {
+          if (target.classList.contains('raid-hit')) {
+            hits.add([...grid.children].indexOf(target));
+          }
+        }
+      }).observe(grid, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    });
+
     await pestNow(page);
 
-    await expect(page.locator('#plotsGrid .raid-hit')).toHaveCount(1);
+    // The wheat sits in the first plot, and is the only crop there is to lose.
+    await expect.poll(() => page.evaluate(() => window.__raidHits())).toEqual([0]);
   });
 
   test('a cat is shown seeing the crows off', async ({ page }) => {
@@ -2302,7 +2355,7 @@ test.describe('starvation', () => {
     expect(s.cows[0].starvingWarned).toBe(false);
 
     // ...and once the milk is collected it gets a full window again.
-    await page.evaluate((t) => { state.cows[0].feedAt = t; }, secondsAgo(60));
+    await page.evaluate(() => { state.cows[0].feedAt = Date.now() / 1000 - 60; });
     await page.locator('#cowList .animal-btn').click(); // collect
     await worked(page);
     await expect.poll(async () => (await readSave(page)).cows[0].starvesAt)
@@ -2888,21 +2941,30 @@ test.describe('upgrades', () => {
   });
 
   test('rich feed shortens animal production', async ({ page }) => {
-    // Chickens take 15s; at level 3 that drops to 9.6s. A chicken fed 12s ago
-    // is therefore still producing at level 0 but finished at level 3.
-    const chickens = () => [{ id: 1, state: 'producing', feedAt: secondsAgo(12) }];
+    /* Sheep take 35s; at level 3 that drops to 22.4s. One fed 24s ago is
+       therefore still producing at level 0 but finished at level 3.
 
-    await load(page, makeSave({ chickens: chickens(), nextAnimalId: 2 }));
+       The sheep is here for the width of that gap rather than for its wool.
+       This reads the clock off a live page, so the wait between booting the
+       game and asserting on it counts against the animal, and that wait runs
+       to several seconds when the suite is loaded. Only the "still producing"
+       half is exposed, because drift can only ever age the sheep: 24s leaves
+       11s of room before it ripens at level 0, and is already 1.6s past ripe
+       at level 3. A chicken's 15s/9.6s pair spans 5.4s in total, too narrow
+       to hold either margin — which is how it came to flake in CI. */
+    const sheep = () => [{ id: 1, state: 'producing', feedAt: secondsAgo(24) }];
+
+    await load(page, makeSave({ sheep: sheep(), nextAnimalId: 2 }));
     await page.getByRole('button', { name: /Animals/ }).click();
-    await expect(page.locator('#chickenList .animal-state.producing')).toHaveCount(1);
+    await expect(page.locator('#sheepList .animal-state.producing')).toHaveCount(1);
 
     await load(page, makeSave({
-      chickens: chickens(),
+      sheep: sheep(),
       nextAnimalId: 2,
       upgrades: { sprinkler: 0, feed: 3, fertiliser: 0, contacts: 0 },
     }));
     await page.getByRole('button', { name: /Animals/ }).click();
-    await expect(page.locator('#chickenList .animal-state.ready')).toHaveCount(1);
+    await expect(page.locator('#sheepList .animal-state.ready')).toHaveCount(1);
   });
 
   test('upgrade levels survive migration and are clamped', async ({ page }) => {
