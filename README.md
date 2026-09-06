@@ -9,7 +9,7 @@ Play it at **https://giorgijv.github.io/farm-life-3d/**
 ## About this fork
 
 This started as a copy of [Farm Life](https://giorgijv.github.io/farm-game/)
-([source](https://github.com/giorgijv/farm-game)) and is being rebuilt with a 3D
+([source](https://github.com/giorgijv/farm-game)) and was rebuilt with a 3D
 field: a farmer who walks to a plot before working it, animals in a pen she
 crosses the yard to milk, and the day/night cycle driving real light.
 
@@ -17,7 +17,7 @@ Everything below describes the game as it plays today. The 3D work is layered on
 top of these rules rather than replacing them — the simulation, the economy and
 the save format are shared with the original.
 
-**Built so far:** the field is a 3D yard, and the farmer walks it. Tapping a plot
+**What's 3D:** the field is a 3D yard, and the farmer walks it. Tapping a plot
 sends her there, and the crop is worked when she arrives rather than when you tap
 — so clearing a ripe field is a round she walks rather than four instant taps. A
 fenced pen sits beside the field with the herd in it; feeding and collecting from
