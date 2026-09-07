@@ -3462,10 +3462,13 @@ test.describe('asset pipeline', () => {
   test('the farmer arrives with the clips she needs to be animated', async ({ page }) => {
     await load(page, makeSave());
 
+    /* 1.45, not the 1.7 a person stands: these characters are chibi enough
+       that a realistic height reads as a giant beside a 1-unit plot. The
+       reasoning is with the number, in assets.js. */
     const farmer = await loadInPage(page, 'blocky-characters/character-a');
-    expect(farmer.height).toBeCloseTo(1.7, 2);
-    // Step 6 drives her from these; step 1 rejected a kit that lacked them.
-    expect(farmer.clips).toEqual(expect.arrayContaining(['idle', 'walk', 'sprint']));
+    expect(farmer.height).toBeCloseTo(1.45, 2);
+    // Step 5 drives her from these; step 1 rejected a kit that lacked them.
+    expect(farmer.clips).toEqual(expect.arrayContaining(['idle', 'walk', 'pick-up']));
   });
 
   test('every model in the manifest is served', async ({ request }) => {
@@ -3581,6 +3584,36 @@ test.describe('post-processing budget', () => {
     // Steps down only, never back up, so the tier can fall but not climb.
     expect(after).toBeLessThanOrEqual(before);
     await expect(page.locator('#plotsGrid .plot')).toHaveCount(PLOT_COUNT);
+  });
+});
+
+test.describe('the farmer is a real model', () => {
+  const clip = (page) => page.evaluate(() => window.Farm3DScene.farmerClip());
+
+  test('she arrives as a rigged model, idling on an authored clip', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    /* Her body is fetched rather than built, so this waits for it. Null here
+       for good would mean the model never arrived and the farm is being
+       worked by an invisible farmer — which stays playable on purpose, but is
+       not what should happen when the models are being served. */
+    await expect.poll(() => clip(page), { timeout: 15_000 }).toBe('idle');
+  });
+
+  test('walking to work plays the walk cycle, and she settles back to idle', async ({ page }) => {
+    await load(page, makeSave({ selectedSeed: 'wheat' }));
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await expect.poll(() => clip(page), { timeout: 15_000 }).toBe('idle');
+
+    // The far corner, so she is walking for long enough to be caught at it.
+    await page.locator('#plotsGrid > *').nth(7).click();
+    await expect.poll(() => clip(page), { timeout: 10_000 }).toBe('walk');
+
+    /* Back to idle only once the queue is empty and she has walked home
+       again, which is the whole round trip the walk queue promises. */
+    await worked(page);
+    await expect.poll(() => clip(page), { timeout: 15_000 }).toBe('idle');
   });
 });
 

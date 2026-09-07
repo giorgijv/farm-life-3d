@@ -3,7 +3,7 @@
     "kenney": "3694c6879e487c108f55677be7dd2ca75b07cc3b",
     "three": "r169"
   },
-  "bytes": 1544783,
+  "bytes": 1543686,
   "files": [
     "./assets/models/nature/crops_leafsStageA.glb",
     "./assets/models/nature/crops_leafsStageB.glb",
@@ -34,9 +34,9 @@
     "./assets/models/cube-pets/animal-polar.glb",
     "./assets/models/cube-pets/Textures/colormap.png",
     "./assets/models/blocky-characters/character-a.glb",
-    "./assets/models/blocky-characters/character-b.glb",
+    "./assets/models/blocky-characters/character-e.glb",
     "./assets/models/blocky-characters/Textures/texture-a.png",
-    "./assets/models/blocky-characters/Textures/texture-b.png",
+    "./assets/models/blocky-characters/Textures/texture-e.png",
     "./assets/models/survival/barrel.glb",
     "./assets/models/survival/box.glb",
     "./assets/models/survival/chest.glb",

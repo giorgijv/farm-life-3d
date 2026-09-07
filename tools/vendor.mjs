@@ -75,7 +75,12 @@ const KENNEY_MODELS = {
     'stump_round',
   ],
   'cube-pets': ['animal-cow', 'animal-chick', 'animal-dog', 'animal-cat', 'animal-polar'],
-  'blocky-characters': ['character-a', 'character-b'],
+  /* Two of the kit's people rather than the first two files in it: the game's
+     picker offers a female and a male farmer by name, and most of this pack is
+     androgynous or, in four cases, a robot. character-e reads as the former and
+     character-a, with its beard, as the latter. Checked by rendering the whole
+     cast into the scene, not by the file names. */
+  'blocky-characters': ['character-a', 'character-e'],
   survival: ['barrel', 'box', 'chest', 'tool-hoe', 'signpost', 'rock-a'],
   'city-suburban': ['building-type-a'],
   'fantasy-town': ['windmill'],
@@ -90,7 +95,7 @@ const KIT_TEXTURES = {
   'city-suburban': ['Textures/colormap.png'],
   'fantasy-town': ['Textures/colormap.png'],
   // Blocky characters are textured per character rather than per kit.
-  'blocky-characters': ['Textures/texture-a.png', 'Textures/texture-b.png'],
+  'blocky-characters': ['Textures/texture-a.png', 'Textures/texture-e.png'],
 };
 
 /* ------------------------------------------------------------------ */

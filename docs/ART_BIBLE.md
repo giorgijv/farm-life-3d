@@ -345,6 +345,54 @@ feature works.
 
 ---
 
+## 12. The farmer — step 5 addendum
+
+The boxes-and-cones rig is gone. She is a Kenney *Blocky Characters* model
+driven by an `AnimationMixer`, and the hand-authored limb swing —
+`sin(walkPhase)` on four rotations, plus a 24% squash along Y to fake a
+crouch — retires with it.
+
+**Three of the kit's twenty-seven clips are used**: `idle`, `walk`, and
+`pick-up` for the beat at the tile. `pick-up` is a real bend-and-lift, which
+is exactly what the squash was imitating. One-shots are stretched with
+`setDuration` to the beat the rules already keep (`CROUCH_MS`), rather than
+the rules being made to wait however long the animator's version runs.
+
+**The two farmers are two authored characters, not one recoloured.** The old
+rig distinguished them with a skirt, a longer fringe and two shirt colours,
+which was the whole of the difference. The picker offers "Female farmer" and
+"Male farmer" by name, so the models have to read that way — and most of this
+pack does not: four of the eight are robots and several of the rest are
+androgynous. `character-e` reads as the former and `character-a`, bearded, as
+the latter. Found by rendering the whole cast into the scene and looking, not
+from the file names; `character-b`, the obvious second file, is androgynous
+and no longer shipped.
+
+**They are 1.45 units, not the 1.7 a person stands.** These characters are
+chibi — the head is close to a third of the height — so a "realistic" farmer
+stands beside a 1-unit plot tile with a head half a tile wide and reads as a
+giant. 1.45 keeps her clearly a character without competing with the field;
+judged against 1.7 and 1.25. The rule for anything with human proportions is
+still its real height.
+
+**Two things that a wrong guess hides rather than breaks.** The model's
+forward is +Z, matching `facing = atan2(dx, dz)`, so the rotation offset is
+zero — but it is kept as a named constant, because the first guess of `π` was
+wrong and produced a farmer who walked to work backwards, which reads as a
+deliberate style choice for exactly as long as it takes to notice. And the
+walk clip carries no ground speed of its own: `timeScale` is set from
+`WALK_SPEED / CLIP_WALK_SPEED` so her feet stay planted instead of skating.
+
+**The body is fetched, so the scene has to cope with not having one.** The
+mixer is fed drawing time rather than simulation time — the walk is stepped
+every frame whether or not the field is on screen, but feeding the mixer a
+gap that spans a spell on the Market tab would teleport her through half a
+stride. A model that fails to load leaves the farm entirely playable and the
+farmer invisible: worth a console complaint, but not a fallback rig, since
+every model here is precached and an absent one means a broken install.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

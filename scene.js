@@ -39,6 +39,7 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
+import { loadModel, preload } from './assets.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -833,77 +834,106 @@ function startScene(bridge) {
   const WALK_SPEED = 4.2;                       // world units per second
   const CROUCH_MS = 450;                        // the beat at the tile before the crop pops
   const STAND_OFF = 0.66;                       // she stops this far south of a tile's centre
-  const FARMER_SCALE = 1.05;                     // big enough to read at this camera distance
+  /* How fast the authored walk cycle looks right at 1x, in the same units as
+     WALK_SPEED. Measured by eye against the clip rather than read off the
+     file, because a glTF clip carries no ground speed of its own — the
+     animator moved the legs, not the character. */
+  const CLIP_WALK_SPEED = 1.5;
+  /* Which way the model faces at rotation 0. facing is atan2(dx, dz), so the
+     scene's forward is +Z — towards the camera — and the kit's characters are
+     authored looking that way already, so there is nothing to correct. Kept
+     as a named zero rather than dropped: it is the first thing to reach for
+     if a future model turns out to have been authored facing the other way,
+     and a wrong guess here reads as a farmer who moonwalks to work. */
+  const MODEL_FACING_OFFSET = 0;
   /* Where she waits: inside the gate, off to one side of the field so she is
      not standing in front of the front row, and far enough from the corner
      to stay inside the frame. */
   const HOME = { x: -1.45, z: SPAN / 2 + 0.2 };
 
-  const SKIN = 0xe8b98a;
-  const STRAW = 0xd8b25e;
-  const HAIR = 0x4a3220;
-  const SHIRT = { female: 0xd46a92, male: 0x4f86c6 };
-  const LEGS = { female: 0x8c4f6d, male: 0x3f5d80 };
+  /* One model per farmer the player can choose. These are two authored
+     characters rather than one model recoloured, which is what the boxes and
+     cones this replaces had to do — a skirt, a longer fringe and two shirt
+     colours were the whole of the difference between them. */
+  const FARMER_MODEL = {
+    female: 'blocky-characters/character-e',
+    male: 'blocky-characters/character-a',
+  };
 
+  /* Which authored clip stands in for each thing she can be doing. The kit
+     ships twenty-seven; these are the three this game has any use for, and
+     "pick-up" is a real bend-and-lift, which is exactly the beat the old rig
+     faked by squashing her whole body 24% along Y. */
+  const FARMER_CLIP = { idle: 'idle', walking: 'walk', returning: 'walk', crouching: 'pick-up' };
+  const CLIP_FADE = 0.16; // seconds of crossfade between two of them
+
+  /* The group is the thing that gets moved and turned; the body hangs inside
+     it and is swapped when the player changes farmer. Keeping them separate
+     means the walk below never has to know whether a body has arrived yet. */
   const farmer = new THREE.Group();
   farmer.visible = false;
   scene.add(farmer);
 
-  const shirtMat = new THREE.MeshStandardMaterial({ color: SHIRT.female, roughness: 0.85 });
-  const legMat = new THREE.MeshStandardMaterial({ color: LEGS.female, roughness: 0.9 });
-  const skinMat = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.9 });
-  const hairMat = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 1 });
-  const strawMat = new THREE.MeshStandardMaterial({ color: STRAW, roughness: 1 });
+  /* Both of them, warmed now rather than when the player picks one: the pick
+     happens on the welcome screen, so the fetch has the whole of that screen
+     to finish in and she is standing in the yard by the time it closes. */
+  preload(Object.values(FARMER_MODEL));
 
-  /* A limb pivots at the shoulder or hip, so its geometry is shifted to hang
-     below the origin and the mesh is placed at the joint. */
-  function limb(w, h, d, material) {
-    const geo = new THREE.BoxGeometry(w, h, d);
-    geo.translate(0, -h / 2, 0);
-    return new THREE.Mesh(geo, material);
+  /** gender -> { object, mixer, actions } once its model has loaded. */
+  const bodies = new Map();
+  let body = null;
+  let bodyGender = null;
+  let clipPlaying = null;
+
+  /* The rules never wait for this. A tap queues a job, the job walks and
+     fires, and all of that runs whether or not there is anything on screen to
+     see doing it — which is the same separation that lets the queue live
+     outside the save. So the model is fetched in the background and dropped
+     in when it arrives; until then she is simply not drawn. A failed fetch
+     leaves the farm playable and the farmer invisible, which is worth a
+     complaint in the console but not a fallback rig: every model here is
+     precached by the service worker (see sw.js), so an absent one means a
+     broken install rather than a slow network. */
+  async function ensureBody(gender) {
+    if (bodies.has(gender)) return bodies.get(gender);
+
+    const pending = loadModel(FARMER_MODEL[gender]).then(({ object, animations }) => {
+      const mixer = new THREE.AnimationMixer(object);
+      const actions = {};
+      for (const clip of animations) actions[clip.name] = mixer.clipAction(clip);
+      /* Materials arriving after the scene-wide pass below have to opt out of
+         tone mapping themselves, or she alone would be graded by a curve
+         nothing else in the scene is using — see that pass for why. */
+      object.traverse((obj) => {
+        for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
+      });
+      return { object, mixer, actions };
+    }).catch((err) => {
+      console.warn('farm: the farmer could not be loaded', err);
+      return null;
+    });
+
+    bodies.set(gender, pending);
+    return pending;
   }
 
-  const legL = limb(0.13, 0.44, 0.14, legMat);
-  const legR = limb(0.13, 0.44, 0.14, legMat);
-  legL.position.set(-0.1, 0.44, 0);
-  legR.position.set(0.1, 0.44, 0);
+  /** Crossfades to a clip, restarting it only when it is not already the one. */
+  function playClip(name, { once = false, seconds = null } = {}) {
+    if (!body || clipPlaying === name) return;
+    const next = body.actions[name];
+    if (!next) return;
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.24), shirtMat);
-  torso.position.y = 0.65;
+    next.reset();
+    next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity);
+    next.clampWhenFinished = once;
+    // A one-shot is stretched to the beat the rules keep, rather than the
+    // rules being made to wait however long the animator's version runs.
+    if (seconds) next.setDuration(seconds);
+    next.fadeIn(CLIP_FADE).play();
 
-  const armL = limb(0.1, 0.36, 0.11, shirtMat);
-  const armR = limb(0.1, 0.36, 0.11, shirtMat);
-  armL.position.set(-0.22, 0.83, 0);
-  armR.position.set(0.22, 0.83, 0);
-
-  const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.145, 0), skinMat);
-  head.position.y = 1.0;
-
-  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.16), hairMat);
-  hair.position.set(0, 0.95, -0.09);
-
-  /* A straw hat says "farmer" at this distance better than any detail on a
-     face four pixels across — but the camera looks down at 40°, so a wide
-     brim becomes a disc with a person hidden under it. Narrow enough that
-     the shoulders still read. */
-  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.19, 0.15, 8), strawMat);
-  hat.position.y = 1.12;
-
-  const skirt = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.36, 8), legMat);
-  skirt.position.y = 0.34;
-
-  farmer.add(legL, legR, torso, armL, armR, head, hair, hat, skirt);
-
-  let dressedAs = null;
-
-  function dressFarmer(gender) {
-    shirtMat.color.set(SHIRT[gender] || SHIRT.female);
-    legMat.color.set(LEGS[gender] || LEGS.female);
-    // The only two silhouette changes: the skirt, and how far the hair falls.
-    skirt.visible = gender === 'female';
-    hair.scale.y = gender === 'female' ? 1.35 : 1;
-    hair.position.y = gender === 'female' ? 0.9 : 0.95;
-    dressedAs = gender;
+    const previous = clipPlaying && body.actions[clipPlaying];
+    if (previous) previous.fadeOut(CLIP_FADE);
+    clipPlaying = name;
   }
 
   /* Where she is and which way she is looking. Deliberately not in the save:
@@ -913,7 +943,6 @@ function startScene(bridge) {
   let facing = 0;
   let stance = 'idle'; // idle | walking | crouching | returning
   let crouchLeft = 0;
-  let walkPhase = 0;
 
   /* The handler script.js calls on a tap. Returning true means this scene has
      taken the job on and will run the rules itself, later. Returning false
@@ -966,9 +995,6 @@ function startScene(bridge) {
     at.x += (dx / dist) * step;
     at.z += (dz / dist) * step;
     facing = Math.atan2(dx, dz);
-    // Tied to distance rather than time, so the legs cannot windmill on a
-    // frame that took too long.
-    walkPhase += step * 7;
     return step >= dist;
   }
 
@@ -1020,26 +1046,50 @@ function startScene(bridge) {
     stance = stepToward(HOME.x, HOME.z, dt) ? 'idle' : 'returning';
   }
 
-  function poseFarmer() {
+  /* Drawing time, not simulation time: the walk is stepped by advanceFarmer on
+     every frame whether or not the field is on screen, but the limbs only need
+     to move when someone is looking, and feeding the mixer a gap that spans a
+     spell on the Market tab would teleport her through half a stride. */
+  let lastPoseAt = 0;
+
+  function poseFarmer(now) {
     const gender = bridge.getState().farmer;
-    farmer.visible = !!gender;
-    if (!gender) return;
-    if (gender !== dressedAs) dressFarmer(gender);
+    const poseDt = lastPoseAt ? Math.min((now - lastPoseAt) / 1000, 0.1) : 0;
+    lastPoseAt = now;
+
+    if (!gender) {
+      farmer.visible = false;
+      return;
+    }
+
+    if (gender !== bodyGender) {
+      bodyGender = gender;
+      // Resolves immediately once cached, so switching back is not a reload.
+      ensureBody(gender).then((loaded) => {
+        if (bodyGender !== gender || !loaded) return;
+        if (body) farmer.remove(body.object);
+        body = loaded;
+        clipPlaying = null;
+        farmer.add(body.object);
+      });
+    }
+
+    farmer.visible = !!body;
+    if (!body) return;
 
     const moving = stance === 'walking' || stance === 'returning';
-    const swing = moving ? Math.sin(walkPhase) * 0.5 : 0;
-    legL.rotation.x = swing;
-    legR.rotation.x = -swing;
-    armL.rotation.x = -swing * 0.8;
-    armR.rotation.x = swing * 0.8;
+    if (stance === 'crouching') playClip(FARMER_CLIP.crouching, { once: true, seconds: CROUCH_MS / 1000 });
+    else playClip(moving ? FARMER_CLIP.walking : FARMER_CLIP.idle);
 
-    // Down and back up across the crouch, so the crop pops as she rises.
-    const crouch = stance === 'crouching'
-      ? 1 - 0.24 * Math.sin(Math.PI * (1 - Math.max(crouchLeft, 0) / CROUCH_MS))
-      : 1;
-    farmer.scale.set(FARMER_SCALE, FARMER_SCALE * crouch, FARMER_SCALE);
-    farmer.position.set(at.x, moving ? Math.abs(Math.sin(walkPhase)) * 0.035 : 0, at.z);
-    farmer.rotation.y = facing;
+    /* The walk cycle is played at the speed she is actually covering ground,
+       so her feet stay planted instead of skating: the clip is authored for
+       CLIP_WALK_SPEED, and anything else is that much faster or slower. */
+    const walkAction = body.actions[FARMER_CLIP.walking];
+    if (walkAction) walkAction.timeScale = WALK_SPEED / CLIP_WALK_SPEED;
+
+    body.mixer.update(poseDt);
+    farmer.position.set(at.x, 0, at.z);
+    farmer.rotation.y = facing + MODEL_FACING_OFFSET;
   }
 
   /* Every material but the sky's opts out of the tone mapping the renderer
@@ -1228,6 +1278,10 @@ function startScene(bridge) {
        degrades rather than dying on a machine that cannot afford it. */
     quality: () => quality,
     frameIntervalMs: () => intervalEma,
+    /* Which authored clip is driving the farmer, or null before her model has
+       arrived — the honest question to ask of the animation, in the same way
+       pendingActions is the honest question to ask of the queue. */
+    farmerClip: () => clipPlaying,
   };
 
   /* -------------------------------------------------------------- */
@@ -1308,7 +1362,7 @@ function startScene(bridge) {
     syncSky();
     syncPlots(now);
     syncAnimals(now);
-    poseFarmer();
+    poseFarmer(now);
     controls.update();
 
     if (post && quality !== QUALITY.PLAIN) post.composer.render();

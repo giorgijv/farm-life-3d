@@ -26,8 +26,16 @@ const BASE = './assets/models/';
    model with no entry here is placed at its authored size, which is what the
    Nature Kit wants. */
 export const TARGET_HEIGHT = {
-  'blocky-characters/character-a': 1.7,
-  'blocky-characters/character-b': 1.7,
+  /* Not the 1.7 a person actually stands. These characters are chibi —
+     the head is close to a third of the total — so a "realistic" 1.7-unit
+     farmer stands beside a 1-unit plot tile with a head half a tile wide and
+     reads as a giant rather than a person. 1.45 is where she stops competing
+     with the field for attention while still being clearly a character, and
+     not the 1.26 of boxes and cones she replaced. Judged by screenshot
+     against 1.7 and 1.25. Anything with human proportions still gets its
+     real height. */
+  'blocky-characters/character-a': 1.45,
+  'blocky-characters/character-e': 1.45,
   'cube-pets/animal-cow': 0.9,
   'cube-pets/animal-chick': 0.4,
   'cube-pets/animal-dog': 0.45,
