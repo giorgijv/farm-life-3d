@@ -393,6 +393,55 @@ every model here is precached and an absent one means a broken install.
 
 ---
 
+## 13. Driving her, and the camera that came with it — step 6 addendum
+
+**The field is driven now, not tapped.** A stick in the bottom-left corner and
+WASD/arrows both feed one `drive` vector; a single prompt in the bottom-right
+offers whatever is within `REACH` (0.95 units — generous enough not to demand
+a tile centre, tighter than the 1.15 between tiles so the answer is never
+ambiguous). Space runs it, or tap the button.
+
+**This is what unblocked the camera, which is the real prize.** Sections 11
+and 12 record the deadlock: framing the horizon needs the pitch under about
+24°, at which the sixteen tiles foreshorten to a 21%-tall band, while the
+invisible plot buttons had to stay ~59% tall to keep sixteen touch targets
+above 44px. Nothing tapped through that grid any more, so `.plots-grid` became
+`pointer-events: none` and the pitch went to ~21°. **The terrain from step 3,
+the sky from step 3 and the bloom from step 4 are all on screen for the first
+time**, in the view the game opens on rather than one a player has to go
+looking for.
+
+**The camera follows by moving OrbitControls' target, not by replacing it.**
+The target slides to wherever she is and the camera moves by the same vector,
+so drag still orbits and pinch still zooms — the follow never touches the
+offset between the two, so the two cannot fight. Eased at 0.12 rather than
+locked: at walking pace a hard lock reads as the world sliding under a fixed
+farmer, which on a scene that now has a horizon in it is faintly seasick.
+
+**The walk queue is still there, deliberately.** It is what a keyboard and a
+screen reader use: tab still reaches all sixteen plots, and activating one
+still sends her walking to it. Deleting it here — before step 12 has built the
+replacement — would have been shipping a regression dressed as a feature. The
+two models coexist cleanly because taking hold of the stick drops whatever
+round she was on; a player steering is a player who has changed their mind,
+and resuming the old errand when they let go would feel haunted. What did go
+is the trudge home when the queue ran dry: where she stands is now the
+player's decision, and undoing it would be undoing their last instruction.
+
+**Two things the tests had to change shape for, and one worth not repeating.**
+The plot buttons take no pointer input, so the suite activates them the way a
+keyboard does (`dispatchEvent('click')`) rather than with a synthesised mouse
+press that would now land on the canvas behind them. And the mobile "playable
+by tapping" test drives the stick with real pointer events — which is why the
+stick listens for pointer rather than touch events, and is also why a laptop
+can use it. The mistake worth remembering: the prompt was first refreshed only
+when the target or its intent changed, and picking a different seed changes
+neither while changing what the button must say, so it went on offering a crop
+the player had stopped choosing. Whether anything needs repainting is a
+question about the label, so it is now answered where the label is written.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

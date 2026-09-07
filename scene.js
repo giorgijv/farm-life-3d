@@ -646,32 +646,21 @@ function startScene(bridge) {
      a little smaller than the field-only shot did — the trade for a farmer
      who visibly has two places to be, not one. */
   const VIEW_CX = (-yardHalf + (PEN_CX + PEN_HALF_X)) / 2;
-  /* This framing is about 44 degrees of downward pitch against a 48-degree
-     vertical field of view, which puts the horizon roughly 20 degrees above
-     the top of the picture: the terrain and sky step 3 built are, from the
-     default view, never on screen at all. A player who drags the camera up
-     still finds them — maxPolarAngle below stops just short of horizontal —
-     but step 3's own test of itself, that looking across the farm "reads as
-     a place with a horizon, not a green rectangle", is not met by the view
-     the game actually opens on.
+  /* Step 4 measured why this could not be lowered: framing the horizon needs
+     the pitch under about 24 degrees, and at that pitch the sixteen tiles
+     foreshorten into a band 21% of the frame tall, against a grid of
+     invisible plot buttons that had to stay about 59% tall to keep sixteen
+     touch targets above the 44px floor. You would have tapped a tile you
+     could see and planted in a different row.
 
-     Step 4 tried to fix that here and had to put it back. Framing the horizon
-     needs the pitch under about 24 degrees, and at that pitch the sixteen
-     tiles foreshorten into a band 21% of the frame tall, measured. The
-     invisible plot buttons layered over the canvas (see .plots-grid in
-     styles.css) have to stay about 59% tall, because that is what keeps
-     sixteen of them above the 44px touch-target floor on a phone — already
-     an overshoot of the field's current 43%, and tolerable only because it
-     is roughly right. Against a 21% band it would not be: you would tap a
-     tile you could see and plant in a different row.
-
-     So this is not a tuning problem, it is the interaction model: the
-     horizon cannot be framed while sixteen screen-space buttons stand in for
-     the field. Step 6 replaces them with proximity prompts and step 12
-     rebuilds the accessibility path around that — which is when the camera
-     can open up, and when the bloom below finally has something to do. */
-  camera.position.set(VIEW_CX, 6.5, 6.3);
-  camera.lookAt(VIEW_CX, 0.2, 0);
+     Step 6 removes the reason: the field is no longer tapped through that
+     grid at all (see .plots-grid in styles.css, now keyboard-only), so the
+     pitch is free. About 21 degrees now, which finally puts step 3's terrain
+     and sky, and step 4's bloom, in the picture the game opens on. */
+  const CAM_HEIGHT = 3.9;   // above her feet
+  const CAM_BACK = 9.2;     // and behind her
+  camera.position.set(VIEW_CX, CAM_HEIGHT, CAM_BACK);
+  camera.lookAt(VIEW_CX, 1.1, 0);
   // The sun's own aim point, set now that VIEW_CX exists — syncSky(), above,
   // only ever moves the light's position around this fixed target.
   sun.target.position.set(VIEW_CX, 0, 0);
@@ -683,7 +672,7 @@ function startScene(bridge) {
      everyone except a player who has asked for reduced motion, for whom the
      coast-after-release drift is exactly the kind of motion they turned off. */
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(VIEW_CX, 0.4, 0);
+  controls.target.set(VIEW_CX, 1.1, 0);
   controls.enableDamping = !reducedMotion();
   controls.dampingFactor = 0.08;
   controls.minDistance = 5;
@@ -1016,6 +1005,47 @@ function startScene(bridge) {
      signal: the rules replace `state` wholesale in both cases. */
   let worldRef = bridge.getState();
 
+  /* -------------------------------------------------------------- */
+  /* Driving her yourself                                              */
+  /* -------------------------------------------------------------- */
+
+  /* Two ways to move her, on purpose, and the reason is not indecision.
+     Driving is the better game — it is what the reference tier does, and it
+     is what step 6 is for. But the queue underneath it is the path a keyboard
+     and a screen reader take, and deleting it before step 12 has built the
+     replacement would be shipping a regression dressed as a feature. So the
+     stick moves her, and anything that queues a job still works; taking hold
+     of the stick simply drops whatever round she was on, because a player
+     steering is a player who has changed their mind. */
+  const drive = { x: 0, z: 0 };
+  const DRIVE_DEADZONE = 0.12;
+
+  /** Set from the keyboard and the on-screen stick, in the range -1..1. */
+  function setDrive(x, z) {
+    drive.x = Math.max(-1, Math.min(1, x || 0));
+    drive.z = Math.max(-1, Math.min(1, z || 0));
+  }
+
+  const driving = () => Math.hypot(drive.x, drive.z) > DRIVE_DEADZONE;
+
+  /* She stays on the flat ground the yard and pen sit on, rather than being
+     free to wander up the hills, because nothing out there is hers yet — the
+     zones step 7 adds are what earn the rest of the map. */
+  const ROAM = {
+    minX: -yardHalf + 0.3,
+    maxX: PEN_CX + PEN_HALF_X - 0.3,
+    minZ: -yardHalf + 0.3,
+    maxZ: Math.max(yardHalf, PEN_HALF_Z) - 0.3,
+  };
+
+  function steer(dt) {
+    const mag = Math.min(1, Math.hypot(drive.x, drive.z));
+    const step = WALK_SPEED * mag * dt;
+    at.x = Math.max(ROAM.minX, Math.min(ROAM.maxX, at.x + (drive.x / mag) * step));
+    at.z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, at.z + (drive.z / mag) * step));
+    facing = Math.atan2(drive.x, drive.z);
+  }
+
   function advanceFarmer(dt) {
     const world = bridge.getState();
     if (world !== worldRef) {
@@ -1023,6 +1053,16 @@ function startScene(bridge) {
       jobQueue.length = 0;
       activeJob = null;
       stance = 'idle';
+    }
+
+    if (driving()) {
+      // Hands on the stick win: the round she was walking is abandoned rather
+      // than resumed the moment she is let go of, which would feel haunted.
+      jobQueue.length = 0;
+      activeJob = null;
+      steer(dt);
+      stance = 'walking';
+      return;
     }
 
     if (!activeJob && jobQueue.length > 0) activeJob = jobQueue.shift();
@@ -1043,7 +1083,84 @@ function startScene(bridge) {
       return;
     }
 
-    stance = stepToward(HOME.x, HOME.z, dt) ? 'idle' : 'returning';
+    /* She no longer trudges back to the gate on her own. Under the queue that
+       was the only way to know where she would be next time; now the player
+       decides, and putting her back would be undoing their last instruction. */
+    stance = 'idle';
+  }
+
+  /* -------------------------------------------------------------- */
+  /* What she could do from where she is standing                      */
+  /* -------------------------------------------------------------- */
+
+  /* Reach, in world units. Generous enough that a player does not have to
+     land on a tile centre, tight enough that the answer is never ambiguous:
+     tiles are 1.15 apart, so this cannot straddle two of them. */
+  const REACH = 0.95;
+
+  /** The nearest thing worth offering, or null. Recomputed as she moves. */
+  function nearestTarget() {
+    const world = bridge.getState();
+    if (!world.farmer) return null;
+
+    let best = null;
+    const consider = (candidate, pos) => {
+      const d = Math.hypot(pos.x - at.x, pos.z - at.z);
+      if (d > REACH || (best && d >= best.distance)) return;
+      best = { ...candidate, distance: d };
+    };
+
+    for (let i = 0; i < bridge.PLOT_COUNT; i += 1) {
+      const intent = bridge.plotIntent(i);
+      // plotIntent is null for a tile there is nothing useful to do to.
+      if (intent) consider({ type: 'plot', plot: i, intent }, tileWorldPos(i));
+    }
+
+    for (const kind of bridge.LIVESTOCK_ORDER) {
+      const def = bridge.ANIMALS[kind];
+      world[def.stateKey].forEach((animal, index) => {
+        const intent = bridge.animalIntent(kind, animal.id);
+        if (intent) consider({ type: 'animal', kind, id: animal.id, intent }, animalSlot(kind, index));
+      });
+    }
+
+    return best;
+  }
+
+  /* Reported to the UI rather than drawn here: the prompt is a real button in
+     the DOM, so it is reachable by tab, announced by a screen reader and
+     styled with the rest of the interface, none of which a label painted into
+     the canvas would be.
+
+     Sent every drawn frame, unconditionally. An earlier version only sent
+     changes, keyed on the target and its intent, and that key was wrong in a
+     way worth remembering: picking a different seed changes what the button
+     should say without changing either, so the prompt went on offering to
+     plant a crop the player had stopped choosing. Whether anything needs
+     repainting is a question about the label, so it is answered where the
+     label is written — see showPrompt in script.js. */
+  function syncPrompt() {
+    bridge.showPrompt(nearestTarget());
+  }
+
+  /* The camera keeps her in the middle of the picture without taking the look
+     of the place away from the player: OrbitControls still owns the angle and
+     the distance, and all this does is slide its target — and the camera with
+     it, by the same vector — to wherever she is. Drag still orbits, pinch
+     still zooms, and neither fights the follow, because the follow never
+     touches the offset between the two.
+
+     Eased rather than snapped. At a walking pace a hard lock reads as the
+     world sliding under a fixed farmer, which is both uglier and, on a scene
+     with a horizon in it, faintly seasick. */
+  const FOLLOW_EASE = 0.12;
+  const followTmp = new THREE.Vector3();
+
+  function followFarmer() {
+    if (!bridge.getState().farmer) return;
+    followTmp.set(at.x, 1.1, at.z).sub(controls.target).multiplyScalar(FOLLOW_EASE);
+    controls.target.add(followTmp);
+    camera.position.add(followTmp);
   }
 
   /* Drawing time, not simulation time: the walk is stepped by advanceFarmer on
@@ -1269,6 +1386,103 @@ function startScene(bridge) {
     intervalEma = 0; // the old tier's cost says nothing about the new one
   }
 
+  /* -------------------------------------------------------------- */
+  /* The controls a player actually touches                            */
+  /* -------------------------------------------------------------- */
+
+  /* Held keys rather than key events: a key that is down should keep her
+     walking, and keydown repeat is a text-entry cadence, not a movement one.
+     Both WASD and the arrows, because both are what people try. */
+  const held = new Set();
+  const KEY_VECTORS = {
+    KeyW: [0, -1], ArrowUp: [0, -1],
+    KeyS: [0, 1], ArrowDown: [0, 1],
+    KeyA: [-1, 0], ArrowLeft: [-1, 0],
+    KeyD: [1, 0], ArrowRight: [1, 0],
+  };
+
+  function applyHeldKeys() {
+    let x = 0;
+    let z = 0;
+    for (const code of held) {
+      const v = KEY_VECTORS[code];
+      if (v) { x += v[0]; z += v[1]; }
+    }
+    setDrive(x, z);
+  }
+
+  /* Typing in a field, or tabbing around the panels, must not walk her into a
+     fence. Only the canvas and the body itself count as "playing". */
+  const typingTarget = (el) => !!el && (
+    el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable
+  );
+
+  window.addEventListener('keydown', (event) => {
+    if (typingTarget(event.target)) return;
+    if (KEY_VECTORS[event.code]) {
+      held.add(event.code);
+      applyHeldKeys();
+      // Arrows scroll the page otherwise, which fights the farm for the view.
+      event.preventDefault();
+      return;
+    }
+    /* Space acts on whatever is in reach — but only when the player is not
+       on a button, where space is already that button's own job. */
+    if (event.code === 'Space' && !(event.target instanceof HTMLButtonElement)) {
+      if (bridge.runPrompt()) event.preventDefault();
+    }
+  });
+
+  window.addEventListener('keyup', (event) => {
+    if (!held.delete(event.code)) return;
+    applyHeldKeys();
+  });
+
+  // A tab switch or a lost window leaves keys stuck down otherwise, and she
+  // walks into the fence for as long as nobody is looking.
+  const releaseAll = () => { held.clear(); setDrive(0, 0); };
+  window.addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+
+  /* The on-screen stick. Pointer events rather than touch events so a mouse
+     drag on it works too, which is the only way it can be tested and a
+     convenience on a laptop besides. */
+  const stick = document.getElementById('driveStick');
+  const knob = document.getElementById('driveKnob');
+  if (stick && knob) {
+    const RADIUS = 44; // matches the CSS; the knob travels this far from centre
+    let pointerId = null;
+
+    const move = (event) => {
+      const box = stick.getBoundingClientRect();
+      const dx = event.clientX - (box.left + box.width / 2);
+      const dy = event.clientY - (box.top + box.height / 2);
+      const dist = Math.hypot(dx, dy) || 1;
+      const clamped = Math.min(dist, RADIUS);
+      knob.style.transform = `translate(${(dx / dist) * clamped}px, ${(dy / dist) * clamped}px)`;
+      setDrive((dx / dist) * (clamped / RADIUS), (dy / dist) * (clamped / RADIUS));
+    };
+
+    const release = () => {
+      pointerId = null;
+      knob.style.transform = '';
+      setDrive(0, 0);
+    };
+
+    stick.addEventListener('pointerdown', (event) => {
+      pointerId = event.pointerId;
+      stick.setPointerCapture(pointerId);
+      move(event);
+      event.preventDefault();
+    });
+    stick.addEventListener('pointermove', (event) => {
+      if (event.pointerId === pointerId) move(event);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      stick.addEventListener(type, release);
+    }
+  }
+
   /* How much work is outstanding. The tests wait on this rather than on a
      stopwatch, and it is the honest question to ask when debugging: has the
      tap been taken, and has it been carried out? */
@@ -1282,6 +1496,15 @@ function startScene(bridge) {
        arrived — the honest question to ask of the animation, in the same way
        pendingActions is the honest question to ask of the queue. */
     farmerClip: () => clipPlaying,
+    /* Where she is standing, and what is in reach of it. The tests drive her
+       with these rather than by waiting out a walk on a stopwatch. */
+    farmerAt: () => ({ x: at.x, z: at.z }),
+    reachable: () => nearestTarget(),
+    /* Steering from a test, in the same units the stick reports. Left in
+       rather than hidden behind a debug flag: it is the only way to exercise
+       free movement without synthesising a drag on every assertion, and it is
+       the same call the stick and the keys already make. */
+    drive: (x, z) => setDrive(x, z),
   };
 
   /* -------------------------------------------------------------- */
@@ -1363,6 +1586,8 @@ function startScene(bridge) {
     syncPlots(now);
     syncAnimals(now);
     poseFarmer(now);
+    syncPrompt();
+    followFarmer();
     controls.update();
 
     if (post && quality !== QUALITY.PLAIN) post.composer.render();

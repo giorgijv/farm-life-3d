@@ -110,24 +110,49 @@ test.describe('phone portrait', () => {
     expect(await undersizedControls(page)).toEqual([]);
   });
 
+  /* Row 2 of the field, straight up from where she starts, so driving her
+     there is a push on the stick rather than a manoeuvre. */
+  const RIPE_PLOT = 8;
+
   test('the whole loop is playable by tapping', async ({ page }) => {
     await load(page, makeSave({
       coins: 900,
-      plots: [
-        { crop: 'wheat', plantedAt: Date.now() / 1000 - 20 }, // ripe
-        ...Array.from({ length: PLOT_COUNT - 1 }, () => ({ crop: null, plantedAt: null })),
-      ],
+      plots: Array.from({ length: PLOT_COUNT }, (_, i) => (
+        i === RIPE_PLOT
+          ? { crop: 'wheat', plantedAt: Date.now() / 1000 - 20 } // ripe
+          : { crop: null, plantedAt: null })),
       inventory: { wheat: 5, corn: 4, carrot: 0, pumpkin: 0, milk: 0, egg: 0, wool: 0 },
       unlockedAchievements: ['first_harvest'], // keep the coin maths clean
     }));
 
+    /* Since step 6 a phone plays the field by walking her onto a tile and
+       pressing the one prompt, not by tapping sixteen invisible buttons over
+       the canvas. So this holds the stick the way a thumb would — the stick
+       listens for pointer events precisely so it can be driven without
+       synthesising a touch stream — and waits for the tile to come into
+       reach rather than for a stopwatch. */
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    const box = await page.locator('#driveStick').boundingBox();
+    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+    await page.mouse.move(centre.x, centre.y);
+    await page.mouse.down();
+    await page.mouse.move(centre.x, centre.y - 40); // push north, up the field
+    await page.waitForFunction(
+      (p) => window.Farm3DScene.reachable()?.plot === p,
+      RIPE_PLOT,
+      { timeout: 15_000 },
+    ).finally(() => page.mouse.up());
+
     // Harvest by tap: 5 + 3 = 8 wheat.
-    await page.locator('#plotsGrid > *').first().tap();
+    await page.locator('#actionPrompt').tap();
     await expect.poll(async () => (await readSave(page)).inventory.wheat).toBe(8);
 
-    // Pick a seed and plant by tap: wheat seed costs 5.
+    // Pick a seed and plant by tap, without moving: wheat seed costs 5. The
+    // tile she is standing on is empty now, so the prompt offers to sow it.
     await page.locator('.seed-btn').first().tap();
-    await page.locator('#plotsGrid .plot.empty').first().tap();
+    await expect(page.locator('#actionPrompt')).toHaveText(/Plant/);
+    await page.locator('#actionPrompt').tap();
     await expect.poll(async () => (await readSave(page)).coins).toBe(895);
 
     // Feed the cow by tap: eats 2 corn, leaving 2.
@@ -201,15 +226,31 @@ test.describe('landscape', () => {
     expect(height).toBeLessThan(393 * 0.5);
   });
 
-  test('every plot still has a tappable footprint in landscape', async ({ page }) => {
-    await load(page);
-    const boxes = await page.locator('#plotsGrid > *').evaluateAll((els) =>
-      els.map((el) => el.getBoundingClientRect()));
-    expect(boxes).toHaveLength(16);
-    boxes.forEach((r) => {
-      expect(r.width).toBeGreaterThanOrEqual(44);
-      expect(r.height).toBeGreaterThanOrEqual(44);
-    });
+  /* This used to check that all sixteen plot buttons kept a 44px footprint in
+     landscape. Since step 6 they take no pointer input at all, so their size
+     is no longer what a thumb depends on — the two controls below are, and
+     they are what has to survive the short viewport instead. */
+  test('the stick and the prompt stay reachable in landscape', async ({ page }) => {
+    await load(page, makeSave({ selectedSeed: 'wheat' }));
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    const stick = await page.locator('#driveStick').boundingBox();
+    expect(stick.width).toBeGreaterThanOrEqual(44);
+    expect(stick.height).toBeGreaterThanOrEqual(44);
+
+    // Both must sit inside the scene rather than off the bottom of a 393px
+    // viewport, which is the failure this short profile exists to catch.
+    const scene = await page.locator('#farmScene').boundingBox();
+    expect(stick.y + stick.height).toBeLessThanOrEqual(scene.y + scene.height + 1);
+
+    await page.evaluate(() => window.Farm3DScene.drive(0, -1));
+    await page.waitForFunction(() => window.Farm3DScene.reachable() !== null, null, { timeout: 15_000 });
+    await page.evaluate(() => window.Farm3DScene.drive(0, 0));
+
+    const prompt = await page.locator('#actionPrompt').boundingBox();
+    expect(prompt.height).toBeGreaterThanOrEqual(44);
+    expect(prompt.width).toBeGreaterThanOrEqual(44);
+    expect(prompt.y + prompt.height).toBeLessThanOrEqual(scene.y + scene.height + 1);
   });
 });
 

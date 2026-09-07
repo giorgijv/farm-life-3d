@@ -818,16 +818,19 @@ body {
    the button stays invisible either way. */
 .plots-grid {
   position: absolute;
-  /* A rough box around where the tiled field sits under the step 4-8 camera
-     framing — not the full inset:0 this was before the pen (step 8) and
-     OrbitControls (step 9) both needed the rest of the canvas back. Eyeballed
-     from a screenshot, not computed from the camera: pixel-perfect alignment
-     was already a non-goal (see the long comment above), so a box that's
-     roughly right costs nothing, while inset:0 was actively wrong once there
-     was a pen to its right that these sixteen buttons had no business
-     covering, and an orbit drag anywhere on the canvas to swallow. Left
-     free: the pen, and a margin all round — drag there to orbit; the field
-     itself still belongs to these buttons, same trade as ever. */
+  /* Since step 6 these take no pointer input at all. The field is driven and
+     acted on through #actionPrompt, so a touch on the canvas belongs to the
+     stick or to an orbit drag — never to whichever tile happens to sit under
+     this box. That is precisely what freed the camera to point at the
+     horizon: the box no longer has to line up with anything, because nobody
+     aims at it any more. Steps 4 and 9 both had to keep it roughly over the
+     field and roughly 44px per target, and those two demands are what pinned
+     the camera at 44 degrees of pitch for three steps.
+
+     Focus is untouched — tab still reaches every plot and activating one
+     still sends her walking there, which is the keyboard's way of crossing
+     the yard until step 12 builds the replacement. */
+  pointer-events: none;
   left: 14%;
   right: 41%;
   top: 27%;
@@ -3100,4 +3103,68 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* ==================================================================
+   Driving her, and acting on what is in reach — step 6
+   ================================================================== */
+
+/* The stick sits in the bottom-left of the scene, where a thumb already is on
+   a phone and out of the way of the field on a desktop. Deliberately not
+   hidden on pointer:fine: a laptop player can drag it with the mouse, which
+   is also the only reason it is testable without synthesising touch. */
+.drive-stick {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  z-index: 2;
+  touch-action: none;
+  background: rgb(255 255 255 / 0.14);
+  border: 2px solid rgb(255 255 255 / 0.3);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+}
+
+.drive-knob {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.55);
+  border: 2px solid rgb(255 255 255 / 0.75);
+  pointer-events: none;
+}
+
+/* The one button the field is played through. Bottom-right, opposite the
+   stick, so a two-thumbed grip reaches both without either hand crossing the
+   scene. */
+.action-prompt {
+  position: absolute;
+  right: 14px;
+  bottom: 20px;
+  z-index: 2;
+  min-height: 52px;
+  min-width: 52px;
+  padding: 0.7rem 1.15rem;
+  border: 2px solid rgb(255 255 255 / 0.8);
+  border-radius: 999px;
+  background: var(--accent, #d98324);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.3);
+}
+
+.action-prompt:focus-visible {
+  outline: 3px solid #fffdf0;
+  outline-offset: 3px;
+}
+
+@media (hover: hover) {
+  .action-prompt:hover { filter: brightness(1.08); }
 }

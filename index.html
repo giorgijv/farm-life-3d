@@ -77,9 +77,17 @@
       <div class="farm-scene" id="farmScene">
         <canvas id="farmCanvas" aria-hidden="true"></canvas>
         <!-- Kept for a screen reader and a keyboard, which never see the
-             canvas above at all. Invisible over it otherwise — see the
-             .plots-grid rule in styles.css. -->
+             canvas above at all. Since step 6 the field is driven rather than
+             tapped, so this no longer takes pointer input — it is how a
+             keyboard sends her to a tile. See .plots-grid in styles.css. -->
         <div class="plots-grid" id="plotsGrid"></div>
+        <!-- What she can do from where she is standing. A real button, so it
+             is tabbable and announced, rather than a label painted into the
+             canvas. Hidden until something is in reach. -->
+        <button class="action-prompt" id="actionPrompt" type="button" hidden></button>
+        <div class="drive-stick" id="driveStick" aria-hidden="true">
+          <div class="drive-knob" id="driveKnob"></div>
+        </div>
       </div>
       <div class="night-veil"></div>
     </section>

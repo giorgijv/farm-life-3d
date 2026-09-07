@@ -2099,6 +2099,96 @@ function handlePlotTap(idx) {
 }
 
 /* ------------------------------------------------------------------ */
+/* The prompt: what she can do from where she is standing                */
+/* ------------------------------------------------------------------ */
+
+/* Since step 6 the field is driven rather than tapped, so the question the
+   interface has to answer changed: not "what does each of these sixteen
+   tiles mean" but "what does the one she is standing next to mean". The
+   scene works out what is in reach; what that is worth doing, and what to
+   call it, is decided here — it is the same judgement plotIntent already
+   makes, and it should not be made twice in two places.
+
+   Guardians are deliberately absent from it. Feeding a dog costs a live
+   animal and asks for confirmation first, which is a conversation rather than
+   a button press, so it stays on its card in the Animals tab. */
+function animalIntent(kind, id) {
+  const def = ANIMALS[kind];
+  const animal = state[def.stateKey]?.find((a) => a.id === id);
+  if (!animal || def.eatsLivestock) return null;
+  if (animal.state === 'ready') return 'collect';
+  if (animal.state === 'hungry') return 'feed';
+  return null;
+}
+
+const PLOT_PROMPT = {
+  plant: () => (state.selectedSeed
+    ? `Plant ${CROPS[state.selectedSeed].emoji} ${CROPS[state.selectedSeed].name}`
+    : 'Pick a seed first'),
+  harvest: () => 'Harvest',
+  clear: () => 'Clear the rot',
+  unlock: () => 'Unlock this plot',
+};
+
+function promptLabel(target) {
+  if (!target) return '';
+  if (target.type === 'plot') return PLOT_PROMPT[target.intent]?.() ?? '';
+  const def = ANIMALS[target.kind];
+  return target.intent === 'collect'
+    ? `Collect ${def.produceEmoji} from the ${def.name.toLowerCase()}`
+    : `Feed the ${def.name.toLowerCase()}`;
+}
+
+/* The scene hands this whatever is in reach on every drawn frame, so the
+   guard against needless repainting lives here rather than there: what the
+   button should say is the only thing that decides whether it has to be
+   rewritten, and only this side knows it. The scene tried keying on the
+   target and its intent instead, and got it wrong — picking a different seed
+   changes the label without changing either. */
+let promptTarget = null;
+let promptShown = '';
+
+function showPrompt(target) {
+  promptTarget = target;
+  const btn = document.getElementById('actionPrompt');
+  if (!btn) return;
+
+  const label = promptLabel(target);
+  /* Spelled out for a screen reader, because "Harvest" alone does not say
+     harvest what: this button is the only thing announcing which of sixteen
+     tiles she is currently standing on. */
+  const described = !label ? ''
+    : target.type === 'plot' ? `${label}, plot ${target.plot + 1}`
+      : label;
+  if (described === promptShown) return;
+  promptShown = described;
+
+  btn.hidden = !label;
+  if (!label) return;
+  btn.textContent = label;
+  btn.setAttribute('aria-label', described);
+}
+
+/** Runs whatever the prompt is offering. True when there was something. */
+function runPrompt() {
+  const target = promptTarget;
+  if (!target) return false;
+  if (target.type === 'plot') {
+    const kind = plotIntent(target.plot);
+    if (!kind) return false;
+    /* She is already standing on it, so there is no walk to schedule — this
+       is the arrival, not the tap that would have sent her. */
+    runPlotIntent(target.plot, kind);
+    return true;
+  }
+  if (!animalActionStillValid(target.kind, target.id, target.intent)) return false;
+  runAnimalAction(target.kind, target.id, target.intent);
+  return true;
+}
+
+document.getElementById('actionPrompt')?.addEventListener('click', runPrompt);
+
+/* ------------------------------------------------------------------ */
 /* Farm3D bridge — the seam scene.js reads through                       */
 /* ------------------------------------------------------------------ */
 
@@ -2138,6 +2228,11 @@ window.Farm3DBridge = {
   /* The same clock the 2D sky reads, so the sun over the 3D yard is never
      telling a different time of day than the strip above the UI. */
   daySkyState,
+  /* Step 6's proximity loop: the scene says what is in reach and asks what it
+     would mean, the interface offers it, and Space or the button runs it. */
+  animalIntent,
+  showPrompt,
+  runPrompt,
 };
 
 /* ------------------------------------------------------------------ */

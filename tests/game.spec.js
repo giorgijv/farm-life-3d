@@ -111,6 +111,18 @@ const inventory = async (page) => (await readSave(page)).inventory;
 const secondsAgo = (s) => ({ __agoSeconds: s });
 
 /**
+ * Activates a plot button.
+ *
+ * Since step 6 the field is driven and acted on through the proximity prompt,
+ * so these sixteen buttons no longer take pointer input at all — a press on
+ * the canvas belongs to the stick or to an orbit drag. What they still are is
+ * the keyboard's way of sending her to a tile, so this exercises them the way
+ * a keyboard does: the element's own click handler, rather than a synthesised
+ * mouse press that would now land on the scene behind them.
+ */
+const tapPlot = (locator) => locator.dispatchEvent('click');
+
+/**
  * Waits until the farmer has finished everything she has been asked to do.
  *
  * Tapping a plot no longer works it: it sends her walking, and the rules run
@@ -202,7 +214,7 @@ test.describe('explanations', () => {
 
     // Messages linger now, so they must stay click-through or they would block
     // the plots they sit over.
-    await page.locator('#plotsGrid .plot.empty').first().click();
+    await tapPlot(page.locator('#plotsGrid .plot.empty').first());
     await expect(page.locator('#toast')).toBeVisible();
     expect(await page.evaluate(() =>
       getComputedStyle(document.getElementById('toast')).pointerEvents)).toBe('none');
@@ -240,7 +252,7 @@ test.describe('explanations', () => {
       unlockedAchievements: [...ACHIEVEMENT_IDS], // else an award toast lands on top
     }));
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await expect(page.locator('#toast')).toContainText('the farmer is exhausted');
   });
 
@@ -252,7 +264,7 @@ test.describe('explanations', () => {
       ],
     }));
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await expect(page.locator('#toast')).toContainText('ripe crops keep for');
   });
 });
@@ -864,7 +876,7 @@ test.describe('the farmer', () => {
     await expect(page.locator('#farmerState')).toContainText('Exhausted');
 
     // Wheat yields 3; exhausted, that halves to 1.
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await worked(page);
     expect((await readSave(page)).inventory.wheat).toBe(1);
   });
@@ -877,7 +889,7 @@ test.describe('the farmer', () => {
       unlockedAchievements: [...ACHIEVEMENT_IDS],
     }));
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await worked(page);
     expect((await readSave(page)).inventory.wheat).toBe(3);
   });
@@ -894,7 +906,7 @@ test.describe('the farmer', () => {
       unlockedAchievements: [...ACHIEVEMENT_IDS],
     }));
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await worked(page);
     expect((await readSave(page)).inventory.pumpkin).toBeGreaterThanOrEqual(1);
   });
@@ -1084,7 +1096,7 @@ test.describe('core loop', () => {
     await load(page, makeSave({ coins: 300 }));
 
     await page.locator('.seed-btn').first().click(); // wheat, 5 coins
-    await page.locator('#plotsGrid .plot.empty').first().click();
+    await tapPlot(page.locator('#plotsGrid .plot.empty').first());
 
     await expect.poll(() => coins(page)).toBe(295);
     await expect(page.locator('#plotsGrid > *').first().locator('.crop-sprite')).toHaveCount(1);
@@ -1100,7 +1112,7 @@ test.describe('core loop', () => {
 
     const plot = page.locator('#plotsGrid > *').first();
     await expect(plot).toHaveClass(/ready/);
-    await plot.click();
+    await tapPlot(plot);
 
     await expect.poll(async () => (await inventory(page)).wheat).toBe(3);
   });
@@ -1113,14 +1125,14 @@ test.describe('core loop', () => {
       ],
     }));
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await expect(page.locator('#fxLayer .float-text')).toHaveText(/^\+3/);
   });
 
   test('unlocking the next plot charges the escalating price', async ({ page }) => {
     await load(page, makeSave({ coins: 300, unlockedPlots: 8 }));
 
-    await page.locator('#plotsGrid .plot.unlockable').click();
+    await tapPlot(page.locator('#plotsGrid .plot.unlockable'));
 
     await expect.poll(() => coins(page)).toBe(270); // base cost 30
     await expect.poll(async () => (await readSave(page)).unlockedPlots).toBe(9);
@@ -1129,7 +1141,7 @@ test.describe('core loop', () => {
   test('a plot cannot be unlocked without enough coins', async ({ page }) => {
     await load(page, makeSave({ coins: 5, unlockedPlots: 8 }));
 
-    await page.locator('#plotsGrid .plot.unlockable').click();
+    await tapPlot(page.locator('#plotsGrid .plot.unlockable'));
 
     await expect(page.locator('#toast')).toHaveText(/not enough coins/i);
     await expect.poll(async () => (await readSave(page)).unlockedPlots).toBe(8);
@@ -1163,7 +1175,7 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(0) }));
     await sceneReady(page);
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
 
     // The tap has been taken on — and nothing whatever has happened yet.
     expect(await pending(page)).toBe(1);
@@ -1178,7 +1190,7 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(3) }));
     await sceneReady(page);
 
-    await page.locator('#plotsGrid > *').nth(3).click();
+    await tapPlot(page.locator('#plotsGrid > *').nth(3));
     expect(await pending(page)).toBe(1);
 
     await page.reload();
@@ -1196,7 +1208,7 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(0, 1, 2, 3) }));
     await sceneReady(page);
 
-    for (const i of [0, 1, 2, 3]) await page.locator('#plotsGrid > *').nth(i).click();
+    for (const i of [0, 1, 2, 3]) await tapPlot(page.locator('#plotsGrid > *').nth(i));
 
     /* One plot at a time is the point: four taps cannot all have been
        carried out by the time the fourth one is made, however fast they
@@ -1214,8 +1226,8 @@ test.describe('walking to work', () => {
     await sceneReady(page);
 
     const plot = page.locator('#plotsGrid > *').nth(3);
-    await plot.click();
-    await plot.click();
+    await tapPlot(plot);
+    await tapPlot(plot);
 
     expect(await pending(page)).toBe(1);
   });
@@ -1224,7 +1236,7 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(3) }));
     await sceneReady(page);
 
-    await page.locator('#plotsGrid > *').nth(3).click();
+    await tapPlot(page.locator('#plotsGrid > *').nth(3));
     // While she is still crossing the yard, the crop she set out to harvest
     // rots. Clearing it is a different job, and not one anybody asked for.
     await page.evaluate(() => {
@@ -1241,7 +1253,7 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(3) }));
     await sceneReady(page);
 
-    await page.locator('#plotsGrid > *').nth(3).click();
+    await tapPlot(page.locator('#plotsGrid > *').nth(3));
     expect(await pending(page)).toBe(1);
 
     /* What Start Over does, and what picking up a newer save from another tab
@@ -1265,7 +1277,7 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(0) }));
     await sceneReady(page);
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await page.getByRole('button', { name: /Market/ }).click();
 
     // Walking is not drawn while the field is off screen, but it still
@@ -1278,7 +1290,7 @@ test.describe('walking to work', () => {
     await load(page, makeSave({ coins: 0, selectedSeed: 'wheat' }));
     await sceneReady(page);
 
-    await page.locator('#plotsGrid .plot.empty').first().click();
+    await tapPlot(page.locator('#plotsGrid .plot.empty').first());
 
     await expect(page.locator('#toast')).toHaveText(/not enough coins/i);
     expect(await pending(page)).toBe(0);
@@ -1290,7 +1302,7 @@ test.describe('walking to work', () => {
     await load(quiet, banked({ plots: ripeAt(0) }));
     await sceneReady(quiet);
 
-    await quiet.locator('#plotsGrid > *').first().click();
+    await tapPlot(quiet.locator('#plotsGrid > *').first());
 
     // Nothing to wait for: a player who turned motion off gets the old game.
     expect((await readSave(quiet)).inventory.wheat).toBe(3);
@@ -2215,7 +2227,7 @@ test.describe('spoilage', () => {
     expect((await readSave(page)).plots[0].rotten).toBe(true);
 
     // Tapping it clears the plot rather than paying out a harvest.
-    await firstPlot(page).click();
+    await tapPlot(firstPlot(page));
     await worked(page);
     const s = await readSave(page);
     expect(s.inventory.wheat).toBe(0);
@@ -2731,7 +2743,7 @@ test.describe('save migration', () => {
 
     // A save this old predates the farmer, so the picker is in the way.
     await page.locator('.farmer-option').first().click();
-    await page.locator('#plotsGrid > *').first().click(); // harvest
+    await tapPlot(page.locator('#plotsGrid > *').first()); // harvest
     await worked(page);
 
     const inv = await inventory(page);
@@ -2928,7 +2940,7 @@ test.describe('upgrades', () => {
       ],
     }));
 
-    await page.locator('#plotsGrid > *').first().click();
+    await tapPlot(page.locator('#plotsGrid > *').first());
     await expect.poll(async () => (await inventory(page)).wheat).toBe(5); // 3 base + 2
   });
 
@@ -3404,7 +3416,7 @@ test.describe('progressive web app', () => {
     // The shell came from the cache, and the game is still interactive.
     await expect(page.locator('#plotsGrid .plot')).toHaveCount(PLOT_COUNT);
     await page.locator('.seed-btn').first().click();
-    await page.locator('#plotsGrid .plot.empty').first().click();
+    await tapPlot(page.locator('#plotsGrid .plot.empty').first());
     await expect.poll(() => coins(page)).toBe(295);
 
     await context.setOffline(false);
@@ -3587,6 +3599,141 @@ test.describe('post-processing budget', () => {
   });
 });
 
+test.describe('driving her yourself', () => {
+  const ripeAt = (...indices) => Array.from({ length: PLOT_COUNT }, (_, i) => (
+    indices.includes(i) ? { crop: 'wheat', plantedAt: secondsAgo(40) } : { crop: null, plantedAt: null }
+  ));
+  const banked = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
+  const sceneReady = (page) => page.waitForFunction(() => !!window.Farm3DScene);
+  const pending = (page) => page.evaluate(() => window.Farm3DScene.pendingActions());
+  const at = (page) => page.evaluate(() => window.Farm3DScene.farmerAt());
+  const reach = (page) => page.evaluate(() => window.Farm3DScene.reachable());
+  const drive = (page, x, z) => page.evaluate(([a, b]) => window.Farm3DScene.drive(a, b), [x, z]);
+
+  /** Drives in a direction until something comes into reach, then lets go. */
+  async function driveUntilReachable(page, x, z) {
+    await drive(page, x, z);
+    await page.waitForFunction(() => window.Farm3DScene.reachable() !== null, null, { timeout: 15_000 });
+    await drive(page, 0, 0);
+  }
+
+  test('the stick moves her, and she stops where she is let go of', async ({ page }) => {
+    await load(page, makeSave());
+    await sceneReady(page);
+    const start = await at(page);
+
+    await drive(page, 0, -1);
+    await page.waitForFunction(
+      (z) => window.Farm3DScene.farmerAt().z < z - 0.5,
+      start.z,
+      { timeout: 10_000 },
+    );
+    await drive(page, 0, 0);
+
+    /* Stopped means stopped: no coasting, and no trudging back to the gate,
+       which is what she used to do the moment the queue ran dry. */
+    const stopped = await at(page);
+    await page.waitForTimeout(700);
+    const later = await at(page);
+    expect(Math.hypot(later.x - stopped.x, later.z - stopped.z)).toBeLessThan(0.05);
+  });
+
+  test('she stays inside the yard however long you hold it', async ({ page }) => {
+    await load(page, makeSave());
+    await sceneReady(page);
+
+    await drive(page, -1, -1);
+    await page.waitForTimeout(2500);
+    await drive(page, 0, 0);
+
+    const corner = await at(page);
+    expect(corner.x).toBeGreaterThan(-4);
+    expect(corner.z).toBeGreaterThan(-4);
+  });
+
+  test('taking the stick drops the round she was walking', async ({ page }) => {
+    await load(page, banked({ plots: ripeAt(0) }));
+    await sceneReady(page);
+
+    await tapPlot(page.locator('#plotsGrid > *').first());
+    expect(await pending(page)).toBe(1);
+
+    /* A player who grabs the stick has changed their mind. Picking the old
+       errand back up the moment they let go would feel haunted. */
+    await drive(page, 1, 0);
+    await expect.poll(() => pending(page)).toBe(0);
+    await drive(page, 0, 0);
+  });
+
+  test('standing next to a plot offers what it needs, and space does it', async ({ page }) => {
+    /* Every plot unlocked, so the first tile she reaches offers to be sown
+       rather than bought — makeSave stops at eight, and plot 9 is the one
+       straight ahead of where she starts. */
+    await load(page, makeSave({ coins: 500, selectedSeed: 'wheat', unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+    await driveUntilReachable(page, 0, -1);
+
+    const target = await reach(page);
+    expect(target.type).toBe('plot');
+    expect(target.intent).toBe('plant');
+
+    const prompt = page.locator('#actionPrompt');
+    await expect(prompt).toBeVisible();
+    await expect(prompt).toHaveText(/Plant .*Wheat/);
+    // Named for a screen reader, since "Plant" alone never says which tile.
+    await expect(prompt).toHaveAttribute('aria-label', new RegExp(`plot ${target.plot + 1}$`));
+
+    await page.keyboard.press('Space');
+    await expect.poll(async () => (await readSave(page)).plots[target.plot].crop).toBe('wheat');
+  });
+
+  test('the offer follows her, and goes away when nothing is in reach', async ({ page }) => {
+    await load(page, makeSave({ coins: 500, selectedSeed: 'wheat', unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+    await driveUntilReachable(page, 0, -1);
+    await expect(page.locator('#actionPrompt')).toBeVisible();
+
+    /* East, out of the field and across to the empty pen — not south, which
+       is where she already starts: the yard ends a few centimetres behind
+       her, so backing up does not put any distance between her and row 4. */
+    await drive(page, 1, 0);
+    await page.waitForFunction(() => window.Farm3DScene.reachable() === null, null, { timeout: 15_000 });
+    await drive(page, 0, 0);
+    await expect(page.locator('#actionPrompt')).toBeHidden();
+  });
+
+  test('the offer keeps up with a change of seed', async ({ page }) => {
+    await load(page, makeSave({ coins: 500, unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+    await driveUntilReachable(page, 0, -1);
+
+    /* The intent is "plant" either way, so anything watching only the intent
+       would leave this button offering a seed nobody had picked. */
+    await expect(page.locator('#actionPrompt')).toHaveText(/Pick a seed/);
+    await page.locator('.seed-btn').first().click();
+    await expect(page.locator('#actionPrompt')).toHaveText(/Plant .*Wheat/);
+  });
+
+  test('the arrow keys drive her too, and releasing one stops her', async ({ page }) => {
+    await load(page, makeSave());
+    await sceneReady(page);
+    const start = await at(page);
+
+    await page.keyboard.down('ArrowUp');
+    await page.waitForFunction(
+      (z) => window.Farm3DScene.farmerAt().z < z - 0.4,
+      start.z,
+      { timeout: 10_000 },
+    );
+    await page.keyboard.up('ArrowUp');
+
+    // A key left stuck down would walk her into the fence and hold her there.
+    const released = await at(page);
+    await page.waitForTimeout(600);
+    expect((await at(page)).z).toBeCloseTo(released.z, 1);
+  });
+});
+
 test.describe('the farmer is a real model', () => {
   const clip = (page) => page.evaluate(() => window.Farm3DScene.farmerClip());
 
@@ -3607,7 +3754,7 @@ test.describe('the farmer is a real model', () => {
     await expect.poll(() => clip(page), { timeout: 15_000 }).toBe('idle');
 
     // The far corner, so she is walking for long enough to be caught at it.
-    await page.locator('#plotsGrid > *').nth(7).click();
+    await tapPlot(page.locator('#plotsGrid > *').nth(7));
     await expect.poll(() => clip(page), { timeout: 10_000 }).toBe('walk');
 
     /* Back to idle only once the queue is empty and she has walked home
@@ -3660,10 +3807,10 @@ test.describe('progress is never lost', () => {
       ],
     }));
 
-    await page.locator('#plotsGrid > *').first().click();          // +3 wheat
+    await tapPlot(page.locator('#plotsGrid > *').first());          // +3 wheat
     await worked(page); // the plot is only free to plant once she has picked it
     await page.locator('.seed-btn').first().click();
-    await page.locator('#plotsGrid .plot.empty').first().click();  // -5 coins
+    await tapPlot(page.locator('#plotsGrid .plot.empty').first());  // -5 coins
     await expect.poll(() => coins(page)).toBe(495);
 
     await page.reload();
