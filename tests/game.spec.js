@@ -2894,10 +2894,18 @@ test.describe('upgrades', () => {
   });
 
   test('the sprinkler actually shortens growing time', async ({ page }) => {
-    // Wheat takes 15s; at level 3 that drops to 9.6s. A crop planted 12s ago
-    // is therefore still growing at level 0 but ready at level 3.
+    /* Pumpkins take 70s; at level 3 that drops to 44.8s. One planted 48s ago
+       is therefore still growing at level 0 but ripe at level 3.
+
+       A pumpkin rather than the obvious wheat for the same reason the sheep
+       is a sheep over in "rich feed shortens animal production": the clock is
+       read off a live page, so the wait between booting the game and asserting
+       on it is charged to the crop, and only the "not ready yet" half is
+       exposed to it, since drift can only ever age things. Wheat's 15s/9.6s
+       pair spans 5.4s in total, which is less than a loaded page load; the
+       pumpkin's spans 25s, and 48s leaves 22s of room. */
     const plots = () => [
-      { crop: 'wheat', plantedAt: secondsAgo(12) },
+      { crop: 'pumpkin', plantedAt: secondsAgo(48) },
       ...Array.from({ length: PLOT_COUNT - 1 }, () => ({ crop: null, plantedAt: null })),
     ];
 
@@ -2942,28 +2950,28 @@ test.describe('upgrades', () => {
 
   test('rich feed shortens animal production', async ({ page }) => {
     /* Sheep take 35s; at level 3 that drops to 22.4s. One fed 24s ago is
-       therefore still producing at level 0 but finished at level 3.
+       therefore still producing at level 0 but finished at level 3 — a 12.6s
+       window, the widest any animal offers, and still not wide enough to be
+       reached through a page load.
 
-       The sheep is here for the width of that gap rather than for its wool.
-       This reads the clock off a live page, so the wait between booting the
-       game and asserting on it counts against the animal, and that wait runs
-       to several seconds when the suite is loaded. Only the "still producing"
-       half is exposed, because drift can only ever age the sheep: 24s leaves
-       11s of room before it ripens at level 0, and is already 1.6s past ripe
-       at level 3. A chicken's 15s/9.6s pair spans 5.4s in total, too narrow
-       to hold either margin — which is how it came to flake in CI. */
-    const sheep = () => [{ id: 1, state: 'producing', feedAt: secondsAgo(24) }];
-
-    await load(page, makeSave({ sheep: sheep(), nextAnimalId: 2 }));
+       So the sheep is put in place *after* the page is up, and the upgrade
+       switched under it without a second load. Everything before this point
+       is what makes a fixture-seeded version of this test flake: booting the
+       game takes 9 to 12 seconds when four workers are contending, all of it
+       charged to an animal that only has 11 seconds to spare, and the "still
+       producing" half is the one exposed, since drift can only ever age the
+       sheep. Done this way the only elapsed time that counts is the gap
+       between the two assertions below, which is a render tick. */
+    await load(page, makeSave({ nextAnimalId: 2 }));
     await page.getByRole('button', { name: /Animals/ }).click();
+
+    await page.evaluate(() => {
+      state.upgrades.feed = 0;
+      state.sheep = [{ id: 1, state: 'producing', feedAt: Date.now() / 1000 - 24 }];
+    });
     await expect(page.locator('#sheepList .animal-state.producing')).toHaveCount(1);
 
-    await load(page, makeSave({
-      sheep: sheep(),
-      nextAnimalId: 2,
-      upgrades: { sprinkler: 0, feed: 3, fertiliser: 0, contacts: 0 },
-    }));
-    await page.getByRole('button', { name: /Animals/ }).click();
+    await page.evaluate(() => { state.upgrades.feed = 3; });
     await expect(page.locator('#sheepList .animal-state.ready')).toHaveCount(1);
   });
 
@@ -3475,6 +3483,24 @@ test.describe('asset pipeline', () => {
     expect(missing).toEqual([]);
   });
 
+  test('the vendored three.js modules are listed and served too', async ({ request }) => {
+    /* They are in the manifest rather than hand-copied into sw.js because
+       following EffectComposer's imports took that set from four files to
+       sixteen in a single run of tools/vendor.mjs. A list maintained by hand
+       would have been wrong the moment it did, and a module missing from the
+       precache is an offline farm that loads to a blank canvas. */
+    const manifest = await (await request.get('/assets/manifest.json')).json();
+    expect(manifest.vendor.length).toBeGreaterThan(10);
+    expect(manifest.vendor).toContain('./vendor/jsm/postprocessing/EffectComposer.js');
+
+    const missing = [];
+    for (const file of manifest.vendor) {
+      const res = await request.get(`/${file.replace(/^\.\//, '')}`);
+      if (res.status() !== 200) missing.push(file);
+    }
+    expect(missing).toEqual([]);
+  });
+
   test('the models are precached, so an offline farm is not an empty one', async ({ page, context }) => {
     await load(page, makeSave());
 
@@ -3514,6 +3540,49 @@ test.describe('asset pipeline', () => {
 /* ------------------------------------------------------------------ */
 /* Sustained-play performance                                          */
 /* ------------------------------------------------------------------ */
+
+test.describe('post-processing budget', () => {
+  /** The scene reports its own tier; 2 is bloom + AO, 1 bloom, 0 neither. */
+  const scene = (page, fn) => page.evaluate(fn);
+
+  test('the scene measures what it costs, and says which tier it settled on', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    /* The point of this pair is that the budget is actually running. A tier
+       is asserted only to be one of the three, never to be a particular one:
+       which tier a machine can afford is the whole question, and a CI worker
+       sharing a software rasteriser with three siblings is entitled to a
+       different answer than a desktop GPU. Pinning the expectation to 2 here
+       would be a test that fails precisely when the feature works. */
+    await expect.poll(
+      () => scene(page, () => window.Farm3DScene.frameIntervalMs()),
+      { timeout: 15_000 },
+    ).toBeGreaterThan(0);
+
+    expect([0, 1, 2]).toContain(await scene(page, () => window.Farm3DScene.quality()));
+  });
+
+  test('a tab left open long enough to be judged still draws', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    // Past the warm-up and the settle window, which is where a step-down can
+    // first happen — the scene has to survive changing its own quality.
+    await expect.poll(
+      () => scene(page, () => window.Farm3DScene.frameIntervalMs()),
+      { timeout: 15_000 },
+    ).toBeGreaterThan(0);
+    const before = await scene(page, () => window.Farm3DScene.quality());
+
+    await page.waitForTimeout(2500);
+    const after = await scene(page, () => window.Farm3DScene.quality());
+
+    // Steps down only, never back up, so the tier can fall but not climb.
+    expect(after).toBeLessThanOrEqual(before);
+    await expect(page.locator('#plotsGrid .plot')).toHaveCount(PLOT_COUNT);
+  });
+});
 
 test.describe('animation cost', () => {
   test('nothing that loops forever animates a property that repaints', async ({ page }) => {

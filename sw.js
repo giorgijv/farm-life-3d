@@ -8,7 +8,7 @@
  * every older cache.
  */
 
-const CACHE_VERSION = 'farm-life-3d-v5';
+const CACHE_VERSION = 'farm-life-3d-v6';
 
 // Relative so the worker works both at a domain root and under a project
 // path such as /farm-game/ on GitHub Pages.
@@ -20,27 +20,24 @@ const SHELL = [
   './scene.js',
   './assets.js',
   './vendor/three.module.js',
-  './vendor/jsm/controls/OrbitControls.js',
-  './vendor/jsm/loaders/GLTFLoader.js',
-  './vendor/jsm/objects/Sky.js',
-  './vendor/jsm/utils/BufferGeometryUtils.js',
   './assets/manifest.json',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];
 
-/* The models are listed in assets/manifest.json rather than here, because
-   tools/vendor.mjs writes that file and would otherwise be editing this one
-   too. Whole set is under 2 MB (see docs/ART_BIBLE.md), which is what makes
-   precaching all of it reasonable rather than loading it lazily and losing
-   the offline promise for anyone who hasn't walked past a cow yet. */
+/* The models and three.js's own jsm modules are listed in
+   assets/manifest.json rather than here, because tools/vendor.mjs writes that
+   file and would otherwise be editing this one too. The models are under 2 MB
+   all told (see docs/ART_BIBLE.md), which is what makes precaching the set
+   reasonable rather than loading it lazily and losing the offline promise for
+   anyone who hasn't walked past a cow yet. */
 async function assetUrls() {
   try {
     const res = await fetch('./assets/manifest.json', { cache: 'no-cache' });
     if (!res.ok) return [];
     const manifest = await res.json();
-    return Array.isArray(manifest.files) ? manifest.files : [];
+    return [manifest.files, manifest.vendor].flatMap((l) => (Array.isArray(l) ? l : []));
   } catch {
     // An install that can't read the manifest still gets a playable shell.
     return [];

@@ -11,10 +11,15 @@ app shell already makes.
 - `jsm/**` — modules from the same r169's `examples/jsm/`, unminified, laid
   out in their original directory structure so their relative imports
   resolve unchanged. They reach `three` itself through the same import map
-  entry as everything else. Same license. Currently:
-  `controls/OrbitControls.js`, `loaders/GLTFLoader.js`, `objects/Sky.js`, and
-  `utils/BufferGeometryUtils.js` — the last of which is here because
-  GLTFLoader imports it, not because the game asks for it directly.
+  entry as everything else. Same license. The set is whatever `JSM_ENTRIES`
+  in that script names plus everything those files import, followed
+  transitively — sixteen files as of step 4's post-processing chain, of which
+  only six are asked for by name. The rest are here because something else
+  imports them (`utils/BufferGeometryUtils.js` for GLTFLoader,
+  `math/SimplexNoise.js` for SSAOPass, and so on). The authoritative list is
+  the `vendor` array in `assets/manifest.json`, which the same script writes
+  and the service worker precaches from, rather than a copy kept by hand here
+  or in `sw.js`.
 
 Everything in here is written by `tools/vendor.mjs`, which also fetches the
 3D models into `assets/`. Don't edit these files by hand — add an entry to

@@ -255,6 +255,96 @@ the horizon colour, which is most of what "something to reflect" was for.
 
 ---
 
+## 11. Post-processing, and the camera that blocks it — step 4 addendum
+
+Step 4 asked for bloom, ambient occlusion and ACES grading through an
+`EffectComposer`, on a measured frame budget. The composer, the budget and the
+two effects all ship. **What does not ship is the visible payoff, and the
+reason is the camera, not the effects.**
+
+**The tone-mapping trap section 10 warned about is real, and avoided.** A
+composer chain normally ends in `OutputPass`, which applies
+`renderer.toneMapping` to the whole finished image — which would have
+overruled the per-material `toneMapped = false` that keeps ACES on the sky and
+off everything else, re-crushing night exactly as step 3 found. The chain
+therefore ends in `ShaderPass(GammaCorrectionShader)`: sRGB conversion and
+nothing else. Verified by rendering the default view at midday, dusk and
+midnight against a step-3 baseline — the only differences are contact shading
+where geometry meets geometry, which is the AO doing its job.
+
+**Ambient occlusion is the contact shadow this scene has been missing.**
+Shadow mapping was tried and dropped twice on CI cost. AO gets most of what
+they were for — objects sitting on the ground rather than floating — for a
+pass that does not scale with the number of casters. Two numbers matter and
+they are in *different units*: `kernelRadius` is world units (metres), while
+`minDistance`/`maxDistance` are compared against a depth difference normalised
+across the camera's near and far planes (0.1 and 100), so one of those units is
+about a hundred metres and a centimetre is `0.0001`. The first attempt used
+`0.0015`/`0.06` — 15cm to 6m — which rejected every sample a 28cm kernel could
+produce and rendered a pure white, entirely absent AO buffer that looks exactly
+like a pass that isn't running.
+
+**Bloom is tuned far below a first guess** (`0.15` strength, `0.3` radius,
+`0.8` threshold) because the sky is a third of the frame once it *is* in
+frame, and bloom spreads brightness outward: at `0.32`/`0.62` it poured milk
+over the hills until they vanished, at midday and dusk alike.
+
+**The camera is the blocker, and it is an interaction problem.** The default
+view sits at about 44 degrees of downward pitch against a 48-degree vertical
+FOV, which puts the horizon roughly 20 degrees above the top of the picture —
+so the terrain and sky section 10 describes are, in ordinary play, never on
+screen, and step 3's own test of itself ("reads as a place with a horizon, not
+a green rectangle") is not met by the view the game opens on. Post-processing
+cannot help a frame with nothing bright or distant in it, which is why both
+effects measured as near-invisible before this was understood.
+
+Framing the horizon needs the pitch under about 24 degrees. Measured, at that
+pitch the sixteen tiles foreshorten into a band **21% of the frame tall**. The
+invisible plot buttons layered over the canvas (`.plots-grid`) have to stay
+about **59% tall**, because that is what keeps sixteen of them above the 44px
+touch-target floor on a phone — already an overshoot of the field's current
+43%, tolerable only because it is roughly right. Against a 21% band it would
+not be: you would tap a tile you could see and plant in a different row.
+
+So the horizon cannot be framed while sixteen screen-space buttons stand in
+for the field. **Step 6 replaces them with proximity prompts and step 12
+rebuilds the accessibility path around that; the camera opens up there, and
+that is when the bloom already sitting in the scene starts earning its cost.**
+
+**The budget measures the gap between draws, not the time the draw call
+takes.** Timing the call was tried first and is worthless: GL queues the work
+and returns, so all three tiers measured one to two milliseconds and the most
+expensive one came out *fastest*. Two further mistakes worth not repeating —
+the first version discarded any interval over 500ms as "we weren't drawing",
+which went blind at exactly the frame times it exists to catch (the software
+rasteriser here draws at ~800ms, so the average never moved off zero); and
+judging a tier only after a fixed twenty draws takes sixteen seconds at those
+frame times, which is longer than most CI test pages live. The rule now
+forgets `lastDrawAt` whenever it skips a draw, so a long gap can only mean a
+slow frame, and acts after three draws when the verdict is more than 3x over
+budget while still making a marginal one survive the full window.
+
+**And measuring is not free, so the driver is asked first.** Even with a fast
+step-down, starting every page at the top tier means every page pays several
+800ms frames to reach the same conclusion. Across a suite that loads the game
+a few hundred times that took the run from **6.7 minutes to 20.2**, against a
+CI timeout of ten — the measurement cost more than the feature was worth. So
+`WEBGL_debug_renderer_info` is checked before the first draw, and a renderer
+naming itself SwiftShader, llvmpipe or software starts at the plain tier with
+nothing wasted. The string is a hint, not a contract: the measured budget
+still runs underneath it, and still has the last word on hardware that
+reports itself as real and then fails to keep up.
+
+One consequence worth stating plainly: **CI never exercises the composer's
+own passes**, because CI is exactly the environment this drops to plain. The
+passes are covered by screenshot comparison during development instead, and
+the tests assert only that the budget is measuring and that the tier is one
+of the three — never which one, since which tier a machine can afford is the
+whole question, and pinning it would be a test that fails precisely when the
+feature works.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -278,6 +368,19 @@ Everything above was checked before it was written:
   contention stress run was compared against a clean pre-step-3 baseline
   rather than assumed safe — both show the same pre-existing flakiness in the
   same two tests, not a new one.
+- Step 4's claim that the composer leaves the existing image alone is a pixel
+  comparison against a step-3 baseline at midday, dusk and midnight, not an
+  argument from how the passes are wired.
+- The 21%-versus-59% figures that rule the camera out are projected from the
+  live camera through `Vector3.project`, and the 44px floor they run into is
+  the measured button size at a 390px viewport — neither is an estimate.
+- The AO tuning was found by rendering `SSAOPass`'s own AO buffer rather than
+  inferring it from the composited frame, which is what showed the first
+  attempt producing no occlusion at all.
+- Every screenshot comparing one setting against another pins
+  `state.dayElapsedMs` immediately before the shutter. An earlier round did
+  not, and the in-game clock moving a few seconds between shots read
+  convincingly as "this effect darkened everything".
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

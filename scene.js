@@ -33,6 +33,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -639,6 +645,30 @@ function startScene(bridge) {
      a little smaller than the field-only shot did — the trade for a farmer
      who visibly has two places to be, not one. */
   const VIEW_CX = (-yardHalf + (PEN_CX + PEN_HALF_X)) / 2;
+  /* This framing is about 44 degrees of downward pitch against a 48-degree
+     vertical field of view, which puts the horizon roughly 20 degrees above
+     the top of the picture: the terrain and sky step 3 built are, from the
+     default view, never on screen at all. A player who drags the camera up
+     still finds them — maxPolarAngle below stops just short of horizontal —
+     but step 3's own test of itself, that looking across the farm "reads as
+     a place with a horizon, not a green rectangle", is not met by the view
+     the game actually opens on.
+
+     Step 4 tried to fix that here and had to put it back. Framing the horizon
+     needs the pitch under about 24 degrees, and at that pitch the sixteen
+     tiles foreshorten into a band 21% of the frame tall, measured. The
+     invisible plot buttons layered over the canvas (see .plots-grid in
+     styles.css) have to stay about 59% tall, because that is what keeps
+     sixteen of them above the 44px touch-target floor on a phone — already
+     an overshoot of the field's current 43%, and tolerable only because it
+     is roughly right. Against a 21% band it would not be: you would tap a
+     tile you could see and plant in a different row.
+
+     So this is not a tuning problem, it is the interaction model: the
+     horizon cannot be framed while sixteen screen-space buttons stand in for
+     the field. Step 6 replaces them with proximity prompts and step 12
+     rebuilds the accessibility path around that — which is when the camera
+     can open up, and when the bloom below finally has something to do. */
   camera.position.set(VIEW_CX, 6.5, 6.3);
   camera.lookAt(VIEW_CX, 0.2, 0);
   // The sun's own aim point, set now that VIEW_CX exists — syncSky(), above,
@@ -1031,11 +1061,173 @@ function startScene(bridge) {
     }
   });
 
+  /* -------------------------------------------------------------- */
+  /* Post-processing, and the budget that decides how much of it runs  */
+  /* -------------------------------------------------------------- */
+
+  /* Three tiers, because this scene has to look like a game on a desktop GPU
+     and still not starve a software-rendered Chromium sharing a CI box with
+     three of its siblings. That is not a hypothetical: shadows were tried and
+     dropped twice on exactly that path (see the note by the renderer above),
+     both times discovered by a red CI run rather than by measurement. So the
+     budget below is wired in from the start, and the scene steps itself down
+     rather than being told what a machine can afford. */
+  const QUALITY = { FULL: 2, BLOOM: 1, PLAIN: 0 };
+
+  /* Ask the driver what it is before drawing anything, because finding out by
+     measurement is not free. A software rasteriser draws this scene's full
+     chain at about 800ms a frame, so the budget below needs several draws —
+     five seconds or so — to reach the obvious conclusion, and it pays that on
+     every page load. Across a test suite that loads the page a few hundred
+     times it took the run from under seven minutes to over twenty, against a
+     CI timeout of ten: the measurement was costing far more than the feature
+     was worth. The string is a hint rather than a contract, which is why the
+     measured budget still runs underneath it and still has the last word on
+     hardware that reports itself as real and then doesn't keep up. */
+  function rendererIsSoftware() {
+    try {
+      const gl = renderer.getContext();
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+      return /swiftshader|llvmpipe|softwarerasterizer|software/i.test(name);
+    } catch {
+      return false; // Refused the question: fall back to measuring.
+    }
+  }
+
+  let quality = rendererIsSoftware() ? QUALITY.PLAIN : QUALITY.FULL;
+
+  /* Nothing below is built at all when the answer was already "plain". The
+     chain is not free to merely exist: two half-float render targets for the
+     composer, three more for the ambient occlusion, five mip levels for the
+     bloom, and every one of their shaders compiled — all of it allocated at
+     load, on a machine that has already said it cannot afford to draw any of
+     it. Building it anyway kept the suite 46% slower than baseline even after
+     the tier itself was being chosen correctly. Since the budget only ever
+     steps down, starting at the bottom means these are never wanted, so the
+     honest thing is not to make them.
+
+     Everything after this therefore has to cope with `post` being null, which
+     is exactly the set of places that would otherwise have to cope with a
+     composer that is built but must not be used. */
+  const post = quality === QUALITY.PLAIN ? null : buildPostProcessing();
+
+  function buildPostProcessing() {
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+
+    /* Contact shadows in all but name, and the one effect here that pays for
+       itself in the view the game actually opens on. With shadow mapping ruled
+       out twice on cost, this is what grounds a crop or a fence post on the
+       terrain it stands on instead of leaving it floating, and unlike a shadow
+       map it costs the same whatever the scene is lit by or how many things
+       are casting.
+
+       The three numbers are not in the same units, which is worth stating
+       because getting it wrong produces a pure white — entirely absent — AO
+       buffer that looks exactly like a pass that isn't running. kernelRadius
+       is world units (metres here). minDistance and maxDistance are compared
+       against a depth difference normalised across the camera's near and far
+       planes, 0.1 and 100 — so one of *those* units is about a hundred metres,
+       and a centimetre of contact shadow is 0.0001, not 0.01. The first
+       attempt read them as the same thing and used 0.0015 and 0.06, i.e. 15cm
+       to 6m, which rejected every sample a 28cm kernel could produce. */
+    const ssao = new SSAOPass(scene, camera, 1, 1);
+    ssao.kernelRadius = 0.6;
+    ssao.minDistance = 0.0001; // ~1cm
+    ssao.maxDistance = 0.008;  // ~80cm
+    composer.addPass(ssao);
+
+    /* Bloom has almost nothing to do from the camera the game opens on, which
+       frames no sky at all (see the long note by camera.position above): only
+       the sky is tone-mapped, so it is effectively the one surface here that
+       ever gets near this threshold, and it is out of shot. What this pass is
+       for is the view a player reaches by dragging the camera up to the
+       horizon, and the default view step 6 can finally afford once the plot
+       buttons stop having to cover the field.
+
+       Strength and radius are far below a first guess for that reason in
+       reverse: with the sky in frame it is about a third of the picture, and
+       bloom spreads brightness outward, so 0.32 strength at 0.62 radius did
+       not read as a glow at all — it poured milk over the hills until they
+       vanished, at midday and dusk alike. At a tight 0.15/0.3 the sky keeps
+       its warmth and the hills keep their edges. Verified by screenshot from
+       the step-6 framing, not from this one, where it would have looked like
+       a no-op either way. */
+    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.15, 0.3, 0.8);
+    composer.addPass(bloom);
+
+    /* sRGB conversion and nothing else, which is the whole reason this is
+       GammaCorrectionShader and not the OutputPass that would normally close a
+       composer chain. OutputPass also applies renderer.toneMapping to the
+       finished image, and this scene's tone mapping is a per-material
+       decision, not a per-image one: the sky needs ACES because its HDR output
+       clips to white without it, and everything else must not have ACES
+       because step 9's day/night curve was tuned without it and its toe
+       crushes night to black. That is enforced by material.toneMapped just
+       above, which a pass over the composited image would silently overrule —
+       the exact trap the art bible flagged for this step. */
+    composer.addPass(new ShaderPass(GammaCorrectionShader));
+
+    return { composer, ssao, bloom };
+  }
+
+  /* What the budget measures is how far apart the draws actually land, not
+     how long the draw call takes to return. Timing the call was tried first
+     and is worthless here: GL queues the work and returns, so all three tiers
+     measured one to two milliseconds and the most expensive one came out
+     *fastest*. The gap between frames, by contrast, is the thing the player
+     and the test runner both actually feel, and it counts GPU time, driver
+     time and the rest of the page's main thread along with it. */
+  // FRAME_INTERVAL_MS below asks for 30fps; this is the point below ~18fps
+  // where the scene is judged to be costing the page more than it is worth.
+  const BUDGET_INTERVAL_MS = 55;
+  const BUDGET_SETTLE = 20;       // draws at a tier before a marginal verdict
+  const BUDGET_WARMUP = 3;        // the first draws compile shaders; ignore them
+  /* How far over budget counts as past arguing about. A machine three times
+     over is not having a bad moment, it is the wrong machine for this tier,
+     and waiting out the full window to say so is its own bug: at the 800ms
+     frames measured on the software rasteriser CI uses, twenty draws is
+     sixteen seconds, and most test pages do not live that long. So a verdict
+     that extreme is acted on after three draws, while a marginal one still
+     has to survive the full window before costing anyone their bloom. */
+  const BUDGET_OBVIOUS = 3;
+  let drawsSeen = 0;
+  let drawsAtTier = 0;
+  let intervalEma = 0;
+
+  /* A moving average rather than a bucket that empties: a bucket has no
+     answer at all for most of its life, which makes it useless both to the
+     rule below and to anything asking what this scene is costing. */
+  function chargeFrame(intervalMs) {
+    drawsSeen += 1;
+    drawsAtTier += 1;
+    intervalEma = intervalEma ? intervalEma * 0.9 + intervalMs * 0.1 : intervalMs;
+    if (drawsSeen <= BUDGET_WARMUP) return;
+    if (quality === QUALITY.PLAIN || intervalEma <= BUDGET_INTERVAL_MS) return;
+    const settle = intervalEma > BUDGET_INTERVAL_MS * BUDGET_OBVIOUS ? 3 : BUDGET_SETTLE;
+    if (drawsAtTier <= settle) return;
+
+    /* Steps down only, never back up. An oscillating quality setting is worse
+       to look at than the lower tier it keeps returning to, and the thing
+       being measured — how much machine this page is being given — does not
+       usually improve mid-session. */
+    quality = quality === QUALITY.FULL ? QUALITY.BLOOM : QUALITY.PLAIN;
+    post.ssao.enabled = quality >= QUALITY.FULL;
+    post.bloom.enabled = quality >= QUALITY.BLOOM;
+    drawsAtTier = 0;
+    intervalEma = 0; // the old tier's cost says nothing about the new one
+  }
+
   /* How much work is outstanding. The tests wait on this rather than on a
      stopwatch, and it is the honest question to ask when debugging: has the
      tap been taken, and has it been carried out? */
   window.Farm3DScene = {
     pendingActions: () => jobQueue.length + (activeJob ? 1 : 0),
+    /* What the budget above settled on, so a test can assert the scene
+       degrades rather than dying on a machine that cannot afford it. */
+    quality: () => quality,
+    frameIntervalMs: () => intervalEma,
   };
 
   /* -------------------------------------------------------------- */
@@ -1060,6 +1252,9 @@ function startScene(bridge) {
     const { clientWidth: w, clientHeight: h } = container;
     if (w === 0 || h === 0) return;
     renderer.setSize(w, h, false);
+    // The composer keeps its own render targets, which are useless at the
+    // wrong size — a resize that skipped this would stretch the last frame.
+    if (post) post.composer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   });
@@ -1091,17 +1286,33 @@ function startScene(bridge) {
     lastStepAt = now;
     advanceFarmer(dt);
 
-    // Backgrounded tab, or a different in-game tab open: nothing to draw,
-    // so skip the GPU work entirely rather than render an invisible scene.
-    if (document.hidden || !farmTabVisible()) return;
+    /* Backgrounded tab, or a different in-game tab open: nothing to draw, so
+       skip the GPU work entirely rather than render an invisible scene.
+       Forgetting when we last drew is what keeps the gap spent on the Market
+       from being charged to the budget below as a very slow frame — the first
+       draw after coming back has nothing to be measured against.
+
+       This is deliberately not a "ignore any gap longer than X" rule, which
+       is what it was first written as. That version could not tell a slow
+       frame from a tab that wasn't drawing, so it went blind at exactly the
+       frame times the budget exists to catch: on the software rasteriser here
+       every interval sat above the threshold and the average never moved off
+       zero, quietly disabling the step-down on the machines that need it. */
+    if (document.hidden || !farmTabVisible()) {
+      lastDrawAt = 0;
+      return;
+    }
     if (now - lastDrawAt < FRAME_INTERVAL_MS) return;
+    if (lastDrawAt) chargeFrame(now - lastDrawAt);
     lastDrawAt = now;
     syncSky();
     syncPlots(now);
     syncAnimals(now);
     poseFarmer();
     controls.update();
-    renderer.render(scene, camera);
+
+    if (post && quality !== QUALITY.PLAIN) post.composer.render();
+    else renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
 }

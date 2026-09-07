@@ -37,12 +37,23 @@ const KENNEY_COMMIT = '3694c6879e487c108f55677be7dd2ca75b07cc3b';
 const KENNEY_BASE = `https://raw.githubusercontent.com/shorepine/kenney/${KENNEY_COMMIT}/3d`;
 
 /* jsm entry points. Their own relative imports are followed and fetched too,
-   so adding "postprocessing/EffectComposer.js" here in step 4 brings its
-   whole dependency tree with it. */
+   so naming EffectComposer.js below brings its whole dependency tree with it. */
 const JSM_ENTRIES = [
   'controls/OrbitControls.js',
   'loaders/GLTFLoader.js',
   'objects/Sky.js', // step 3 — the physical sky dome; only imports from 'three' itself
+  // Step 4. RenderPass and the two effects are named separately because
+  // EffectComposer itself only knows about the pass interface, not the passes.
+  'postprocessing/EffectComposer.js',
+  'postprocessing/RenderPass.js',
+  'postprocessing/UnrealBloomPass.js',
+  'postprocessing/SSAOPass.js',
+  'postprocessing/ShaderPass.js',
+  // sRGB conversion *without* tone mapping. OutputPass would be the usual
+  // final pass, but it also applies renderer.toneMapping to the whole
+  // composited image, which is precisely what this scene must not do — see
+  // the composer notes in scene.js and section 10 of the art bible.
+  'shaders/GammaCorrectionShader.js',
 ];
 
 /* The models, by the kit they come from. Kept to what the art bible's entity
@@ -134,13 +145,18 @@ async function main() {
     }
   }
 
-  /* The manifest is what the service worker precaches from, so the asset list
-     lives in one place instead of being duplicated into sw.js by hand. */
+  /* The manifest is what the service worker precaches from, so both lists
+     live in one place instead of being duplicated into sw.js by hand. The jsm
+     modules are in here for the same reason the models are: following
+     EffectComposer's imports in step 4 took that set from four files to
+     sixteen in one run, and a hand-copied list would have been wrong the
+     moment it did. */
   const total = assets.reduce((n, a) => n + a.bytes, 0);
   await write('assets/manifest.json', Buffer.from(`${JSON.stringify({
     source: { kenney: KENNEY_COMMIT, three: THREE_REF },
     bytes: total,
     files: assets.map((a) => a.path),
+    vendor: written.slice(0, jsmCount).map((f) => f.path),
   }, null, 2)}\n`));
 
   const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
