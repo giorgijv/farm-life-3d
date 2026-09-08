@@ -488,6 +488,58 @@ tried.
 
 ---
 
+## 15. Grass, and a fringe of trees on the hills — step 8 addendum
+
+Two `InstancedMesh` grass species scattered across the farm's open ground —
+`nature/grass` (220 requested) and `nature/grass_large` (70) — plus a light
+fringe of hillside trees just past the flat farm (`tree_default`,
+`tree_pineDefaultA`, 14 and 12) to close the gap step 6 opened: once the
+camera could see the horizon, the hills behind it turned out to be bare.
+
+**Placement is rejection sampling against shapes the scene already has**, not
+a new layout traced by hand: a candidate point is accepted for grass when it
+falls outside the tile grid, the pen, the paths and a clearing around each
+building, and accepted for the hill fringe when `terrainHeight` says it is
+genuinely on the rise (that function returns exactly 0 on the flat farm and
+only departs from it past the transition, which is a free "is this the hill"
+test already computed for the terrain mesh — no second one needed). Seeded
+with a small mulberry32 rather than `Math.random()`, so the same farm loads
+the same way twice, which is the only way a screenshot from today can be
+compared against one from tomorrow.
+
+**A tree's parts must share one transform, not one each.** Kenney's
+low-poly trees are two or three primitives — a trunk and a canopy, sometimes
+two canopy colours — each needing its own material and therefore its own
+`InstancedMesh`. The first version drew a fresh random rotation and scale per
+primitive instead of per point, and every multi-part model came apart:
+trunks facing one way, canopies another. Fixed by computing one transform per
+scattered point up front and reusing it across every primitive of that
+species.
+
+**The default bounding sphere is wrong for a scattered mesh, not just
+imprecise.** `InstancedMesh` inherits `Mesh`'s bounding sphere, sized for the
+one blade of grass at the geometry's own local origin — not the few hundred
+instances spread across the farm. Left alone, that does not make culling
+approximate, it makes it incorrect: the renderer culls the whole mesh against
+a sphere that never moves with the instances it actually contains, so it
+either never culls (the tiny sphere still overlaps the frustum near the
+origin) or the whole species vanishes the moment the camera looks anywhere
+else. `InstancedMesh.computeBoundingSphere()` — confirmed present in this
+build's vendored r169 before relying on it — recomputes the sphere from every
+instance's matrix and fixes both failure modes at once. This is the "culling
+pass" the step asked for.
+
+**The "LOD" a kit with one detail level per model can actually offer is
+fewer instances, not simpler ones.** There is no low-poly-of-the-low-poly to
+swap to. `rendererIsSoftware()` — the same check step 4's post-processing
+budget reads before building anything, because measuring cost is not free —
+gates a flat density multiplier: full counts on a real GPU, 40% of them on a
+software rasteriser. It is a function declaration, hoisted, so it can be
+called here even though it is written later in the file alongside the budget
+it was built for; no logic was duplicated to reach it.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -524,6 +576,18 @@ Everything above was checked before it was written:
   `state.dayElapsedMs` immediately before the shutter. An earlier round did
   not, and the in-game clock moving a few seconds between shots read
   convincingly as "this effect darkened everything".
+- `InstancedMesh.computeBoundingSphere()` was confirmed to exist on this
+  build's vendored three.js — not assumed present from a version number —
+  by constructing one in the running page and checking the method directly,
+  before any code was written to depend on it.
+- The multi-primitive transform risk in step 8's foliage (a tree's trunk and
+  canopy each needing their own `InstancedMesh`, and so a fresh random
+  rotation per primitive instead of per point would have drawn them coming
+  apart) was caught by reading the code while writing it, before it was ever
+  run broken — there is no before-screenshot of a farm full of split trees,
+  because the fix went in ahead of the first render. What was checked by
+  screenshot afterward is that the fringe renders correctly at all, not that
+  a bug it never shipped with used to be visible.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

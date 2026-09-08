@@ -3599,6 +3599,35 @@ test.describe('post-processing budget', () => {
   });
 });
 
+test.describe('foliage, instanced', () => {
+  /* Placement is checked by screenshot during development, the way the
+     terrain's slope colouring and the props' camera-blocking were — a canvas
+     has no DOM to assert a coordinate against, and re-deriving the farm's
+     layout constants here would just be a second copy of scene.js's own
+     geometry, free to drift out of sync with it. What a test can honestly
+     check is that the scatter actually ran, for every species, and that the
+     counts it produced are shaped the way the request was: more grass than
+     grass_large, and both far outnumbering the sparse hillside fringe — the
+     same 220:70:14:12 ratio scene.js asks for, whatever fraction of it a
+     software renderer's budget kept. */
+  test('every species is scattered before the scene calls itself ready', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+    const counts = await page.evaluate(() => window.Farm3DScene.foliageCounts());
+
+    expect(Object.keys(counts).sort()).toEqual([
+      'nature/grass', 'nature/grass_large', 'nature/tree_default', 'nature/tree_pineDefaultA',
+    ].sort());
+    for (const n of Object.values(counts)) expect(n).toBeGreaterThan(0);
+
+    expect(counts['nature/grass']).toBeGreaterThan(counts['nature/grass_large']);
+    expect(counts['nature/grass_large']).toBeGreaterThan(counts['nature/tree_default']);
+    expect(counts['nature/grass_large']).toBeGreaterThan(counts['nature/tree_pineDefaultA']);
+  });
+});
+
 test.describe('driving her yourself', () => {
   const ripeAt = (...indices) => Array.from({ length: PLOT_COUNT }, (_, i) => (
     indices.includes(i) ? { crop: 'wheat', plantedAt: secondsAgo(40) } : { crop: null, plantedAt: null }

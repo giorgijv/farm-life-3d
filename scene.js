@@ -39,7 +39,7 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
-import { loadModel, preload } from './assets.js';
+import { loadModel, loadMeshes, preload } from './assets.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -758,6 +758,176 @@ function startScene(bridge) {
     }
   }
   dressFarm();
+
+  /* -------------------------------------------------------------- */
+  /* Foliage, instanced                                                */
+  /* -------------------------------------------------------------- */
+
+  /* A deterministic scatter rather than Math.random(): the same seed on every
+     load means a screenshot taken today matches one taken tomorrow, which is
+     the only way this step's own tests can assert on it, and the only way a
+     bug report ("there's a bush growing out of the barrel") points at a
+     reproducible spot rather than a re-roll. Same hash-and-mix shape as the
+     terrain's valueNoise above, just walked forward as a stream instead of
+     sampled by position — a standard mulberry32, small enough to read in
+     five lines rather than pull in a library for. */
+  function makeRng(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s + 0x6d2b79f5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* Where grass may not stand: the tile grid and the pen it would otherwise
+     grow through, the paths it would otherwise cover, and a clearing around
+     each building. Reuses the same shapes buildFence, the pen and PATH_RECTS
+     already defined rather than tracing new ones. */
+  const BUILDING_CLEARINGS = [
+    { x: -5.8, z: 1.4, r: 1.7 }, // the farmhouse
+    { x: 6.7, z: -0.6, r: 1.9 }, // the barn
+  ];
+  function inFarmClearing(x, z) {
+    if (Math.abs(x) <= yardHalf + 0.35 && Math.abs(z) <= yardHalf + 0.35) return true;
+    if (Math.abs(x - PEN_CX) <= PEN_HALF_X + 0.3 && Math.abs(z) <= PEN_HALF_Z + 0.3) return true;
+    for (const r of PATH_RECTS) {
+      if (x >= r.x0 - 0.35 && x <= r.x1 + 0.35 && z >= r.z0 - 0.35 && z <= r.z1 + 0.35) return true;
+    }
+    for (const b of BUILDING_CLEARINGS) {
+      if (Math.hypot(x - b.x, z - b.z) <= b.r) return true;
+    }
+    return false;
+  }
+
+  /* Rejection sampling over a box, kept to whatever the caller decides counts
+     as open ground — grass wants the flat farm itself, the tree fringe below
+     wants the hillside just past it. Capped by attempts rather than trusting
+     the count to land: a farm this cluttered can reject a lot of candidates
+     before finding open ground, and an unlucky seed must still terminate. */
+  function scatterPoints(rng, count, xMin, xMax, zMin, zMax, accept) {
+    const points = [];
+    let attempts = 0;
+    const maxAttempts = count * 50;
+    while (points.length < count && attempts < maxAttempts) {
+      attempts += 1;
+      const x = xMin + rng() * (xMax - xMin);
+      const z = zMin + rng() * (zMax - zMin);
+      if (accept(x, z)) points.push({ x, z });
+    }
+    return points;
+  }
+
+  /* Software rendering is the same signal the post-processing budget below
+     reads before drawing anything: measuring cost is not free, and a machine
+     that has already said it cannot afford the effects chain is not a
+     machine to spend extra instances on either (rendererIsSoftware is a
+     function declaration, hoisted, so it can be called here even though it
+     is written further down with the budget it was built for). This is the
+     "LOD" a kit of single-detail low-poly models can actually offer: there is
+     no simpler mesh to fall back to per species, only fewer of them. */
+  const FOLIAGE_SCALE = rendererIsSoftware() ? 0.4 : 1;
+
+  const instMatrix = new THREE.Matrix4();
+  const instScale = new THREE.Vector3();
+  const Y_UP = new THREE.Vector3(0, 1, 0);
+
+  /* One species, scattered and built. `accept` decides where it may stand;
+     everything else — the random height within heightRange, the random spin,
+     the shared transform across a multi-mesh model's parts — is the same
+     regardless of what or where. Async because the model has to be fetched,
+     and fire-and-forget for the same reason dressFarm is: nothing here should
+     hold up a scene that is otherwise ready to play. */
+  async function scatterInstanced(id, count, { heightRange, seed, bounds, accept }) {
+    const n = Math.round(count * FOLIAGE_SCALE);
+    if (n <= 0) return;
+    const { meshes, height: authoredHeight } = await loadMeshes(id);
+    if (!authoredHeight || meshes.length === 0) return;
+
+    const rng = makeRng(seed);
+    const points = scatterPoints(rng, n, bounds.xMin, bounds.xMax, bounds.zMin, bounds.zMax, accept);
+
+    /* One transform per point, computed once and shared by every primitive of
+       this model — a tree's trunk and its canopy are separate meshes with
+       separate materials, each becoming its own InstancedMesh below, and a
+       fresh random rotation drawn per primitive instead of per point would
+       land the trunk one way and the canopy another. Caught reading this
+       code before it was ever run, not after. */
+    const transforms = points.map((p) => {
+      const [lo, hi] = heightRange;
+      const h = lo + rng() * (hi - lo);
+      return {
+        position: new THREE.Vector3(p.x, terrainHeight(p.x, p.z) - 0.08, p.z),
+        quaternion: new THREE.Quaternion().setFromAxisAngle(Y_UP, rng() * Math.PI * 2),
+        scale: h / authoredHeight,
+      };
+    });
+
+    for (const { geometry, material } of meshes) {
+      // Arrives after the scene-wide tone-mapping opt-out pass below, so —
+      // like every other prop loaded after the scene stands — it opts out
+      // for itself. See that pass for why only the sky wants ACES.
+      material.toneMapped = false;
+      const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
+      transforms.forEach((t, i) => {
+        instMatrix.compose(t.position, t.quaternion, instScale.setScalar(t.scale));
+        mesh.setMatrixAt(i, instMatrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      /* The default bounding sphere is the geometry's own — sized for one
+         blade of grass at the origin, not the scatter of a few hundred across
+         the whole farm. Left alone, that is not a smaller optimisation, it is
+         wrong: the renderer culls the whole InstancedMesh against a sphere
+         that never moves with the instances, so it either never culls (the
+         tiny sphere still overlaps the frustum near the origin) or vanishes
+         outright the moment the camera looks anywhere else. computeBoundingSphere
+         on an InstancedMesh knows about every instance's matrix and fixes
+         both. */
+      mesh.computeBoundingSphere();
+      scene.add(mesh);
+    }
+    // Read by the tests, which have no other way to ask a canvas how many
+    // grass tufts it just decided to draw.
+    foliageCounts[id] = transforms.length;
+  }
+
+  const foliageCounts = {};
+
+  const FARM_BOUNDS = { xMin: FARM_LEFT - 0.5, xMax: FARM_RIGHT + 0.5, zMin: FARM_NORTH - 0.5, zMax: FARM_SOUTH + 0.5 };
+  const onFarmGround = (x, z) => !inFarmClearing(x, z);
+
+  /* A fringe of trees on the hillside just past the farm, so the transition
+     from flat ground to hill is not a bare green slope — the gap left after
+     the camera opened up onto the horizon in step 6. terrainHeight is 0
+     exactly on the flat farm and only departs from it once a point is
+     genuinely on the rise, which is a free, already-computed "is this the
+     hill" test rather than a new one traced by hand. */
+  const HILL_BOUNDS = { xMin: FARM_LEFT - 13, xMax: FARM_RIGHT + 13, zMin: FARM_NORTH - 13, zMax: FARM_SOUTH + 13 };
+  const onHillside = (x, z) => Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z);
+
+  /* Collected so a test can wait on all of it finishing rather than on a
+     fixed delay, and so a page that never got a network reply still resolves
+     rather than leaving a caller waiting on a promise that was never going to
+     settle — every call is already caught above. */
+  const foliageReady = Promise.all([
+    scatterInstanced('nature/grass', 220, {
+      heightRange: [0.22, 0.34], seed: 1, bounds: FARM_BOUNDS, accept: onFarmGround,
+    }).catch((err) => console.warn('farm: grass did not load', err)),
+
+    scatterInstanced('nature/grass_large', 70, {
+      heightRange: [0.34, 0.5], seed: 2, bounds: FARM_BOUNDS, accept: onFarmGround,
+    }).catch((err) => console.warn('farm: grass_large did not load', err)),
+
+    scatterInstanced('nature/tree_default', 14, {
+      heightRange: [2.1, 3.1], seed: 10, bounds: HILL_BOUNDS, accept: onHillside,
+    }).catch((err) => console.warn('farm: hillside trees did not load', err)),
+
+    scatterInstanced('nature/tree_pineDefaultA', 12, {
+      heightRange: [2.4, 3.6], seed: 11, bounds: HILL_BOUNDS, accept: onHillside,
+    }).catch((err) => console.warn('farm: hillside pines did not load', err)),
+  ]);
 
   /* -------------------------------------------------------------- */
   /* Sky — a real atmospheric dome, not a flat colour                  */
@@ -1657,6 +1827,12 @@ function startScene(bridge) {
        with these rather than by waiting out a walk on a stopwatch. */
     farmerAt: () => ({ x: at.x, z: at.z }),
     reachable: () => nearestTarget(),
+    /* How many instances of each foliage species got scattered, and a way to
+       wait for that to be settled rather than guessing at a delay — the
+       scatter runs after loadMeshes resolves, same as the props above, and
+       there is otherwise nothing in the DOM to say it happened at all. */
+    foliageCounts: () => ({ ...foliageCounts }),
+    foliageReady: () => foliageReady,
     /* Steering from a test, in the same units the stick reports. Left in
        rather than hidden behind a debug flag: it is the only way to exercise
        free movement without synthesising a drag on every assertion, and it is

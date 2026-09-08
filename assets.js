@@ -92,3 +92,27 @@ export async function loadModel(id, height = TARGET_HEIGHT[id]) {
 export function preload(ids) {
   return Promise.all(ids.map((id) => fetchModel(id).catch(() => null)));
 }
+
+/**
+ * Loads a model's raw meshes for instancing — the geometries and materials
+ * as authored, not wrapped in a fresh clone. An InstancedMesh is built to
+ * share one geometry and one material across many placements; handing it a
+ * clone of each would defeat the reason it exists.
+ *
+ * Resolves to `{ meshes, height }`. `meshes` is one entry per primitive in
+ * the model — a tree's trunk and its canopy are two separate meshes with two
+ * materials, and both are needed to draw one tree. `height` is the model's
+ * authored bounding-box height, for a caller computing its own scale the way
+ * scaleToHeight does above; foliage generally wants many differently-sized
+ * instances of one species rather than the single fixed height TARGET_HEIGHT
+ * gives a cow or a farmer.
+ */
+export async function loadMeshes(id) {
+  const gltf = await fetchModel(id);
+  const meshes = [];
+  gltf.scene.traverse((obj) => {
+    if (obj.isMesh) meshes.push({ geometry: obj.geometry, material: obj.material });
+  });
+  const height = new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3()).y;
+  return { meshes, height };
+}
