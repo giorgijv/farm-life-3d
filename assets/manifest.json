@@ -3,7 +3,7 @@
     "kenney": "3694c6879e487c108f55677be7dd2ca75b07cc3b",
     "three": "r169"
   },
-  "bytes": 1543686,
+  "bytes": 1661350,
   "files": [
     "./assets/models/nature/crops_leafsStageA.glb",
     "./assets/models/nature/crops_leafsStageB.glb",
@@ -26,7 +26,11 @@
     "./assets/models/nature/tree_default.glb",
     "./assets/models/nature/tree_detailed.glb",
     "./assets/models/nature/tree_default_fall.glb",
+    "./assets/models/nature/tree_pineDefaultA.glb",
     "./assets/models/nature/stump_round.glb",
+    "./assets/models/nature/log.glb",
+    "./assets/models/nature/rock_largeA.glb",
+    "./assets/models/nature/rock_smallA.glb",
     "./assets/models/cube-pets/animal-cow.glb",
     "./assets/models/cube-pets/animal-chick.glb",
     "./assets/models/cube-pets/animal-dog.glb",
@@ -45,8 +49,8 @@
     "./assets/models/survival/rock-a.glb",
     "./assets/models/survival/Textures/colormap.png",
     "./assets/models/city-suburban/building-type-a.glb",
+    "./assets/models/city-suburban/building-type-b.glb",
     "./assets/models/city-suburban/Textures/colormap.png",
-    "./assets/models/fantasy-town/windmill.glb",
     "./assets/models/fantasy-town/Textures/colormap.png"
   ],
   "vendor": [

@@ -71,8 +71,8 @@ const KENNEY_MODELS = {
     // Set dressing, all instanced later.
     'grass', 'grass_large', 'plant_bush',
     'flower_redA', 'flower_yellowA',
-    'tree_default', 'tree_detailed', 'tree_default_fall',
-    'stump_round',
+    'tree_default', 'tree_detailed', 'tree_default_fall', 'tree_pineDefaultA',
+    'stump_round', 'log', 'rock_largeA', 'rock_smallA',
   ],
   'cube-pets': ['animal-cow', 'animal-chick', 'animal-dog', 'animal-cat', 'animal-polar'],
   /* Two of the kit's people rather than the first two files in it: the game's
@@ -82,8 +82,15 @@ const KENNEY_MODELS = {
      cast into the scene, not by the file names. */
   'blocky-characters': ['character-a', 'character-e'],
   survival: ['barrel', 'box', 'chest', 'tool-hoe', 'signpost', 'rock-a'],
-  'city-suburban': ['building-type-a'],
-  'fantasy-town': ['windmill'],
+  /* The farmhouse and, standing in for a barn, a second suburban block: the
+     mirror has no barn and no silo in any kit, checked rather than assumed.
+     See the gap noted in docs/ART_BIBLE.md. */
+  'city-suburban': ['building-type-a', 'building-type-b'],
+  /* Nothing from fantasy-town any more: its windmill is only the sail
+     assembly, not a mill (see the note in scene.js). Kept as an empty entry
+     rather than deleted so the next person to want a landmark can see the kit
+     was tried. */
+  'fantasy-town': [],
 };
 
 /* Kits whose models reference a shared texture atlas by a relative URI

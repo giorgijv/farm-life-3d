@@ -442,6 +442,52 @@ question about the label, so it is now answered where the label is written.
 
 ---
 
+## 14. Four rooms, and where the tall things go — step 7 addendum
+
+The farm is four places now: the **crop field** and the **pasture** where they
+were, an **orchard** north, and the **dooryard** south that she comes out
+into. Two paths join them — a spine down the west side and a branch east to
+the pasture gate, plus a spur to the farmhouse door.
+
+**Where the tall props go is a camera question before it is a farm one.** The
+follow camera sits about nine units behind her, which for a farmer facing up
+the field means it stands in the dooryard — so the farmhouse put there, the
+obvious place for it, spent most of the game between the camera and the
+player's own character. The buildings now flank the field east and west,
+where they are seen past her rather than through, and the dooryard keeps
+nothing taller than a barrel.
+
+**Buildings are sized by width, not the height the loader normalises to.** A
+1.3 x 0.83 model asked to stand 3 units tall comes out 4.7 wide; the first
+attempt put the barn straight through the pasture fence. `loadModel` now takes
+a per-placement height override, because an orchard of identically sized trees
+reads as wallpaper while a cow still has exactly one right size.
+
+**Paths are a ribbon of geometry, not vertex colours and not tiles.** The kit
+does ship path tiles, and vertex-colouring the terrain was the cheaper idea —
+until the numbers were checked: the terrain is 48 segments across 60 units, so
+its vertices are 1.25 apart and a path 0.8 wide would not have registered in
+its colours at all, while tiling real meshes along two routes is dozens of
+draw calls for something nobody looks at directly. Three rectangles in one
+mesh, one draw call.
+
+**Props are placed by hand, one entry each.** A seeded scatter would give the
+even, sourceless spread that makes procedural dressing read as procedural.
+Nothing collides — she walks through a tree trunk if she insists; collision is
+a step-14 question about a scene ten times this size, and building it now for
+thirty props would be building it twice.
+
+**Gaps, checked rather than assumed.** The mirror has **no barn and no silo**
+in any kit — probed directly, across `fantasy-town`, `holiday`, `farm`,
+`castle` and `survival`. The barn is a second `city-suburban` block standing
+in. And `fantasy-town/windmill` is **not a windmill**: it is the sail assembly
+alone, meant to be pinned to a building, so at every scale it hangs in the air
+beside the farmhouse looking like a fallen gate. Dropped, and the kit is left
+in `tools/vendor.mjs` as an empty entry so the next person can see it was
+tried.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

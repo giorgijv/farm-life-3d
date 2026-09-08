@@ -3643,12 +3643,48 @@ test.describe('driving her yourself', () => {
     await sceneReady(page);
 
     await drive(page, -1, -1);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(3500);
     await drive(page, 0, 0);
 
+    /* The flat ground the farm sits on, which step 7 widened to take in the
+       orchard and the dooryard. Past it are hills with nothing on them, and
+       she has no business up there. */
     const corner = await at(page);
-    expect(corner.x).toBeGreaterThan(-4);
-    expect(corner.z).toBeGreaterThan(-4);
+    expect(corner.x).toBeGreaterThan(-7.5);
+    expect(corner.z).toBeGreaterThan(-8.7);
+  });
+
+  test('the farm she can walk is bigger than the field she works', async ({ page }) => {
+    await load(page, makeSave());
+    await sceneReady(page);
+
+    /* Step 7 put an orchard north and a dooryard south, and they are only
+       rooms if she can get to them: before it, the roam bounds stopped at the
+       field's own fence, about 2.5 units either way. Held until she stops
+       against the edge rather than timed, so this measures the bounds and not
+       the frame rate. */
+    const settleAt = async (x, z) => {
+      await drive(page, x, z);
+      let last = null;
+      await page.waitForFunction(() => true);
+      for (let i = 0; i < 40; i += 1) {
+        await page.waitForTimeout(250);
+        const now = await at(page);
+        if (last && Math.hypot(now.x - last.x, now.z - last.z) < 0.02) break;
+        last = now;
+      }
+      await drive(page, 0, 0);
+      return last;
+    };
+
+    const north = await settleAt(0, -1);
+    expect(north.z, 'she should reach the orchard').toBeLessThan(-6);
+
+    const south = await settleAt(0, 1);
+    expect(south.z, 'she should reach the dooryard').toBeGreaterThan(5);
+
+    const west = await settleAt(-1, 0);
+    expect(west.x, 'she should reach the farmhouse').toBeLessThan(-5);
   });
 
   test('taking the stick drops the round she was walking', async ({ page }) => {

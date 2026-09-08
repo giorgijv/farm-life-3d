@@ -72,11 +72,13 @@ function scaleToHeight(object3d, height) {
  * clips, so callers can place and animate it without disturbing anyone else's
  * copy.
  */
-export async function loadModel(id) {
+export async function loadModel(id, height = TARGET_HEIGHT[id]) {
   const gltf = await fetchModel(id);
   const object = gltf.scene.clone(true);
 
-  const height = TARGET_HEIGHT[id];
+  /* The override is per-placement rather than per-model because an orchard of
+     identically sized trees reads as wallpaper. Everything with one right
+     answer — a cow, the farmer — still gets it from the table above. */
   if (height !== undefined) scaleToHeight(object, height);
 
   /* Clips bind to nodes by name, and clone(true) preserves names, so the

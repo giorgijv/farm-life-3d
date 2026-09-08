@@ -477,12 +477,22 @@ function startScene(bridge) {
      margin that a post never sits in the transition band. Outside it the
      ground is free to rise — the tile grid, the pen floor and the farmer's
      walk all assume y=0, so nothing gameplay touches may tilt. */
-  const FLAT_MARGIN = 0.6;
-  const FLAT_LEFT = -yardHalf - FLAT_MARGIN;
-  const FLAT_RIGHT = PEN_CX + PEN_HALF_X + FLAT_MARGIN;
-  const FLAT_HALF_Z = Math.max(yardHalf, PEN_HALF_Z) + FLAT_MARGIN;
+  /* The farm is four rooms now, not one field and a pen, so the flat ground
+     has to reach all of them: the crop field and the pasture where they
+     already were, an orchard to the north and the dooryard she comes out
+     into to the south. These bounds are the whole of the working farm — what
+     stays level, what she may walk on, and what the hills start beyond. */
+  const FARM_LEFT = -7.4;  // the farmhouse stands out here
+  const FARM_RIGHT = 7.8;  // and the barn out here, past the pasture
+  const FARM_NORTH = -8.6; // orchard
+  const FARM_SOUTH = 7.6;  // dooryard
+
+  const FLAT_LEFT = FARM_LEFT;
+  const FLAT_RIGHT = FARM_RIGHT;
   const FLAT_CENTER_X = (FLAT_LEFT + FLAT_RIGHT) / 2;
   const FLAT_HALF_X = (FLAT_RIGHT - FLAT_LEFT) / 2;
+  const FLAT_CENTER_Z = (FARM_NORTH + FARM_SOUTH) / 2;
+  const FLAT_HALF_Z = (FARM_SOUTH - FARM_NORTH) / 2;
 
   const TRANSITION_WIDTH = 5; // how far beyond the flat rectangle the rise ramps in over
   const HILL_AMPLITUDE = 2.2;
@@ -521,7 +531,7 @@ function startScene(bridge) {
 
   function terrainHeight(x, z) {
     const dx = Math.max(0, Math.abs(x - FLAT_CENTER_X) - FLAT_HALF_X);
-    const dz = Math.max(0, Math.abs(z) - FLAT_HALF_Z);
+    const dz = Math.max(0, Math.abs(z - FLAT_CENTER_Z) - FLAT_HALF_Z);
     const distOut = Math.hypot(dx, dz);
     if (distOut <= 0) return 0;
     const t = THREE.MathUtils.smoothstep(distOut, 0, TRANSITION_WIDTH);
@@ -601,6 +611,153 @@ function startScene(bridge) {
   );
   terrain.position.y = -0.08; // the same offset the flat ground used to sit at
   scene.add(terrain);
+
+  /* -------------------------------------------------------------- */
+  /* The paths between the rooms                                       */
+  /* -------------------------------------------------------------- */
+
+  /* Worn ground rather than laid stones: a ribbon of geometry just above the
+     terrain, in one mesh and one draw call. The kit does have path tiles, and
+     they were the obvious answer until the numbers were checked — the terrain
+     is 48 segments across 60 units, so a vertex is 1.25 units apart and a
+     path 0.8 wide would not have registered in its colours at all, while
+     tiling actual meshes along two routes is dozens of draw calls for
+     something nobody looks at directly. Two rectangles is what it takes.
+
+     They are laid where a farm would wear them: a spine down the west side of
+     the field joining the dooryard to the orchard, and a branch east across
+     to the pasture gate. */
+  const PATH_Y = -0.065; // above the terrain's -0.08, below anything standing on it
+  const PATH_RECTS = [
+    { x0: -3.95, x1: -3.15, z0: FARM_NORTH + 1.1, z1: FARM_SOUTH - 0.9 }, // the spine
+    { x0: -3.95, x1: PEN_CX - PEN_HALF_X, z0: 3.15, z1: 3.95 },           // out to the pen
+    { x0: -5.4, x1: -3.15, z0: 1.1, z1: 1.75 },                           // to the farmhouse door
+  ];
+
+  function buildPaths() {
+    const positions = [];
+    const indices = [];
+    for (const r of PATH_RECTS) {
+      const base = positions.length / 3;
+      positions.push(r.x0, PATH_Y, r.z0, r.x1, PATH_Y, r.z0, r.x1, PATH_Y, r.z1, r.x0, PATH_Y, r.z1);
+      indices.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  const paths = new THREE.Mesh(
+    buildPaths(),
+    new THREE.MeshStandardMaterial({ color: 0x9c8663, roughness: 1 }),
+  );
+  scene.add(paths);
+
+  /* -------------------------------------------------------------- */
+  /* Dressing the rooms                                                */
+  /* -------------------------------------------------------------- */
+
+  /* Placed by hand, one entry per object, because this is the step where the
+     farm stops being a diagram and becomes somewhere — and a scatter function
+     with a seed would give the even, sourceless spread that makes procedural
+     set dressing read as procedural. The rules for where things went: the
+     dooryard faces the path she comes out onto, the orchard thins toward the
+     hills so the edge of the flat ground is never a visible line, and nothing
+     stands where she has to walk between the field and the pen.
+
+     Nothing here collides — she walks through a tree trunk if she insists.
+     Collision is a step-14 question about a scene ten times this size, and
+     inventing it now for thirty props would be building it twice. */
+  /* Where the tall things go is a camera question before it is a farm one.
+     The camera sits about nine units behind her, which for a farmer facing up
+     the field means it is standing in the dooryard — so a farmhouse put
+     there, the obvious place for it, spends most of the game between the
+     camera and the player's own character. Measured that way once and moved:
+     the buildings flank the field, west and east, where they are seen past
+     her rather than through. What is left in the dooryard is all knee-high.
+
+     Buildings are also sized by width here, not by the height the loader
+     normalises to — a 1.3 x 0.83 model asked to stand 3 units tall comes out
+     4.7 wide, which is how the first attempt put the barn through the pen. */
+  const PROPS = [
+    // --- the farmhouse, west: the farm's front door, seen across the field ---
+    { id: 'city-suburban/building-type-a', x: -5.8, z: 1.4, ry: Math.PI / 2, h: 2.3 },
+    { id: 'nature/plant_bush', x: -4.5, z: 0.5 },
+    { id: 'nature/plant_bush', x: -4.4, z: 2.3 },
+    { id: 'nature/flower_redA', x: -4.6, z: 1.4 },
+    { id: 'survival/box', x: -4.7, z: 3.2, ry: -0.3 },
+
+    // --- the barn, east: past the pasture, closing that side of the farm ---
+    { id: 'city-suburban/building-type-b', x: 6.7, z: -0.6, ry: -Math.PI / 2, h: 2.5 },
+    { id: 'survival/barrel', x: 5.6, z: 1.5, ry: 0.9 },
+    { id: 'survival/barrel', x: 5.9, z: 1.8, ry: 0.2 },
+    { id: 'nature/log', x: 6.2, z: 2.6, ry: 0.7 },
+
+    /* No windmill. fantasy-town/windmill turns out to be the sail assembly
+       on its own — a ladder of blades meant to be pinned to a building, not a
+       standalone mill — so at any scale it hangs in the air beside the
+       farmhouse looking like a fallen gate. Dropped rather than dressed
+       around; the gap is recorded in the art bible with the missing barn and
+       silo. */
+
+    // --- the dooryard, south: knee-high only, so nothing blocks the view ---
+    { id: 'survival/signpost', x: -3.0, z: 4.3, ry: 0.4 },
+    { id: 'survival/barrel', x: -0.35, z: 5.0, ry: 0.2 },
+    { id: 'survival/barrel', x: -0.05, z: 5.35, ry: 1.1 },
+    { id: 'survival/box', x: -2.55, z: 5.3, ry: -0.3 },
+    { id: 'survival/box', x: -2.75, z: 5.65, ry: 0.6 },
+    { id: 'survival/chest', x: 0.75, z: 4.6, ry: -0.2 },
+    { id: 'nature/plant_bush', x: -2.2, z: 4.5 },
+    { id: 'nature/plant_bush', x: 0.3, z: 6.2 },
+    { id: 'nature/flower_redA', x: -2.6, z: 4.1 },
+    { id: 'nature/flower_yellowA', x: -0.9, z: 4.35 },
+    { id: 'nature/stump_round', x: 1.9, z: 5.4, ry: 0.9 },
+
+    // --- the orchard, north: rows that loosen toward the hills ---
+    { id: 'nature/tree_default', x: -2.6, z: -4.6, ry: 0.3, h: 2.9 },
+    { id: 'nature/tree_detailed', x: -0.6, z: -4.8, ry: 1.2, h: 3.1 },
+    { id: 'nature/tree_default', x: 1.4, z: -4.7, ry: 2.1, h: 2.7 },
+    { id: 'nature/tree_default_fall', x: 3.3, z: -4.9, ry: 0.8, h: 2.8 },
+    { id: 'nature/tree_detailed', x: -3.1, z: -6.4, ry: 2.6, h: 3.0 },
+    { id: 'nature/tree_default', x: -1.1, z: -6.6, ry: 1.6, h: 2.8 },
+    { id: 'nature/tree_pineDefaultA', x: 1.0, z: -6.8, ry: 0.4, h: 3.4 },
+    { id: 'nature/tree_pineDefaultA', x: 3.6, z: -7.0, ry: 2.2, h: 3.2 },
+    { id: 'nature/tree_default_fall', x: -2.2, z: -8.0, ry: 1.0, h: 2.6 },
+    { id: 'nature/tree_default', x: 2.0, z: -8.2, ry: 2.8, h: 2.7 },
+    { id: 'nature/stump_round', x: 0.2, z: -5.6, ry: 0.5 },
+    { id: 'nature/stump_round', x: 4.6, z: -6.1, ry: 1.9 },
+    { id: 'nature/log', x: -0.2, z: -7.5, ry: 1.3 },
+    { id: 'nature/rock_largeA', x: 4.9, z: -4.4, ry: 0.6 },
+    { id: 'nature/rock_smallA', x: -4.0, z: -5.2, ry: 1.4 },
+    { id: 'nature/rock_smallA', x: 2.7, z: -5.9, ry: 0.2 },
+    { id: 'nature/plant_bush', x: -3.6, z: -7.2 },
+    { id: 'nature/plant_bush', x: 4.2, z: -8.0 },
+    { id: 'nature/grass_large', x: -1.9, z: -5.4 },
+    { id: 'nature/grass_large', x: 3.0, z: -6.5 },
+  ];
+
+  /* Loaded after the scene is standing, like the farmer, so nothing waits on
+     the network to start playing. Failures are per-prop and silent beyond a
+     warning: a farm missing its windmill is still a farm, and a rejected
+     promise here must not take the rest of the dressing down with it. */
+  function dressFarm() {
+    for (const prop of PROPS) {
+      loadModel(prop.id, prop.h).then(({ object }) => {
+        object.position.set(prop.x, 0, prop.z);
+        object.rotation.y = prop.ry ?? 0;
+        /* Materials that arrive after the scene-wide pass have to opt out of
+           tone mapping themselves — see that pass for why only the sky wants
+           it. */
+        object.traverse((obj) => {
+          for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
+        });
+        scene.add(object);
+      }).catch((err) => console.warn(`farm: ${prop.id} did not load`, err));
+    }
+  }
+  dressFarm();
 
   /* -------------------------------------------------------------- */
   /* Sky — a real atmospheric dome, not a flat colour                  */
@@ -1028,14 +1185,14 @@ function startScene(bridge) {
 
   const driving = () => Math.hypot(drive.x, drive.z) > DRIVE_DEADZONE;
 
-  /* She stays on the flat ground the yard and pen sit on, rather than being
-     free to wander up the hills, because nothing out there is hers yet — the
-     zones step 7 adds are what earn the rest of the map. */
+  /* The whole farm, now that there is one: orchard to the north, dooryard to
+     the south, pasture east. She stops at the flat ground's edge rather than
+     wandering up the hills, which are scenery and have nothing on them. */
   const ROAM = {
-    minX: -yardHalf + 0.3,
-    maxX: PEN_CX + PEN_HALF_X - 0.3,
-    minZ: -yardHalf + 0.3,
-    maxZ: Math.max(yardHalf, PEN_HALF_Z) - 0.3,
+    minX: FARM_LEFT + 0.3,
+    maxX: FARM_RIGHT - 0.3,
+    minZ: FARM_NORTH + 0.3,
+    maxZ: FARM_SOUTH - 0.3,
   };
 
   function steer(dt) {
