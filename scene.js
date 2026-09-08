@@ -306,6 +306,40 @@ function startScene(bridge) {
   const SOIL_TILE = new THREE.Color(0x5a3d22);
   const TARGETED_TILE = new THREE.Color(0xb59a5c); // a tile the farmer is on her way to
 
+  /* Where the keyboard is looking: a caret hanging over that tile.
+
+     Two things were tried before this one, and both failed for reasons worth
+     keeping. A tint on the soil is invisible — at this distance tinted soil
+     against soil disappears into the lighting. A bright patch laid flat over
+     the tile is invisible for a better reason: this camera sits about twenty
+     degrees above the ground, so a one-unit square lying on it foreshortens
+     to a bar around eighty pixels wide and eight tall. Drawn in hot magenta
+     at full opacity to find out whether it was being drawn at all, it was
+     still only a sliver. The same geometry that cost step 4 its horizon
+     costs any flat marker its legibility.
+
+     So the marker stands up instead of lying down. A caret above the tile
+     keeps its height whatever the camera's pitch, reads at once as "this
+     one", and sits clear of whatever is growing rather than over it.
+     MeshBasicMaterial, so it takes no light: a focus indicator that dims at
+     dusk with everything else stops doing its job for half of every day. */
+  const SELECTION_TOP = 1.45; // clears a ripe corn stalk, the tallest crop
+  const selectionInk = new THREE.MeshBasicMaterial({ color: 0xffe08a, toneMapped: false });
+  const selection = new THREE.Group();
+  {
+    /* A head and a stem, not just a head: hung on its own at a height that
+       clears the corn, the caret floats up by the treeline and stops
+       obviously belonging to any one tile. The stem is what says which. */
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.3, 4).rotateY(Math.PI / 4), selectionInk);
+    head.rotation.x = Math.PI; // tipped over, so it points down at its tile
+    head.position.y = SELECTION_TOP;
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.035, SELECTION_TOP - 0.3, 0.035), selectionInk);
+    stem.position.y = (SELECTION_TOP - 0.3) / 2 + 0.12;
+    selection.add(head, stem);
+  }
+  selection.visible = false;
+  scene.add(selection);
+
   /* -------------------------------------------------------------- */
   /* Crops — the real thing, once there is enough of one to show       */
   /* -------------------------------------------------------------- */
@@ -508,6 +542,9 @@ function startScene(bridge) {
     const state = bridge.getState();
     const plots = state.plots;
     const unlocked = state.unlockedPlots;
+    // Null unless the keyboard is actually in the grid — see selectedPlot in
+    // script.js for why the highlight lives out here rather than in the DOM.
+    const selected = bridge.selectedPlot();
 
     for (let i = 0; i < PLOT_COUNT; i++) {
       const { x, z } = tileWorldPos(i);
@@ -562,6 +599,15 @@ function startScene(bridge) {
         CROP_STAGE_MODEL[plot.crop][ripe ? 'ripe' : 'growing'],
         i, x, bob, z, tmpColor.getHex(),
       );
+    }
+
+    /* Moved rather than rebuilt, and hidden the moment the grid gives up
+       focus — a highlight left behind on a tile nobody is looking at any
+       more would be a worse lie than the one this step came to fix. */
+    selection.visible = selected !== null;
+    if (selected !== null) {
+      const spot = tileWorldPos(selected);
+      selection.position.set(spot.x, 0, spot.z); // the pin carries its own height
     }
 
     tileMesh.instanceMatrix.needsUpdate = true;
@@ -2481,14 +2527,26 @@ function startScene(bridge) {
     setDrive(x, z);
   }
 
-  /* Typing in a field, or tabbing around the panels, must not walk her into a
-     fence. Only the canvas and the body itself count as "playing". */
-  const typingTarget = (el) => !!el && (
-    el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable
+  /* Who the arrows belong to. Typing in a field was always excluded; step 12
+     added the plot grid, which navigates itself with them, and a select,
+     which opens itself with them.
+
+     Everything else — a seed button, the prompt, a tab — keeps driving her,
+     on purpose: clicking a seed and then walking off to plant it is one
+     gesture, and making the player click the background first to "give the
+     keys back" would be a tax on the common case to fix an uncommon one.
+     What was wrong before this step was narrower than "buttons": the arrows
+     drove her from *inside the grid*, where they were also supposed to be
+     moving between tiles — measured at 2.87 units of walking while a plot
+     button held focus, in a probe written for this step. */
+  const arrowsBelongToUi = (el) => !!el && (
+    el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+    || el.isContentEditable
+    || (typeof el.closest === 'function' && el.closest('#plotsGrid') !== null)
   );
 
   window.addEventListener('keydown', (event) => {
-    if (typingTarget(event.target)) return;
+    if (arrowsBelongToUi(event.target)) return;
     if (KEY_VECTORS[event.code]) {
       held.add(event.code);
       applyHeldKeys();

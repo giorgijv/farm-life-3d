@@ -114,13 +114,29 @@ body {
   outline-color: #fffdf0;
 }
 
-/* The plot grid is invisible over the 3D scene (see "The 3D farm scene, and
-   the plot grid layered over it" below) except while a tile is keyboard-
-   focused, when its familiar 2D face pops back in — both so a sighted
-   keyboard user can see which tile they are on, and as a legible focus
-   indicator over the canvas. */
-.plot:focus-visible {
-  opacity: 1;
+/* A focused tile no longer pops its flat 2D face back over the scene.
+
+   It used to, so that a sighted keyboard user could see which tile they were
+   on — a good idea while the grid still lined up with the field. Since step 6
+   it does not line up with anything, and the rule was drawing plot 1's face
+   in the sky above the farmhouse roof, several metres from the plot it named.
+   Step 12 moved that highlight into the scene, where the tile really is (see
+   SELECTED_TILE in scene.js), and left this box invisible in every state. */
+
+/* Present for a screen reader, absent for everyone else. The clip-and-shrink
+   version rather than display:none, which would take the live region out of
+   the accessibility tree and stop it announcing anything at all. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ==================================================================

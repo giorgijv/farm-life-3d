@@ -78,13 +78,22 @@
         <canvas id="farmCanvas" aria-hidden="true"></canvas>
         <!-- Kept for a screen reader and a keyboard, which never see the
              canvas above at all. Since step 6 the field is driven rather than
-             tapped, so this no longer takes pointer input — it is how a
-             keyboard sends her to a tile. See .plots-grid in styles.css. -->
-        <div class="plots-grid" id="plotsGrid"></div>
+             tapped, so this takes no pointer input — it is how a keyboard
+             picks a tile and sends her to it. One tab stop, arrows between
+             the sixteen, and the tile it is on highlighted in the scene
+             itself rather than drawn here: see selectedPlot in script.js and
+             .plots-grid in styles.css. -->
+        <div class="plots-grid" id="plotsGrid" role="group" aria-label="Your plots"></div>
         <!-- What she can do from where she is standing. A real button, so it
              is tabbable and announced, rather than a label painted into the
              canvas. Hidden until something is in reach. -->
         <button class="action-prompt" id="actionPrompt" type="button" hidden></button>
+        <!-- The same thing said rather than drawn. The button above changes
+             its own text silently as far as a screen reader is concerned,
+             since it is never the focused element while she is being driven
+             about — so without this, free movement told a player who cannot
+             see the canvas nothing at all. -->
+        <p class="sr-only" id="reachStatus" role="status" aria-live="polite"></p>
         <div class="drive-stick" id="driveStick" aria-hidden="true">
           <div class="drive-knob" id="driveKnob"></div>
         </div>

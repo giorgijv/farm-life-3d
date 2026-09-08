@@ -3843,6 +3843,139 @@ test.describe('animals that roam', () => {
   });
 });
 
+test.describe('the keyboard plays the same game', () => {
+  const sceneReady = (page) => page.waitForFunction(() => !!window.Farm3DScene);
+  const at = (page) => page.evaluate(() => window.Farm3DScene.farmerAt());
+  const focused = (page) => page.evaluate(() => document.activeElement.getAttribute('aria-label'));
+
+  test('the sixteen plots are one tab stop, not sixteen', async ({ page }) => {
+    /* Every tile used to be its own stop: sixteen of the Farm tab's
+       twenty-one, all sitting between the seed bar and anything past it. */
+    await load(page, makeSave({ unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+
+    await page.locator('.seed-btn').last().focus();
+    await page.keyboard.press('Tab');
+    expect(await focused(page)).toMatch(/^Plot 1,/);
+
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => document.activeElement.id)).toBe('actionPrompt');
+  });
+
+  test('arrows move between tiles while the grid has them, and drive her when it does not', async ({ page }) => {
+    await load(page, makeSave({ unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+
+    await page.locator('#plotsGrid > *').first().focus();
+    const parked = await at(page);
+
+    await page.keyboard.press('ArrowRight');
+    expect(await focused(page)).toMatch(/^Plot 2,/);
+    await page.keyboard.press('ArrowDown');
+    expect(await focused(page)).toMatch(/^Plot 6,/);
+    // Four columns, so Down is four along — and Up comes back to the same tile.
+    await page.keyboard.press('ArrowUp');
+    expect(await focused(page)).toMatch(/^Plot 2,/);
+
+    /* And she has not taken a step for any of it. Before step 12 the drive
+       keys were bound at the window with only text fields excluded, so the
+       same press both moved between tiles and walked her — measured at 2.87
+       units of walking during a single held arrow. */
+    const after = await at(page);
+    expect(Math.hypot(after.x - parked.x, after.z - parked.z)).toBeLessThan(0.01);
+
+    /* Out of the grid, the arrows are hers again. This is the half that has
+       to keep working: it is the whole keyboard path through free movement. */
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.down('ArrowUp');
+    await page.waitForFunction(
+      (z) => window.Farm3DScene.farmerAt().z < z - 0.4,
+      parked.z,
+      { timeout: 10_000 },
+    );
+    await page.keyboard.up('ArrowUp');
+  });
+
+  test('the tile the keyboard is on is published to the scene, and let go of', async ({ page }) => {
+    /* The scene draws the marker over that tile where it really stands. The
+       DOM used to draw it instead, at the CSS grid's own position — which
+       since step 6 lines up with nothing, and was putting plot 1's face in
+       the sky above the farmhouse roof. */
+    await load(page, makeSave({ unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+    expect(await page.evaluate(() => window.Farm3DBridge.selectedPlot())).toBeNull();
+
+    await page.locator('#plotsGrid > *').nth(6).focus();
+    expect(await page.evaluate(() => window.Farm3DBridge.selectedPlot())).toBe(6);
+
+    await page.evaluate(() => document.activeElement.blur());
+    expect(await page.evaluate(() => window.Farm3DBridge.selectedPlot())).toBeNull();
+  });
+
+  test('what comes into reach is announced, not only drawn', async ({ page }) => {
+    await load(page, makeSave({ coins: 500, selectedSeed: 'wheat', unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+
+    const live = page.locator('#reachStatus');
+    await expect(live).toHaveAttribute('aria-live', 'polite');
+
+    /* She spawns at the gate already within reach of a tile, so this starts
+       with something in it rather than empty — which is itself the point:
+       the region says what is in reach, not what has changed. What this test
+       is after is that it keeps saying so as she moves. */
+    await expect.poll(async () => (await live.textContent()).trim(), { timeout: 10_000 })
+      .toMatch(/plot \d+$/);
+    const first = (await live.textContent()).trim();
+
+    // Walk her up the field the way a keyboard player would, and it follows.
+    await page.keyboard.down('ArrowUp');
+    await expect.poll(async () => (await live.textContent()).trim(), { timeout: 15_000 })
+      .not.toBe(first);
+    await page.keyboard.up('ArrowUp');
+    expect((await live.textContent()).trim()).toMatch(/plot \d+$/);
+  });
+
+  test('a keyboard-only player can plant and harvest without touching the plot grid', async ({ page }) => {
+    /* This step's whole point, and the plan's own acceptance test for it:
+       the same loop a player with a mouse gets — walk up, act on what is in
+       reach — done entirely from the keyboard, with the grid untouched.
+       Planting through the grid was already possible before step 12; playing
+       the actual game from the keyboard was not. */
+    await load(page, makeSave({ coins: 500, selectedSeed: 'wheat', unlockedPlots: PLOT_COUNT }));
+    await sceneReady(page);
+
+    const walkUntilReachable = async () => {
+      await page.keyboard.down('ArrowUp');
+      await page.waitForFunction(
+        () => window.Farm3DScene.reachable()?.type === 'plot',
+        null,
+        { timeout: 15_000 },
+      );
+      await page.keyboard.up('ArrowUp');
+    };
+
+    await walkUntilReachable();
+    const target = await page.evaluate(() => window.Farm3DScene.reachable());
+    expect(target.intent).toBe('plant');
+
+    await page.keyboard.press('Space');
+    await expect.poll(async () => (await readSave(page)).plots[target.plot].crop).toBe('wheat');
+
+    /* And back again once it is ripe — the same tile, the same key, no grid
+       and no mouse anywhere in it. */
+    await page.evaluate((idx) => {
+      state.plots[idx].plantedAt = Date.now() / 1000 - 60; // wheat grows in 15s
+    }, target.plot);
+    await expect.poll(
+      () => page.evaluate(() => window.Farm3DScene.reachable()?.intent),
+      { timeout: 10_000 },
+    ).toBe('harvest');
+
+    await page.keyboard.press('Space');
+    await expect.poll(async () => (await readSave(page)).inventory.wheat).toBeGreaterThan(0);
+  });
+});
+
 test.describe('crops, modelled', () => {
   const banked = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
   const sceneReady = async (page) => {

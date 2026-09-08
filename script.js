@@ -1993,6 +1993,108 @@ function renderPlots() {
       fill.parentElement.setAttribute('aria-valuenow', String(percent));
     }
   });
+
+  // buildPlotCell resets a rebuilt tile's attributes, tabIndex included, so
+  // the roving stop is re-applied after any tick that rebuilt one.
+  syncPlotTabStops();
+}
+
+/* ------------------------------------------------------------------ */
+/* The plot grid as a keyboard instrument                               */
+/* ------------------------------------------------------------------ */
+
+/* Sixteen tiles, one tab stop, and the highlight in the right place.
+
+   Both halves of that are step 12 repairs. Before it, every tile was its own
+   tab stop — sixteen of the Farm tab's twenty-one, all between the seed bar
+   and anything else — and each one, when focused, painted its flat 2D face
+   back over the 3D scene wherever the CSS grid happened to sit. Since step 6
+   that box lines up with nothing: focusing plot 1 lit a tile up in the sky
+   above the farmhouse roof, several metres from the plot it claimed to be.
+   A screenshot of exactly that is what this section was written from.
+
+   The roving tabindex below is the standard answer to the first half. The
+   second is answered in the scene rather than here: the selected plot is
+   published through the bridge and syncPlots tints that tile where it
+   actually stands, so the highlight is the real one and the 2D face never
+   comes back. Left deliberately as a grid of real buttons rather than
+   replaced with free movement, which was the other option on the table:
+   for a player who cannot see the field, sixteen labelled plots in a stable
+   order is a better instrument than a character to steer blind, and swapping
+   one for the other would have been a regression wearing this step's name. */
+let selectedPlot = 0;
+let plotGridFocused = false;
+
+const PLOT_GRID_COLUMNS = 4;
+const PLOT_ARROW_STEP = {
+  ArrowLeft: -1, ArrowRight: 1,
+  ArrowUp: -PLOT_GRID_COLUMNS, ArrowDown: PLOT_GRID_COLUMNS,
+};
+
+const plotCells = () => [...(document.getElementById('plotsGrid')?.children ?? [])];
+
+/* One cell holds the tab stop; the rest are reachable only by arrow. A
+   disabled tile can never hold it — it cannot take focus, and the whole grid
+   would drop out of the tab order behind it. */
+function syncPlotTabStops() {
+  const cells = plotCells();
+  if (cells.length === 0) return;
+  if (cells[selectedPlot]?.disabled) {
+    const open = cells.findIndex((cell) => !cell.disabled);
+    selectedPlot = open === -1 ? 0 : open;
+  }
+  cells.forEach((cell, i) => { cell.tabIndex = i === selectedPlot ? 0 : -1; });
+}
+
+/* Clamped, not wrapped, and it will not step onto a locked tile. The plots
+   that can be acted on are always a run from the first — everything from
+   unlockedPlots + 1 on is disabled — so refusing to move is never the same
+   as stranding someone short of a tile they could have reached. */
+function movePlotSelection(step) {
+  const cells = plotCells();
+  const next = selectedPlot + step;
+  if (next < 0 || next >= cells.length || cells[next].disabled) return false;
+  selectedPlot = next;
+  syncPlotTabStops();
+  cells[next].focus();
+  return true;
+}
+
+function bindPlotGridKeys() {
+  const grid = document.getElementById('plotsGrid');
+  if (!grid) return;
+
+  grid.addEventListener('keydown', (event) => {
+    const step = PLOT_ARROW_STEP[event.key];
+    if (step !== undefined) {
+      // Whether or not the move lands, the arrows belong to the grid while it
+      // has focus — see the drive keys in scene.js, which stand down for it.
+      movePlotSelection(step);
+      event.preventDefault();
+      return;
+    }
+    if (event.key === 'Home' || event.key === 'End') {
+      const cells = plotCells();
+      const open = cells.map((cell, i) => (cell.disabled ? -1 : i)).filter((i) => i !== -1);
+      const target = event.key === 'Home' ? open[0] : open[open.length - 1];
+      if (target !== undefined) movePlotSelection(target - selectedPlot);
+      event.preventDefault();
+    }
+  });
+
+  /* Focus is the selection: arriving by tab, by arrow or by a click all mean
+     the same thing, and all three should light the same tile in the scene. */
+  grid.addEventListener('focusin', (event) => {
+    const idx = plotCells().indexOf(event.target);
+    if (idx === -1) return;
+    selectedPlot = idx;
+    plotGridFocused = true;
+    syncPlotTabStops();
+  });
+
+  grid.addEventListener('focusout', (event) => {
+    if (!grid.contains(event.relatedTarget)) plotGridFocused = false;
+  });
 }
 
 /* Why planting would fail outright, as the message to show for it — pulled
@@ -2172,6 +2274,17 @@ function showPrompt(target) {
   promptShown = described;
 
   btn.hidden = !label;
+
+  /* Said out loud as well as drawn. A button's text changing is silent to a
+     screen reader unless that button happens to be focused, and this one
+     never is while she is being driven — so walking her about was, before
+     step 12, a way to play the game that told a player who could not see the
+     canvas absolutely nothing. Only arrivals are announced, not departures:
+     "nothing in reach" every time she steps off a tile is chatter, and the
+     silence says it just as well. */
+  const reach = document.getElementById('reachStatus');
+  if (reach && described) reach.textContent = described;
+
   if (!label) return;
   btn.textContent = label;
   btn.setAttribute('aria-label', described);
@@ -2241,6 +2354,11 @@ window.Farm3DBridge = {
   animalIntent,
   showPrompt,
   runPrompt,
+  /* Which plot the keyboard is on, or null when the grid does not have focus
+     — step 12's other half. The scene tints that tile where it really
+     stands, which is the whole reason the grid no longer needs to paint a
+     2D face of it over the canvas in the wrong place. */
+  selectedPlot: () => (plotGridFocused ? selectedPlot : null),
 };
 
 /* ------------------------------------------------------------------ */
@@ -3805,6 +3923,7 @@ function init() {
   });
   document.getElementById('onboardingDismissBtn').addEventListener('click', dismissOnboarding);
   document.getElementById('welcomeDismissBtn').addEventListener('click', dismissWelcomeBack);
+  bindPlotGridKeys();
 
   document.getElementById('musicToggleBtn').addEventListener('click', toggleMusic);
   const volumeSlider = document.getElementById('volumeSlider');

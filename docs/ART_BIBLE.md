@@ -201,8 +201,15 @@ the button.
 
 The accessibility consequence is not optional and is not deferred: the invisible
 `#plotsGrid` button layer is the game's entire keyboard and screen-reader story,
-and free movement invalidates it. Step 12 replaces it, and step 12 is on the
+and free movement invalidates it. Step 12 answers it, and step 12 is on the
 "never cut" list for exactly this reason.
+
+*What step 12 actually did, once it got there: not replace the grid. Free
+movement invalidated three things about it — where its highlight was drawn,
+how many tab stops it cost, and its claim on the arrow keys — and all three
+were repaired. The grid of labelled plots itself turned out to be the right
+interface for the player it exists for, and swapping it for a character to
+steer blind would have been the regression, not the fix. See §20.*
 
 ---
 
@@ -842,6 +849,76 @@ notice a second time.
 
 ---
 
+## 20. The keyboard plays the same game — step 12
+
+This is the step the plan marked never-cut, and the one where the plan's own
+wording had to be checked before it was followed. It called for "world-space
+prompts and a genuine keyboard path through free movement, rather than a grid
+of invisible buttons that no longer matches how the game is played." Two
+thirds of that was right. The last third was not, and following it literally
+would have shipped a regression under this step's name.
+
+**What was actually wrong, measured.** A probe written before any code:
+
+- Focusing plot 1 painted its flat 2D face into **the sky above the farmhouse
+  roof** — the CSS grid sits at a fixed box that lined up with the field
+  until step 6 pointed the camera at the horizon, and has lined up with
+  nothing since. There is a screenshot of it. The rule that did this was
+  added for a good reason (a sighted keyboard user should see which tile they
+  are on) and had simply outlived the layout it was written for.
+- The Farm tab had **twenty-one focusable controls, sixteen of them tiles**,
+  all sitting between the seed bar and everything past it.
+- A held arrow key **walked her 2.87 units while a plot button had focus**.
+  The drive keys were bound at the window with only text fields excluded, so
+  the same press both moved between tiles and moved her.
+
+**What was not wrong: the grid itself.** The obvious reading of the plan is
+to delete sixteen invisible buttons and tell a keyboard player to drive.
+For a player who cannot see the canvas that is strictly worse — steering a
+character around a field they cannot see, hunting for tiles by proximity, in
+place of sixteen labelled plots in a stable order they can move through
+directly. The grid is not scaffolding for that player; it is the interface.
+So it stayed, and what got fixed is the three things above.
+
+- **One tab stop, not sixteen.** A roving tabindex: one tile holds the stop,
+  the arrows move between the sixteen, Home and End jump to the ends. Locked
+  tiles cannot hold the stop, since a disabled element takes no focus and the
+  grid would vanish from the tab order behind it.
+- **The arrows belong to whoever is using them.** They navigate the grid
+  while it has focus and drive her when it does not — which makes them mean
+  one consistent thing either way, "move what I am paying attention to". A
+  seed button or the prompt still keeps them driving, on purpose: clicking a
+  seed and walking off to plant it is one gesture.
+- **The highlight moved into the scene**, where the tile actually is.
+
+**The marker took three attempts, and the failures are the useful part.**
+Tinting the tile's soil is invisible: at this distance tinted soil against
+soil disappears into the lighting. A bright patch laid flat over the tile is
+invisible for a better reason — the camera sits about twenty degrees above
+the ground, so a one-unit square lying on it foreshortens to a bar about
+eighty pixels wide and eight tall. Rendered in hot magenta at full opacity,
+purely to establish whether it was being drawn at all, it was still a sliver.
+The same geometry that cost step 4 its horizon costs any flat marker its
+legibility. What works is a marker that stands up: a caret on a stem, hung
+over the tile, tall enough to clear a ripe corn stalk. The stem is not
+decoration — the caret alone, at a height that clears the corn, floats up by
+the treeline and stops obviously belonging to any one tile.
+
+It is `MeshBasicMaterial`, so it takes no light. A focus indicator that dims
+at dusk with the rest of the scene is one that stops doing its job for half
+of every day.
+
+**And the part free movement was missing: it said nothing.** The prompt
+button has always carried a proper label, but a button's text changing is
+silent to a screen reader unless that button happens to be focused, and it
+never is while she is being driven. So walking her about — the actual game
+since step 6 — told a player who could not see the canvas absolutely nothing.
+A polite live region now says what has come into reach. Arrivals only:
+"nothing in reach" every time she steps off a tile is chatter, and the
+silence says it just as well.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -933,6 +1010,17 @@ Everything above was checked before it was written:
   over on the very first run. Fixed by writing state.plots directly, in the
   page's own clock, immediately before each check, rather than by widening
   the margin and hoping — confirmed with five repeats, not one green run.
+
+- Step 12 changed nothing until the thing it was sent to fix had been
+  measured: the tile face drawn in the sky is a screenshot, the twenty-one
+  focusable controls are a count off the live page, and the 2.87 units of
+  walking under a held arrow with a plot button focused is a reading, not an
+  estimate. The same probe re-run afterwards is what says they are fixed —
+  0.000 units, one Tab into the grid and one Tab out of it.
+- The selection marker's two dead ends in §20 were established the same way,
+  and the second one only by drawing it in hot magenta at full opacity: a
+  flat marker that could not be seen might have been a marker that was never
+  drawn, and those two have entirely different fixes. It was being drawn.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.
