@@ -3659,32 +3659,25 @@ test.describe('driving her yourself', () => {
     await sceneReady(page);
 
     /* Step 7 put an orchard north and a dooryard south, and they are only
-       rooms if she can get to them: before it, the roam bounds stopped at the
-       field's own fence, about 2.5 units either way. Held until she stops
-       against the edge rather than timed, so this measures the bounds and not
-       the frame rate. */
-    const settleAt = async (x, z) => {
+       rooms if she can get to them: before it the roam bounds stopped at the
+       field's own fence, about 2.5 units either way.
+
+       This waits for her to pass each mark rather than for her to settle
+       against the far wall. Waiting for her to stop is the same assertion but
+       it costs the walk back from the edge every time — as written that way
+       first, it was the slowest test in the suite at 25s, and 21 tests behind
+       it did not get to run before CI's ten-minute budget ran out. */
+    const drivePast = async (x, z, mark, what) => {
       await drive(page, x, z);
-      let last = null;
-      await page.waitForFunction(() => true);
-      for (let i = 0; i < 40; i += 1) {
-        await page.waitForTimeout(250);
-        const now = await at(page);
-        if (last && Math.hypot(now.x - last.x, now.z - last.z) < 0.02) break;
-        last = now;
-      }
+      await page.waitForFunction(mark, null, { timeout: 20_000 }).catch(() => {
+        throw new Error(`she never reached ${what}`);
+      });
       await drive(page, 0, 0);
-      return last;
     };
 
-    const north = await settleAt(0, -1);
-    expect(north.z, 'she should reach the orchard').toBeLessThan(-6);
-
-    const south = await settleAt(0, 1);
-    expect(south.z, 'she should reach the dooryard').toBeGreaterThan(5);
-
-    const west = await settleAt(-1, 0);
-    expect(west.x, 'she should reach the farmhouse').toBeLessThan(-5);
+    await drivePast(0, -1, () => window.Farm3DScene.farmerAt().z < -6, 'the orchard');
+    await drivePast(0, 1, () => window.Farm3DScene.farmerAt().z > 5, 'the dooryard');
+    await drivePast(-1, 0, () => window.Farm3DScene.farmerAt().x < -5, 'the farmhouse');
   });
 
   test('taking the stick drops the round she was walking', async ({ page }) => {

@@ -10,7 +10,14 @@ jobs:
   test:
     name: Playwright tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Ten was the budget when this was a 2D farm with a small canvas behind
+    # it. The suite has grown from 232 tests to 250 and every one of them now
+    # boots a scene with terrain, an atmospheric sky, a rigged character and
+    # thirty-five props: step 7's run reached test 229 of 250 with nothing
+    # failing and was cancelled mid-stride at 10.3 minutes. Twenty leaves room
+    # for that and for the one retry a flaky test is allowed, without being so
+    # loose that a real hang sits here for half an hour.
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
