@@ -538,6 +538,46 @@ software rasteriser. It is a function declaration, hoisted, so it can be
 called here even though it is written later in the file alongside the budget
 it was built for; no logic was duplicated to reach it.
 
+## 16. A walk-timing bug found landing step 8, not caused by it
+
+Step 8's push failed CI on two long-standing tests — "planting a seed costs
+coins and fills the plot" and "a ripe crop can be harvested and yields
+produce" — both walk-dependent, both timing out waiting on her to arrive.
+Checked against a clean pre-step-8 tree before assuming cause: the same pair
+failed identically there too, 10 of 12 runs at `--workers=4` on this box's
+four cores. Not a regression step 8 introduced; a pre-existing bug it
+happened to surface, severely enough to be worth fixing rather than filing
+under the contention flakiness this project has otherwise learned to accept.
+
+**The cause was `frame()`'s per-tick walk cap**, `Math.min(dt, 0.1)`, written
+to stop a backgrounded tab — where `requestAnimationFrame` genuinely
+stops — from making her teleport across the yard on the one large-gapped
+frame that fires when it resumes. That reasoning is sound for a tab that was
+actually hidden. It is wrong for a tab that is simply slow: under real
+four-worker CPU contention, `requestAnimationFrame` starves to a handful of
+ticks a second even while the tab stays fully visible throughout, and each of
+those rare ticks was still only allowed to credit 100ms of walk. A walk that
+should complete in under a second was measured taking upwards of five —
+past what the two tests' `expect.poll` were waiting on.
+
+**Fixed by discounting the one gap that actually needs it, at the moment it
+closes, instead of capping every tick regardless of cause.** A
+`visibilitychange` listener resets the step clock exactly when the page
+stops being hidden, so the next `frame()` call — which happens right away,
+since that is what resuming visibility means — computes `dt = 0` for that
+one tick via the same bootstrap path the very first frame already uses. No
+teleport, because nothing between the hide and the resume is credited. Every
+other tick, however far apart in wall-clock time, now credits real elapsed
+time in full: a slow-but-visible tab catches her up to where she should be
+instead of making her walk in slow motion.
+
+Confirmed by the same means the bug was found: the targeted pair went from
+2 of 12 to 12 of 12 at `--workers=4`, and a full-suite run at the same
+contention went from double digits of failures (13 of 237 was step 4's own
+measured baseline) to 2 of 251 — an improvement beyond just the two tests
+that made this worth chasing down, since every other walk-dependent test was
+paying the same tax to a smaller degree.
+
 ---
 
 ## Verified, not assumed
@@ -588,6 +628,11 @@ Everything above was checked before it was written:
   because the fix went in ahead of the first render. What was checked by
   screenshot afterward is that the fringe renders correctly at all, not that
   a bug it never shipped with used to be visible.
+- The step 8 CI failure was checked against a clean pre-step-8 tree before it
+  was attributed to step 8 — the same failure there ruled step 8 out as the
+  cause before any fix was written. The fix was then measured, not assumed
+  effective: the targeted pair at 2 of 12, then 12 of 12; the full suite at
+  4-worker contention before and after, not just after.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

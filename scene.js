@@ -1883,16 +1883,38 @@ function startScene(bridge) {
   let lastDrawAt = 0;
   let lastStepAt = 0;
 
+  /* A backgrounded tab is where rAF genuinely stops — the browser simply
+     never calls frame() again until the tab is visible, at which point the
+     one call that does land carries a real-world gap that can be minutes
+     long. Catching that here, at the instant it closes, means the walk step
+     below can credit real elapsed time unconditionally: this is the only
+     place a gap needs discounting, so it is the only place that does it,
+     rather than a per-frame cap that cannot tell why a gap happened.
+
+     A version of this used to live as Math.min(dt, 0.1) inside frame() —
+     capping every tick's step, not just the one after a real background gap.
+     That is wrong for a tab that is merely slow rather than hidden: under
+     four-worker CI contention on this box's four cores, rAF itself starves
+     to a handful of ticks a second while the tab stays fully visible the
+     whole time, and each of those rare ticks was still only allowed to credit
+     100ms — so a walk that should finish in under a second was measured
+     taking upwards of five, well past what "planting a seed costs coins and
+     fills the plot" and its neighbours were waiting on, and that pair failed
+     10 of 12 runs at --workers=4 with the cap in place. Removing the cap and
+     discounting only the one real gap fixed it: the same stress run held
+     12 of 12. */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) lastStepAt = 0;
+  });
+
   function frame(now) {
     requestAnimationFrame(frame);
 
-    /* She keeps walking whether or not the field is on screen. A job taken
-       on the Farm tab has to finish even if the player flicks over to the
-       Market a moment later, or the tap would be quietly lost — so only the
-       drawing below is skipped, never the walking. The step is capped so
-       that coming back to a backgrounded tab, where rAF stops entirely,
-       resumes at walking pace instead of teleporting her across the yard. */
-    const dt = lastStepAt ? Math.min((now - lastStepAt) / 1000, 0.1) : 0;
+    // She keeps walking whether or not the field is on screen. A job taken
+    // on the Farm tab has to finish even if the player flicks over to the
+    // Market a moment later, or the tap would be quietly lost — so only the
+    // drawing below is skipped, never the walking.
+    const dt = lastStepAt ? (now - lastStepAt) / 1000 : 0;
     lastStepAt = now;
     advanceFarmer(dt);
 
