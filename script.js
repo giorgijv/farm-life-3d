@@ -2116,7 +2116,15 @@ function animalIntent(kind, id) {
   const def = ANIMALS[kind];
   const animal = state[def.stateKey]?.find((a) => a.id === id);
   if (!animal || def.eatsLivestock) return null;
-  if (animal.state === 'ready') return 'collect';
+  // "Ready" is never a stored state — animal.state is only ever 'producing'
+  // or 'hungry' (see the assignments in becomeHungry, feedAnimal and
+  // feedDog); it is always this same derived check, the one the Animals tab
+  // itself uses. A literal animal.state === 'ready' check stood here from
+  // step 6 until step 10's own tests went looking for the "walk up to a
+  // ready cow" path and could not find it taken — an animal could sit at
+  // full progress in the pen forever and the 3D prompt would never offer to
+  // collect it, only ever "feed" once it later went hungry.
+  if (animal.state === 'producing' && animalProgress(animal, def) >= 1) return 'collect';
   if (animal.state === 'hungry') return 'feed';
   return null;
 }

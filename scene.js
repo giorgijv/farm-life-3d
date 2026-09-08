@@ -472,7 +472,13 @@ function startScene(bridge) {
   const PEN_HALF_X = 1.05;
   const PEN_HALF_Z = 2.2;
   const PEN_CX = yardHalf + PEN_GAP + PEN_HALF_X;
-  const PEN_CAP = 6; // shown per kind; a bigger herd just crowds the last column
+  /* Shown per kind; a bigger herd just crowds the last column. Each visible
+     animal is its own model with its own AnimationMixer now, not one shared
+     instance draw the way the tile grid and the old boxes were — see the pen
+     below — so this is also the software rasteriser's usual say in how much
+     it has to keep up with, same as FOLIAGE_SCALE and the post-processing
+     tier read the same rendererIsSoftware() signal for the same reason. */
+  const PEN_CAP = rendererIsSoftware() ? 3 : 6;
 
   buildFence(PEN_CX, 0, PEN_HALF_X, PEN_HALF_Z);
 
@@ -1415,107 +1421,281 @@ function startScene(bridge) {
   PEN_ROWS.forEach((kind, i) => { PEN_ROW_Z[kind] = -PEN_HALF_Z + PEN_ROW_MARGIN + i * PEN_ROW_STEP; });
   const PEN_COL_STEP = (PEN_HALF_X * 2 - 0.3) / (PEN_CAP - 1);
 
-  // The position an animal is walked to, and rests at — never the position
-  // it is drawn at; idle motion (the bob, the trot) is layered on top of
-  // this at render time and never moves the point the farmer is aiming for.
-  function animalSlot(kind, index) {
+  /* Real, animated Kenney models rather than a box or an icosahedron — the
+     same Cube Pets kit assets.js already has a target height for. Sheep
+     stands in for cube-pets/animal-polar: the kit ships no sheep, and a
+     polar bear is the closest four-legged silhouette it has at this scale.
+     Already recorded as a gap in the art bible; not new to this step, just
+     finally on screen instead of only in the 2D tab. */
+  const ANIMAL_MODEL = {
+    cow: 'cube-pets/animal-cow',
+    chicken: 'cube-pets/animal-chick',
+    sheep: 'cube-pets/animal-polar',
+    dog: 'cube-pets/animal-dog',
+    cat: 'cube-pets/animal-cat',
+  };
+
+  /* Where an animal is drawn when it has not taken a step of its own yet —
+     the same grid the old boxes stood in permanently. Roaming, below, moves
+     an animal away from this point and never puts it back; it exists only
+     as everyone's first frame, so buying a fresh cow still has it appear
+     where the pen's own layout would put it rather than at the origin. */
+  function penGridSlot(kind, index) {
     return {
       x: PEN_CX - PEN_HALF_X + 0.15 + Math.min(index, PEN_CAP - 1) * PEN_COL_STEP,
       z: PEN_ROW_Z[kind],
     };
   }
 
-  const ANIMAL_COLOR = {
-    cow: 0xe8ded0, chicken: 0xf2ecd0, sheep: 0xefe9da, dog: 0x8a6a45, cat: 0x707680,
-  };
-  // Half the geometry's own height, so each block's underside rests on the
-  // ground instead of the block being centred through it.
-  const ANIMAL_BASE_Y = { cow: 0.11, chicken: 0.075, sheep: 0.2, dog: 0.08, cat: 0.07 };
-  const ANIMAL_GEO = {
-    cow: new THREE.BoxGeometry(0.34, 0.22, 0.5),
-    chicken: new THREE.BoxGeometry(0.15, 0.15, 0.15),
-    sheep: new THREE.IcosahedronGeometry(0.2, 0), // faceted "fleece", same low-poly language as a crop head
-    dog: new THREE.BoxGeometry(0.22, 0.16, 0.36),
-    // Smaller than the dog, but not so small it vanishes at this camera
-    // distance the way an accurately cat-sized block did.
-    cat: new THREE.BoxGeometry(0.17, 0.14, 0.28),
-  };
+  /* Each kind keeps to a band of the pen's depth rather than the whole of
+     it, so five different herds sharing one enclosure never have to walk
+     through each other — the "simple" in simple steering is exactly this:
+     no collision avoidance between kinds, just lanes that cannot overlap.
+     Within its own lane an animal is free to use the pen's whole width. */
+  const PEN_LANE_HALF_Z = PEN_ROW_STEP / 2 - 0.16;
+  const PEN_ROAM_MARGIN_X = 0.16;
+  const roamXMin = PEN_CX - PEN_HALF_X + PEN_ROAM_MARGIN_X;
+  const roamXMax = PEN_CX + PEN_HALF_X - PEN_ROAM_MARGIN_X;
 
-  const animalMesh = {};
+  // Ground covered per second while wandering or on patrol. Cube Pets are
+  // small, and these are well under the farmer's own WALK_SPEED — tuned to
+  // look unhurried in a pen this size by eye, not measured against
+  // anything the kit itself claims, the way WALK_SPEED once was.
+  const ANIMAL_SPEED = {
+    cow: 0.5, chicken: 0.85, sheep: 0.55, dog: 0.95, cat: 0.9,
+  };
+  const ANIMAL_CLIP_FADE = 0.2;
+
+  /* One independently animated model per pen slot, loaded once and reused —
+     not the InstancedMesh the boxes used, which shares a single clip clock
+     across every instance. That is fine for a bob that can never fall out
+     of step with itself, and wrong for idle/walk/eat blending, where every
+     animal in the pen needs to be free to be on a different clip at a
+     different point in it from its neighbours. */
+  const animalPool = {};
   PEN_ROWS.forEach((kind) => {
-    const mesh = new THREE.InstancedMesh(
-      ANIMAL_GEO[kind],
-      new THREE.MeshStandardMaterial({ color: ANIMAL_COLOR[kind], roughness: 0.85 }),
-      PEN_CAP,
-    );
-    scene.add(mesh);
-    animalMesh[kind] = mesh;
+    animalPool[kind] = Array.from({ length: PEN_CAP }, (_, i) => {
+      const start = penGridSlot(kind, i);
+      return {
+        object: null, mixer: null, actions: null, clip: null, materials: null, baseColors: null,
+        x: start.x, z: start.z, heading: 0,
+        mode: 'idle', until: 0, targetX: start.x, targetZ: start.z,
+      };
+    });
   });
 
-  /* Guardians are the cheap win: the state a trot or a sleeping pose needs —
-     hungry versus producing — already exists on every animal, so a dog on
-     duty gets a short patrol and a hungry one goes flat and still, no new
-     game state anywhere for it. Livestock get a slower, universal graze
-     bob — the only idle motion that has to work identically for a shape as
-     different as a boxy cow and a faceted sheep. */
+  function loadAnimalSlot(kind, i) {
+    const slot = animalPool[kind][i];
+    if (slot.object || slot.loading) return;
+    slot.loading = true;
+    loadModel(ANIMAL_MODEL[kind]).then(({ object, animations }) => {
+      const mixer = new THREE.AnimationMixer(object);
+      const actions = {};
+      for (const clip of animations) actions[clip.name] = mixer.clipAction(clip);
+
+      /* Every mesh in a Cube Pets model shares one material — a single
+         textured "colormap", not per-part colours — so cloning it once and
+         reusing the clone across this instance's meshes is enough, and
+         cheaper than the naive per-mesh clone dressFarm's props get away
+         with because none of them ever need to be recoloured again. This
+         one does: it is what lets the "she's on her way" tint recolour a
+         single cow without recolouring the clone(true) shares its material
+         with — the rest of its own herd. */
+      const materials = [];
+      const cloned = new Map();
+      object.traverse((obj) => {
+        if (!obj.isMesh) return;
+        let mat = cloned.get(obj.material);
+        if (!mat) {
+          mat = obj.material.clone();
+          mat.toneMapped = false;
+          cloned.set(obj.material, mat);
+          materials.push(mat);
+        }
+        obj.material = mat;
+      });
+
+      object.visible = false;
+      scene.add(object);
+      slot.object = object;
+      slot.mixer = mixer;
+      slot.actions = actions;
+      slot.materials = materials;
+      slot.baseColors = materials.map((m) => m.color.clone());
+    }).catch((err) => console.warn(`farm: ${kind} could not be loaded`, err));
+  }
+  // Fetched now rather than waited for: fetchModel's own cache means five
+  // network requests total, one per kind, however many times this loop
+  // calls loadAnimalSlot for it — the same dedupe preload() relies on.
+  PEN_ROWS.forEach((kind) => { for (let i = 0; i < PEN_CAP; i += 1) loadAnimalSlot(kind, i); });
+
+  function playAnimalClip(slot, name) {
+    if (!slot.actions || slot.clip === name) return;
+    const next = slot.actions[name];
+    if (!next) return;
+    next.reset().fadeIn(ANIMAL_CLIP_FADE).play();
+    const previous = slot.clip && slot.actions[slot.clip];
+    if (previous) previous.fadeOut(ANIMAL_CLIP_FADE);
+    slot.clip = name;
+  }
+
+  /** Moves a pool slot toward a point at a given speed; true once it arrives. */
+  function stepSlotToward(slot, tx, tz, speed, dt) {
+    const dx = tx - slot.x;
+    const dz = tz - slot.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.001) return true;
+    const step = Math.min(speed * dt, dist);
+    slot.x += (dx / dist) * step;
+    slot.z += (dz / dist) * step;
+    slot.heading = Math.atan2(dx, dz);
+    return step >= dist;
+  }
+
+  const randomBetween = (lo, hi) => lo + Math.random() * (hi - lo);
+
+  /* Livestock: walk to a spot in their own lane, pause to look up, graze a
+     while, then pick another spot — three clips, three modes, and the loop
+     between them is the whole of the steering. Not seeded: nothing here is
+     asserted by a test the way the foliage scatter's counts are, so there is
+     nothing a fixed seed would buy that Math.random doesn't do more simply.
+
+     A hungry animal is left exactly where it stands, playing idle rather
+     than eat. It has nothing to graze until it is fed, so it has no business
+     wandering off looking for something that is not there — and freezing it
+     is also the only place in this pass where a player can see which of the
+     herd needs feeding without opening the Animals tab. */
+  function stepLivestock(slot, kind, animal, dt, now) {
+    if (animal.state !== 'producing') {
+      slot.mode = 'idle';
+      playAnimalClip(slot, 'idle');
+      return;
+    }
+
+    if (slot.mode === 'walk') {
+      playAnimalClip(slot, 'walk');
+      if (stepSlotToward(slot, slot.targetX, slot.targetZ, ANIMAL_SPEED[kind], dt)) {
+        slot.mode = 'look';
+        slot.until = now + randomBetween(300, 900);
+      }
+    } else if (slot.mode === 'look') {
+      playAnimalClip(slot, 'idle');
+      if (now >= slot.until) { slot.mode = 'eat'; slot.until = now + randomBetween(1800, 3600); }
+    } else if (slot.mode === 'eat') {
+      playAnimalClip(slot, 'eat');
+      if (now >= slot.until) {
+        slot.targetX = randomBetween(roamXMin, roamXMax);
+        slot.targetZ = PEN_ROW_Z[kind] + randomBetween(-PEN_LANE_HALF_Z, PEN_LANE_HALF_Z);
+        slot.mode = 'walk';
+      }
+    } else {
+      // Bootstrapping out of the initial 'idle', or coming off a hungry
+      // spell: pause first rather than setting off immediately, so being
+      // fed reads as a moment of relief before she gets moving again.
+      slot.mode = 'look';
+      slot.until = now;
+    }
+  }
+
+  /* Guardians already had a state to key off before this step existed: on
+     duty they patrol, hungry they wait to be fed. This keeps exactly that
+     shape and only replaces what patrolling and waiting look like — a real
+     walk cycle back and forth along the lane instead of a sine wave, and a
+     real idle pose lowered onto its haunches instead of a squashed box,
+     because the squash was standing in for a resting pose no model existed
+     to give it yet. */
+  function stepGuardian(slot, kind, animal, dt, now) {
+    if (animal.state !== 'producing') {
+      slot.mode = 'idle';
+      playAnimalClip(slot, 'idle');
+      slot.object.scale.y = 0.55; // still resting, low to the ground
+      return;
+    }
+    slot.object.scale.y = 1;
+
+    if (slot.mode === 'walk') {
+      playAnimalClip(slot, 'walk');
+      if (stepSlotToward(slot, slot.targetX, PEN_ROW_Z[kind], ANIMAL_SPEED[kind], dt)) {
+        slot.mode = 'turn';
+        slot.until = now + randomBetween(250, 500);
+      }
+    } else if (slot.mode === 'turn') {
+      playAnimalClip(slot, 'idle');
+      if (now >= slot.until) {
+        slot.targetX = slot.targetX <= PEN_CX ? roamXMax : roamXMin;
+        slot.mode = 'walk';
+      }
+    } else {
+      slot.targetX = roamXMax;
+      slot.mode = 'walk';
+    }
+  }
+
+  let lastAnimalStepAt = 0;
+
   function syncAnimals(now) {
     const state = bridge.getState();
+    // Drawing time, not simulation time — the same reason poseFarmer keeps
+    // its own clock below rather than trusting the walk-timing dt: this only
+    // needs to move when someone is looking, and a gap spanning a spell on
+    // the Market tab must not be spent crossing the whole pen in one stride.
+    const dt = lastAnimalStepAt ? Math.min((now - lastAnimalStepAt) / 1000, 0.2) : 0;
+    lastAnimalStepAt = now;
 
     PEN_ROWS.forEach((kind) => {
       const def = bridge.ANIMALS[kind];
       const list = state[def.stateKey];
-      const mesh = animalMesh[kind];
-      const baseY = ANIMAL_BASE_Y[kind];
       const guardian = !!def.guards;
+      const pool = animalPool[kind];
 
-      for (let i = 0; i < PEN_CAP; i++) {
-        const slot = animalSlot(kind, i);
+      for (let i = 0; i < PEN_CAP; i += 1) {
+        const slot = pool[i];
         const animal = list[i];
+        if (!slot.object) continue; // still being fetched; nothing to draw yet
         if (!animal) {
-          setInstance(mesh, i, slot.x, 0, slot.z, 0, 0);
+          slot.object.visible = false;
           continue;
         }
 
-        const seed = i * 1.7;
-        let x = slot.x;
-        let y = baseY;
-        let scaleXZ = 1;
-        let scaleY = 1;
+        slot.object.visible = true;
+        if (guardian) stepGuardian(slot, kind, animal, dt, now);
+        else stepLivestock(slot, kind, animal, dt, now);
 
-        if (guardian) {
-          if (animal.state === 'producing') {
-            // On duty: a short trot along its row. Clamped rather than just
-            // a small amplitude, because the leftmost column sits close
-            // enough to the pen's own west rail that an unclamped trot
-            // could carry a dog behind it — out of the pen fence's bounds
-            // and out of the camera's view of it, not merely a clipped
-            // model but a Now You See It vanishing act.
-            const reach = Math.min(0.4, PEN_HALF_X - 0.12);
-            x = Math.max(
-              PEN_CX - PEN_HALF_X + 0.12,
-              Math.min(PEN_CX + PEN_HALF_X - 0.12, x + Math.sin(now * 0.0026 + seed) * reach),
-            );
-            y = baseY + Math.abs(Math.sin(now * 0.009 + seed)) * 0.03;
-          } else {
-            // Hungry: asleep, low and still, waiting to be fed.
-            scaleY = 0.45;
-            y = baseY * scaleY;
-          }
-        } else {
-          // Livestock graze in place: a slow, gentle bob, nothing that
-          // would carry them off the spot the farmer is about to visit.
-          y = baseY + Math.sin(now * 0.0015 + seed) * 0.02;
-        }
+        /* No equivalent of the farmer's CLIP_WALK_SPEED here — matching a
+           clip's own foot-fall to the ground it is meant to cover needs
+           watching it play, not the single frames a screenshot gives this
+           pass to check by. Left at 1:1 with ANIMAL_SPEED, on the working
+           assumption that the kit authors a walk clip at close to one world
+           unit per second, roughly what the farmer's own clip turned out to
+           keep. If a played build ever shows a visible foot-slide, this is
+           the number to correct, the same way CLIP_WALK_SPEED was. */
+        const walkAction = slot.actions.walk;
+        if (walkAction) walkAction.timeScale = ANIMAL_SPEED[kind];
+        slot.mixer.update(dt);
 
-        setInstance(mesh, i, x, y, slot.z, scaleXZ, scaleY);
-        tmpColor.set(ANIMAL_COLOR[kind]);
-        if (isAnimalSpokenFor(kind, animal.id)) tmpColor.lerp(TARGETED_TILE, 0.55);
-        mesh.setColorAt(i, tmpColor);
+        slot.object.position.set(slot.x, 0, slot.z);
+        slot.object.rotation.y = slot.heading;
+
+        const targeted = isAnimalSpokenFor(kind, animal.id);
+        slot.materials.forEach((mat, mi) => {
+          tmpColor.copy(slot.baseColors[mi]);
+          if (targeted) tmpColor.lerp(TARGETED_TILE, 0.55);
+          mat.color.copy(tmpColor);
+        });
       }
-
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     });
+  }
+
+  /* The position an animal is walked to and rests at — never necessarily the
+     position it is drawn at a frame from now, since roaming keeps that
+     moving. index beyond the pool's own length clamps to its last slot: an
+     eighth cow when only six are ever drawn still resolves to somewhere real
+     — wherever the sixth one currently is — rather than to a position
+     nothing occupies. */
+  function animalSlot(kind, index) {
+    const pool = animalPool[kind];
+    const slot = pool[Math.min(index, pool.length - 1)];
+    return { x: slot.x, z: slot.z };
   }
 
   /* -------------------------------------------------------------- */
@@ -2277,6 +2457,11 @@ function startScene(bridge) {
     pond: () => ({ x: POND.x, z: POND.z, rx: POND.rx, rz: POND.rz, surfaceY: WATER_Y }),
     inPond: (x, z) => inPondFootprint(x, z),
     waterPhase: () => waterUniforms.uTime.value,
+    /* Where the nth animal of a kind is actually standing right now, not
+       where the pen's grid would put it — the honest question for something
+       that roams, in the same way farmerAt is the honest question for her.
+       A test drives on this rather than waiting out a wander on a stopwatch. */
+    animalAt: (kind, index) => animalSlot(kind, index),
   };
 
   /* -------------------------------------------------------------- */

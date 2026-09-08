@@ -690,6 +690,98 @@ slides round the water instead of sticking to an invisible wall.
 
 ---
 
+## 18. Animals that roam — step 10
+
+The boxes and the icosahedron are gone. Every animal in the pen is now the
+same Cube Pets glTF the character-scale table in `assets.js` already carried
+a target height for — cow, chicken, dog and cat by name; sheep stands in for
+`cube-pets/animal-polar`, the kit ships no sheep, and this was already
+recorded as a gap before this step gave it a body. Each one is its own
+`AnimationMixer` playing `idle`, `walk` or `eat`, not an `InstancedMesh`: an
+instanced draw shares one clip clock across every copy, which was fine for a
+sine-wave bob that could never fall out of step with itself and is wrong the
+moment idle/walk/eat blending means neighbours are meant to be on different
+clips at different points in them.
+
+**Lanes, not open ground.** Five different kinds share one enclosure, and the
+"simple" in "simple steering" is that there is no collision avoidance between
+them — instead each kind keeps to its own band of the pen's depth (the same
+`PEN_ROW_Z` the old grid used) and is free to roam the pen's full width
+within it. A cow and a chicken can still end up close together at the edge of
+adjoining lanes, but they can never be asked to walk through one another,
+because the geometry never lets their bands overlap.
+
+**A three-clip loop, not a wander.** Livestock cycle walk → look → eat → walk:
+arrive at a random point in the lane, pause and look up, graze a while, pick
+a new point. Guardians patrol: walk to one end of the lane, pause and turn,
+walk back — the same shape their pre-model sine trot already had, just with a
+real walk cycle under it instead of a clamped `Math.sin`. Neither reads a
+seed. Nothing about the wander is asserted by a test the way the foliage
+scatter's counts are (see §15), so a fixed seed would buy determinism nobody
+was going to check for and Math.random is simply less code.
+
+**State drives the pose, not just the tint.** A hungry animal — livestock or
+guardian — is left exactly where it stands rather than wandering off toward
+grass it cannot reach yet: nothing to graze until it is fed. This is also
+now the only place in the 3D scene a player can see, without opening the
+Animals tab, which of the herd needs feeding — the ones standing still.
+Guardians additionally drop onto their haunches (a Y-scale of 0.55, the same
+trick the old squashed box used) since the kit has no dedicated resting pose;
+the scale is the one thing here still faked rather than authored.
+
+**One material clone, not per-mesh.** Every Cube Pets model turned out to
+share a single textured "colormap" material across all of its meshes — legs,
+body and head alike — rather than one per part. Cloning it once per animal
+instance and reusing the clone (deduped by identity, not assumed to be
+one-mesh-one-material) is what lets the "she's on her way" tint recolour a
+single cow without recolouring the clone(true) shares that material with —
+the rest of its own herd — and it is cheaper than the naive per-mesh clone
+dressFarm's static props get away with, since none of them are ever
+recoloured again after they're placed.
+
+**Softer renderers see fewer of them, not smaller ones.** `PEN_CAP` — how
+many of each kind are ever drawn — now reads `rendererIsSoftware()` the same
+way `FOLIAGE_SCALE` and the post-processing tier do, and for the same reason:
+thirty individually animated, multi-mesh models is a real cost this project
+has already had to defend its CI budget against once per system that adds
+weight to the scene. There is no simpler LOD for a single-detail kit to fall
+back to, same as §15's foliage — only fewer instances, not cheaper ones.
+
+**A real bug, not a step-10 one, caught by writing this step's own tests.**
+`animalIntent` in script.js — the function the 3D prompt has read since step
+6 — checked `animal.state === 'ready'`. Nothing has ever assigned that value;
+`animal.state` is only ever `'producing'` or `'hungry'`, and "ready" was
+always the derived `animalProgress(...) >= 1` check the Animals tab computed
+separately and correctly. The 3D prompt could not offer "Collect" to a ready
+animal from the day step 6 shipped it — only "Feed", once the animal later
+went hungry, and nothing at all while it sat there full. Confirmed with
+`git log -S` against the line before it was touched, so the step responsible
+is recorded accurately rather than folded into this one's own commit.
+Fixed here because this is the step that finally puts a live, moving target
+at the end of that path for a test to walk up to.
+
+**What the test-writing itself found, twice.** The first version of the
+walking-up-to-a-live-animal test drove her in a fixed direction and polled
+from Node between drive commands. Both were wrong, independently: a straight
+line missed the pen entirely, because its lane sits north of where she
+spawns, not due east of it; and re-aiming every tick at full stick deflection
+overshot a slow-moving target so badly under WALK_SPEED's 4.2 units/second
+that the loop mostly saw her fly through REACH and out the other side.
+Slowing the stick down inside a settle radius fixed the chase — and then
+revealed a second problem: the round trip between "she's in reach" and "so
+what does the prompt say" was long enough, and frequent enough across many
+short Node-side ticks, to occasionally let the still-roaming cow wander back
+out in the gap, and to starve this page's own rAF loop under the two workers
+this suite runs at, which is the same class of contention the walk-timing
+bug in §16 exists to defend against — a chatty enough test was found to
+budge tests it had nothing to do with while it ran alongside them. The fix
+was to run the whole chase as a single `page.evaluate` driven by the page's
+own `requestAnimationFrame`, so nothing crosses back to Node until the
+outcome is already settled — no round-trip gap, and no contention from the
+test itself.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -754,6 +846,21 @@ Everything above was checked before it was written:
   cause before any fix was written. The fix was then measured, not assumed
   effective: the targeted pair at 2 of 12, then 12 of 12; the full suite at
   4-worker contention before and after, not just after.
+- Every Cube Pets model's material structure — one shared "colormap" per
+  model, not one per mesh — was read out of the glTF JSON directly rather
+  than assumed from how the kit's other models (props, the terrain) happened
+  to be authored, before the per-instance cloning in §18 was written to rely
+  on it.
+- The `animalIntent` bug in §18 was traced to the exact commit that
+  introduced it with `git log -S` against the offending line, rather than
+  assumed to belong to whichever step happened to be shipping when it was
+  found — it predates step 10 by four steps, and the record above says so.
+- The animal-roaming tests were not trusted at their first green run. Each
+  new test in §18 was repeated 8-12 times, at the default two workers, before
+  being called reliable — which is what caught both the moving-target chase
+  overshooting its target and the Node-side round-trip gap that occasionally
+  let a still-roaming cow drift back out of reach between one check and the
+  next, neither of which showed up on a single pass.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

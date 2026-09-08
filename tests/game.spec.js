@@ -3706,6 +3706,143 @@ test.describe('the pond', () => {
   });
 });
 
+test.describe('animals that roam', () => {
+  const banked = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
+  const sceneReady = (page) => page.waitForFunction(() => !!window.Farm3DScene);
+  const at = (page, kind, index = 0) => page.evaluate(
+    ([k, i]) => window.Farm3DScene.animalAt(k, i),
+    [kind, index],
+  );
+  const moved = (a, b) => Math.hypot(b.x - a.x, b.z - a.z);
+
+  test('a producing cow wanders the pen; a hungry one is left exactly where it stands', async ({ page }) => {
+    await load(page, banked({
+      cows: [
+        { id: 1, state: 'producing', feedAt: secondsAgo(0) },
+        { id: 2, state: 'hungry', feedAt: null },
+      ],
+    }));
+    await sceneReady(page);
+
+    const before = { fed: await at(page, 'cow', 0), hungry: await at(page, 'cow', 1) };
+    /* Polled rather than a single fixed wait: the look-then-eat pause the
+       roam FSM opens on (see stepLivestock in scene.js) is itself randomised
+       up to 900ms before the walk leg that actually covers ground even
+       starts, and under worker contention a real-time wait can land before
+       that walk leg is done — a threshold of 0.05 came back 0.0497 once at
+       a fixed 3.5s. Waiting for a clearly-moved distance, with room to keep
+       trying, is what a person watching the pen would actually do rather
+       than glance at one instant and call it. */
+    await expect.poll(async () => moved(before.fed, await at(page, 'cow', 0)), {
+      timeout: 10_000,
+    }).toBeGreaterThan(0.2);
+
+    /* Not "moved less" — moved not at all. A hungry animal has nothing to
+       graze, so stepLivestock freezes it exactly where the pen's grid put
+       it rather than letting it wander off looking for grass that is not
+       there, which is also the only place a player can see who needs
+       feeding without opening the Animals tab. */
+    expect(await at(page, 'cow', 1)).toEqual(before.hungry);
+  });
+
+  test('a guardian on duty patrols the lane; hungry, it rests', async ({ page }) => {
+    await load(page, banked({
+      dogs: [{ id: 90, state: 'producing', feedAt: secondsAgo(0) }],
+      cats: [{ id: 91, state: 'hungry', feedAt: null }],
+    }));
+    await sceneReady(page);
+
+    const before = { dog: await at(page, 'dog', 0), cat: await at(page, 'cat', 0) };
+    // Polled, not a fixed wait — see the equivalent cow test above for why.
+    await expect.poll(async () => moved(before.dog, await at(page, 'dog', 0)), {
+      timeout: 10_000,
+    }).toBeGreaterThan(0.2);
+
+    expect(await at(page, 'cat', 0)).toEqual(before.cat);
+  });
+
+  test('walking up to a roaming, ready cow offers to collect it', async ({ page }) => {
+    /* Regression test for a real bug this step's own screenshots did not
+       catch and its own test-writing did: animalIntent (script.js) checked
+       animal.state === 'ready', a value nothing ever assigns — animal.state
+       is only ever 'producing' or 'hungry', and "ready" is always the
+       derived animalProgress(...) >= 1 check the Animals tab already used.
+       The 3D prompt could not offer "Collect" to a ready animal from the day
+       step 6 shipped it; only "Feed", once the animal later went hungry, and
+       only null for as long as it sat there full. Fixed alongside this
+       step because it is the walk-up-to-a-live-animal path this step is
+       what finally exercises. */
+    await load(page, makeSave({ cows: [{ id: 1, state: 'producing', feedAt: secondsAgo(60) }] }));
+    // produceTime is 25s; 60 is comfortably past ready with room for the
+    // page's own boot time (see secondsAgo's own doc comment above).
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    /* Steered at the cow's own live position rather than in a fixed
+       direction, and re-aimed every tick: the pen is well off the straight
+       line from her start to any point due east of it (the cow's lane sits
+       north of where she spawns), and the cow is, by design, not staying
+       still while she crosses the yard. A player working the stick would
+       correct the same way.
+
+       The stick is pushed at less than full deflection once she is close —
+       drive()'s magnitude scales her speed (see steer() in scene.js), and a
+       full-speed straight line at a slow-moving target massively overshoots
+       at WALK_SPEED's 4.2 units/second in a pen barely two wide, so the
+       first version of this loop mostly saw her fly through REACH and out
+       the other side rather than land in it.
+
+       And it all runs as one page.evaluate rather than a Node-side loop of
+       many small ones. That was tried first and it was doubly wrong: every
+       tick's round trip left a gap between "yes, in reach" and "so what does
+       the button say now" for the still-roaming cow to wander back out of in
+       — an intermittent real failure, not a flaky assertion — and the sheer
+       number of round trips (driving alone was one per tick) was slow enough
+       to starve this page's own rAF under the two workers CI runs this
+       suite at, which is exactly the contention this project's render loop
+       has needed defending against before (see the walk-timing bug in the
+       art bible). Every read and every drive call below happens in the same
+       browser-side tick they are decided from, and only the final, settled
+       outcome ever crosses back to Node. */
+    const landedOn = await page.evaluate(() => new Promise((resolve) => {
+      const scene = window.Farm3DScene;
+      let tick = 0;
+      function step() {
+        const cow = scene.animalAt('cow', 0);
+        const here = scene.farmerAt();
+        const dx = cow.x - here.x;
+        const dz = cow.z - here.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        const mag = dist < 0.6 ? 0.15 : 1;
+        scene.drive((dx / dist) * mag, (dz / dist) * mag);
+
+        const reach = scene.reachable();
+        if (reach?.type === 'animal' && reach.distance < 0.5) {
+          scene.drive(0, 0);
+          resolve({
+            reach,
+            promptText: document.getElementById('actionPrompt')?.textContent ?? '',
+          });
+          return;
+        }
+        tick += 1;
+        if (tick >= 1200) { scene.drive(0, 0); resolve(null); return; }
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }));
+
+    expect(landedOn).not.toBeNull();
+    expect(landedOn.reach.kind).toBe('cow');
+    expect(landedOn.reach.intent).toBe('collect');
+    expect(landedOn.promptText).toMatch(/Collect/);
+
+    await expect(page.locator('#actionPrompt')).toBeVisible();
+
+    await page.keyboard.press('Space');
+    await expect.poll(async () => (await readSave(page)).inventory.milk).toBeGreaterThan(0);
+  });
+});
+
 test.describe('driving her yourself', () => {
   const ripeAt = (...indices) => Array.from({ length: PLOT_COUNT }, (_, i) => (
     indices.includes(i) ? { crop: 'wheat', plantedAt: secondsAgo(40) } : { crop: null, plantedAt: null }
