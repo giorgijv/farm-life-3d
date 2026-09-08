@@ -135,14 +135,40 @@ test.describe('phone portrait', () => {
     const box = await page.locator('#driveStick').boundingBox();
     const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-    await page.mouse.move(centre.x, centre.y);
-    await page.mouse.down();
-    await page.mouse.move(centre.x, centre.y - 40); // push north, up the field
-    await page.waitForFunction(
-      (p) => window.Farm3DScene.reachable()?.plot === p,
-      RIPE_PLOT,
-      { timeout: 15_000 },
-    ).finally(() => page.mouse.up());
+    /* Push, wait for the plot to come into reach, let go — and, since letting
+       go is itself a round trip from Node back into the page, tolerate
+       landing a beat late. Reachable becoming true in the page and the stick
+       actually releasing are two different events with a gap between them;
+       under real contention a single requestAnimationFrame tick can land in
+       that gap and, now that walking credits whatever real time has actually
+       passed rather than a fixed 100ms a tick (see the walk-timing fix), that
+       one tick can be enough to carry her past the plot before the release
+       takes effect. A real thumb overshoots the same way and corrects with a
+       second, smaller tap back — so this does too, rather than trusting the
+       first push to land exactly. */
+    async function driveOnto(initialDy, plot) {
+      let dy = initialDy;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await page.mouse.move(centre.x, centre.y);
+        await page.mouse.down();
+        await page.mouse.move(centre.x, centre.y + dy);
+        await page.waitForFunction(
+          (p) => window.Farm3DScene.reachable()?.plot === p,
+          plot,
+          { timeout: 15_000 },
+        ).finally(() => page.mouse.up());
+        if (await page.evaluate((p) => window.Farm3DScene.reachable()?.plot === p, plot)) return;
+        // Overshot moving this way — every retry after the first corrects a
+        // small, fixed amount back the way we came, never further past.
+        // Reversing this by shrinking-and-flipping was tried first and could
+        // send her back past the plot the other way; a fixed small nudge in
+        // one direction only converges.
+        dy = -Math.sign(dy) * 12;
+      }
+      throw new Error(`driveOnto: never settled on plot ${plot}`);
+    }
+
+    await driveOnto(-40, RIPE_PLOT); // push north, up the field
 
     // Harvest by tap: 5 + 3 = 8 wheat.
     await page.locator('#actionPrompt').tap();

@@ -578,6 +578,28 @@ measured baseline) to 2 of 251 — an improvement beyond just the two tests
 that made this worth chasing down, since every other walk-dependent test was
 paying the same tax to a smaller degree.
 
+**The fix above then broke a different test for a related reason**, worth
+recording separately because the mechanism is not the same bug wearing a
+different hat — it is what fixing the first bug exposed. Mobile's "the whole
+loop is playable by tapping" drives the on-screen stick with real pointer
+events, waits for a plot to come into reach, then releases. Releasing is
+itself a round trip — `page.mouse.up()` back into the page — and a
+`requestAnimationFrame` tick can land in the gap between "reach detected" and
+"stick actually let go." With the per-tick cap gone, that one tick now
+credits however much real time has passed, which under contention was enough
+to carry her past the plot before the release took effect: 9 of 10 runs at
+`--workers=4`, tapping a "Pick a seed first" prompt over an overshot empty
+tile instead of harvesting the ripe one it meant to land on.
+
+Not a reason to bring the cap back — the cap was wrong for every walk in the
+game, and this is one test's interaction with a real device correcting for
+it. **Fixed in the test**: after releasing, check whether the target is still
+in reach, and if not, nudge back a small fixed amount in the opposite
+direction, repeated as needed. A shrink-and-flip correction was tried first
+and could send her back past the plot the other way — overshoot only ever
+happens moving in the direction just pushed, so the fix has to converge in
+one direction, not oscillate. 15 of 15 after.
+
 ---
 
 ## Verified, not assumed
