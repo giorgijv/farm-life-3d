@@ -3,7 +3,7 @@
     "kenney": "3694c6879e487c108f55677be7dd2ca75b07cc3b",
     "three": "r169"
   },
-  "bytes": 1661350,
+  "bytes": 1688470,
   "files": [
     "./assets/models/nature/crops_leafsStageA.glb",
     "./assets/models/nature/crops_leafsStageB.glb",
@@ -51,6 +51,7 @@
     "./assets/models/city-suburban/building-type-a.glb",
     "./assets/models/city-suburban/building-type-b.glb",
     "./assets/models/city-suburban/Textures/colormap.png",
+    "./assets/models/fantasy-town/stall-green.glb",
     "./assets/models/fantasy-town/Textures/colormap.png"
   ],
   "vendor": [

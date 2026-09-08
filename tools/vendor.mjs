@@ -86,11 +86,13 @@ const KENNEY_MODELS = {
      mirror has no barn and no silo in any kit, checked rather than assumed.
      See the gap noted in docs/ART_BIBLE.md. */
   'city-suburban': ['building-type-a', 'building-type-b'],
-  /* Nothing from fantasy-town any more: its windmill is only the sail
-     assembly, not a mill (see the note in scene.js). Kept as an empty entry
-     rather than deleted so the next person to want a landmark can see the kit
-     was tried. */
-  'fantasy-town': [],
+  /* Not the windmill — that entry stayed empty for a reason recorded in
+     scene.js — but stall-green checked out where it didn't: one mesh, one
+     material, a 1x1.24x1 footprint, a real assembled stall rather than a
+     part of one. Placed as set dressing in step 11; nothing in this game
+     ever walks her to it, since the Market is a flat tab with no seat in
+     the 3D world, the same as Achievements and Dream. */
+  'fantasy-town': ['stall-green'],
 };
 
 /* Kits whose models reference a shared texture atlas by a relative URI

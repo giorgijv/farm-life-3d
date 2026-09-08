@@ -307,12 +307,15 @@ function startScene(bridge) {
   const TARGETED_TILE = new THREE.Color(0xb59a5c); // a tile the farmer is on her way to
 
   /* -------------------------------------------------------------- */
-  /* Crops — a generic sprout/seedling while young, a crop-coloured    */
-  /* head once a plot nears ripe. Two InstancedMeshes cover all         */
-  /* sixteen plots and every crop; which plots are lit up, and in what */
-  /* colour, is entirely driven by state each frame.                    */
+  /* Crops — the real thing, once there is enough of one to show       */
   /* -------------------------------------------------------------- */
 
+  /* Only "rotten" still has no model of its own — the kit has nothing that
+     is a wilted, unharvested crop, and stretching one of its healthy
+     stages to mean the opposite would read worse than the abstract shape
+     below. A squashed cone and a squashed icosahedron, in the same rotten
+     colours the 2D grid's own rotten sprite uses, cover every crop alike:
+     what has gone off no longer needs to say which crop it was. */
   const stalkGeo = new THREE.ConeGeometry(0.09, 1, 6);
   stalkGeo.translate(0, 0.5, 0); // pivot at the base, so scale.y grows it up from the soil
   const stalkMesh = new THREE.InstancedMesh(
@@ -329,16 +332,16 @@ function startScene(bridge) {
   );
   scene.add(headMesh);
 
-  const SPROUT_COLOR = 0x74b750;
-  const CROP_HEAD_COLOR = {
-    wheat: 0xd9b64a,
-    corn: 0xf2c94c,
-    carrot: 0xe0672c,
-    pumpkin: 0xdb7a1f,
-  };
-  const WILT_COLOR = 0xe0a233;
   const ROTTEN_STALK = 0x8a8267;
   const ROTTEN_HEAD = 0x6b6250;
+  /* A partial tint, not a full swap: the old headMesh had no real appearance
+     of its own to protect — it was a plain icosahedron in whatever colour it
+     was told — so wilting could just replace that colour outright. A real
+     wheat or pumpkin model has its own authored look, and overwriting it
+     entirely would hide the very crop the rest of this step exists to show;
+     lerping partway toward this instead lets the shape and its texture keep
+     reading while the colour still visibly sours. */
+  const WILT_TINT = new THREE.Color(0xb0742a);
 
   const tmpColor = new THREE.Color();
   const tmpPos = new THREE.Vector3();
@@ -358,6 +361,123 @@ function startScene(bridge) {
 
   function hideInstance(mesh, i, x, z) {
     setInstance(mesh, i, x, 0, z, 0, 0);
+  }
+
+  /* Every crop starts as the same two generic sprouts regardless of what it
+     will become — the same beat the 2D grid's 🌱/🌿 swap keeps, modelled
+     instead of iconified. Only once a plot reaches the stage worth telling
+     crops apart at does it diverge into what it actually is. */
+  const SPROUT_MODEL = ['nature/crops_leafsStageA', 'nature/crops_leafsStageB'];
+
+  /* What a crop looks like from there on — and, for wheat and corn, a
+     second look for "grown but not yet ripe" that the kit happens to ship
+     and the 2D grid does not distinguish at all (both stay the same emoji
+     until the progress bar underneath says otherwise; see plotGrowthStage
+     in script.js). Carrot and pumpkin get one model for the whole of that
+     stage: the kit ships no half-grown carrot or pumpkin, and inventing one
+     would be dressing up a guess as an asset, the same call §18 made about
+     a resting pose for the guardians. */
+  const CROP_STAGE_MODEL = {
+    wheat: { growing: 'nature/crops_wheatStageA', ripe: 'nature/crops_wheatStageB' },
+    corn: { growing: 'nature/crops_cornStageB', ripe: 'nature/crops_cornStageD' },
+    carrot: { growing: 'nature/crop_carrot', ripe: 'nature/crop_carrot' },
+    pumpkin: { growing: 'nature/crop_pumpkin', ripe: 'nature/crop_pumpkin' },
+  };
+
+  const CROP_MODEL_IDS = [...new Set([
+    ...SPROUT_MODEL,
+    ...Object.values(CROP_STAGE_MODEL).flatMap((s) => [s.growing, s.ripe]),
+  ])];
+
+  /* A small fixed spin per plot, not a random one re-rolled on every
+     rebuild: sixteen identical stalks all facing the same way reads as a
+     diagram, and re-rolling it on every state change would make a crop
+     visibly spin in place the moment it ripened. Golden-angle spacing is
+     what keeps sixteen neighbours from ever landing on the same angle by
+     coincidence, the same trick a seeded scatter would reach for if this
+     needed to vary by more than a plot's own fixed index. */
+  function cropSpin(i) {
+    return (i * 2.399963) % (Math.PI * 2);
+  }
+
+  /* One InstancedMesh per primitive per model — a stage with two materials
+     (wheat's ripe head is grain-colour plus stem-colour) is two meshes
+     moving together, same as a foliage species with a trunk and a canopy in
+     §15. Capacity is PLOT_COUNT because the worst case is every plot
+     showing this exact stage of this exact crop at once. Loaded once, at
+     startup, same as the foliage species: fetched here rather than waited
+     for, and drawn nowhere until it arrives — a plot just shows nothing at
+     that stage for the one frame it might take. */
+  const cropMeshes = {}; // model id -> InstancedMesh[]
+  function loadCropModel(id) {
+    return loadMeshes(id).then(({ meshes }) => {
+      cropMeshes[id] = meshes.map(({ geometry, material }) => {
+        material.toneMapped = false;
+        const mesh = new THREE.InstancedMesh(geometry, material, PLOT_COUNT);
+        for (let i = 0; i < PLOT_COUNT; i += 1) hideInstance(mesh, i, 0, 0);
+        scene.add(mesh);
+        return mesh;
+      });
+    }).catch((err) => console.warn(`farm: ${id} did not load`, err));
+  }
+  // Collected so a test can wait on every crop stage having arrived rather
+  // than guessing at a delay — same reason foliageReady exists in §15.
+  const cropModelsReady = Promise.all(CROP_MODEL_IDS.map(loadCropModel));
+
+  /** Hides every crop-stage model's instance i — the default for a frame
+      before whichever one is actually growing there gets shown. */
+  function hideCropStage(i) {
+    for (const id of CROP_MODEL_IDS) {
+      for (const mesh of cropMeshes[id] ?? []) hideInstance(mesh, i, 0, 0);
+    }
+  }
+
+  /** Shows model id's instance i at (x, y, z) with the plot's own fixed
+      spin, tinted by colorHex (0xffffff for "exactly as authored") — always
+      passed, never left to the caller's judgement, because InstancedMesh
+      lazily allocates its per-instance colour buffer on the first
+      setColorAt call and leaves every other instance in it at black until
+      it too is told otherwise; skipping the "no tint" case for an instance
+      that has never wilted would only go wrong the day a neighbour that
+      shares this same mesh finally does. Assumes hideCropStage(i) already
+      ran this frame — this only ever turns one stage's visibility back on,
+      never off. */
+  function showCropStage(id, i, x, y, z, colorHex) {
+    const meshes = cropMeshes[id];
+    if (!meshes) return; // still being fetched; nothing to draw yet
+    const spin = cropSpin(i);
+    for (const mesh of meshes) {
+      tmpMatrix.compose(
+        tmpPos.set(x, y, z),
+        tmpQuat.setFromAxisAngle(Y_UP, spin),
+        tmpScale.set(1, 1, 1),
+      );
+      mesh.setMatrixAt(i, tmpMatrix);
+      mesh.setColorAt(i, tmpColor.set(colorHex));
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+  }
+
+  /** Which crop-stage model, if any, currently has a visible (non-zero
+      scale) instance at plot i — the honest question a test can ask instead
+      of trusting that hideCropStage and showCropStage never disagree about
+      whose turn it is. Reads the matrix straight back off the mesh rather
+      than re-deriving the answer from game state, so it can catch this
+      code lying about itself, not just echo it. */
+  function activeCropStage(i) {
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    for (const id of CROP_MODEL_IDS) {
+      const mesh = (cropMeshes[id] ?? [])[0];
+      if (!mesh) continue;
+      mesh.getMatrixAt(i, m);
+      m.decompose(pos, quat, scale);
+      if (scale.x > 0.001) return id;
+    }
+    return null;
   }
 
   /* The jobs the farmer has been given but not yet done, oldest first, and
@@ -401,6 +521,7 @@ function startScene(bridge) {
       tileMesh.setColorAt(i, tmpColor);
 
       const plot = plots[i];
+      hideCropStage(i);
       if (locked || !plot.crop) {
         hideInstance(stalkMesh, i, x, z);
         hideInstance(headMesh, i, x, z);
@@ -414,6 +535,8 @@ function startScene(bridge) {
         setInstance(headMesh, i, x, 0.1, z, 1.25, 0.35, ROTTEN_HEAD);
         continue;
       }
+      hideInstance(stalkMesh, i, x, z);
+      hideInstance(headMesh, i, x, z);
 
       const progress = bridge.plotProgress(plot);
       const ripe = progress >= 1;
@@ -422,21 +545,22 @@ function startScene(bridge) {
       if (!ripe && stage < 2) {
         // Same beat as the 2D sprite swap: a young plot is a generic
         // sprout or seedling, not yet the crop it will become.
-        const height = stage === 0 ? 0.3 : 0.65;
-        setInstance(stalkMesh, i, x, 0, z, 1, height, SPROUT_COLOR);
-        hideInstance(headMesh, i, x, z);
+        showCropStage(SPROUT_MODEL[stage], i, x, 0, z, 0xffffff);
         continue;
       }
 
-      // Stage 2 (still growing) and ripe both show the full crop head —
-      // the 2D grid does the same, telling them apart with the progress
-      // bar underneath rather than the sprite itself.
-      setInstance(stalkMesh, i, x, 0, z, 1, 0.28, SPROUT_COLOR);
+      // Stage 2 (still growing) and ripe both count as "grown" — the 2D
+      // grid tells the two apart with the progress bar underneath, not the
+      // sprite; the model here can afford to actually change for wheat and
+      // corn, since the kit gave those two a growing look distinct from
+      // their ripe one (see CROP_STAGE_MODEL above).
       const wilting = ripe && bridge.isWilting(plot);
       const bob = ripe ? Math.sin(now * 0.0022 + i) * 0.045 : 0;
-      setInstance(
-        headMesh, i, x, 0.34 + bob, z, 1, 1,
-        wilting ? WILT_COLOR : CROP_HEAD_COLOR[plot.crop],
+      tmpColor.set(0xffffff);
+      if (wilting) tmpColor.lerp(WILT_TINT, 0.6);
+      showCropStage(
+        CROP_STAGE_MODEL[plot.crop][ripe ? 'ripe' : 'growing'],
+        i, x, bob, z, tmpColor.getHex(),
       );
     }
 
@@ -1103,6 +1227,14 @@ function startScene(bridge) {
     { id: 'survival/box', x: -2.8, z: 5.25, ry: -0.3 },
     { id: 'survival/box', x: -2.75, z: 5.65, ry: 0.6 },
     { id: 'survival/chest', x: 0.75, z: 4.6, ry: -0.2 },
+    /* The market stall — step 11's, not step 7's leftover windmill site.
+       fantasy-town/stall-green checked out where the windmill didn't: one
+       mesh, a real assembled stall rather than a modular piece of one. It
+       is not the 2D Market tab's counter — nothing in this game ever walks
+       her to it, since that tab has no seat in the 3D world at all, the
+       same as Achievements or Dream — just what a dooryard already thick
+       with crates and a chest would plausibly also have standing in it. */
+    { id: 'fantasy-town/stall-green', x: 2.2, z: 4.85, ry: -0.5 },
     { id: 'nature/plant_bush', x: -2.2, z: 4.5 },
     { id: 'nature/plant_bush', x: 0.3, z: 6.2 },
     { id: 'nature/flower_redA', x: -2.6, z: 4.1 },
@@ -2462,6 +2594,12 @@ function startScene(bridge) {
        that roams, in the same way farmerAt is the honest question for her.
        A test drives on this rather than waiting out a wander on a stopwatch. */
     animalAt: (kind, index) => animalSlot(kind, index),
+    /* A way to wait for every crop growth stage to have arrived, same
+       reason foliageReady exists — and the honest question of which one,
+       if any, a plot is actually showing right now, read back off the mesh
+       itself rather than re-derived from state. */
+    cropModelsReady: () => cropModelsReady,
+    cropStageAt: (plotIndex) => activeCropStage(plotIndex),
   };
 
   /* -------------------------------------------------------------- */

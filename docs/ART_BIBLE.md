@@ -118,17 +118,19 @@ One table, in `assets.js`, applied at load — never per-instance magic numbers.
 
 ## 5. Entity → asset map
 
-Crops keep the game's existing three-stage growth model. The Nature Kit
-supplies real stage models, including a generic sprout that matches the "young
-plot is a generic sprout, not yet the crop it will become" beat the 2D game
-already had:
+Crops keep the game's existing three-stage growth model — plotGrowthStage
+still returns 0/1/2 — but stage 2 turned out, once actually built in step 11,
+to have real models for both "grown but not yet ripe" and "ripe" for two of
+the four crops, which this table's first draft did not anticipate. See §19
+for the shipped mapping and why carrot and pumpkin only get one model apiece
+for stage 2 rather than four crops getting a matched pair:
 
-| Crop | Sprout | Growing | Ripe |
-|---|---|---|---|
-| Wheat | `crops_leafsStageA` | `crops_wheatStageA` | `crops_wheatStageB` |
-| Corn | `crops_leafsStageA` | `crops_cornStageB` | `crops_cornStageD` |
-| Carrot | `crops_leafsStageA` | `crops_leafsStageB` | `crop_carrot` |
-| Pumpkin | `crops_leafsStageA` | `crops_leafsStageB` | `crop_pumpkin` |
+| Crop | Sprout (0) | Seedling (1) | Growing (2, not ripe) | Ripe (2, ripe) |
+|---|---|---|---|---|
+| Wheat | `crops_leafsStageA` | `crops_leafsStageB` | `crops_wheatStageA` | `crops_wheatStageB` |
+| Corn | `crops_leafsStageA` | `crops_leafsStageB` | `crops_cornStageB` | `crops_cornStageD` |
+| Carrot | `crops_leafsStageA` | `crops_leafsStageB` | `crop_carrot` | `crop_carrot` |
+| Pumpkin | `crops_leafsStageA` | `crops_leafsStageB` | `crop_pumpkin` | `crop_pumpkin` |
 
 | Entity | Asset |
 |---|---|
@@ -137,7 +139,7 @@ already had:
 | Farmer (f/m) | `blocky-characters/character-{a,b}` — clips `idle`, `walk`, `sprint`, `interact-*`, `pick-up`, `sit`, `emote-yes/no` |
 | Cow / chicken / dog / cat | `cube-pets/animal-{cow,chick,dog,cat}` — clips `idle`, `walk`, `run`, `eat` |
 | Farmhouse | `city-suburban/building-type-a` |
-| Windmill, market stall | `fantasy-town/windmill`, `stall`, `stall-green` |
+| Windmill, market stall | ~~`fantasy-town/windmill`, `stall`~~ neither shipped — see the step 7 and step 11 addenda; `stall-green` did |
 | Tools, crates, rocks | `survival/tool-hoe`, `barrel`, `box`, `chest`, `rock-a..c` |
 | Foliage (instanced) | `nature/grass`, `grass_large`, `plant_bush`, `flower_{red,yellow,purple}A` |
 | Trees | `nature/tree_default`, `tree_detailed`, `tree_fat` |
@@ -782,6 +784,64 @@ test itself.
 
 ---
 
+## 19. Crops as real models, and the market stall — step 11
+
+The cone and the icosahedron are gone from every plot that isn't rotten.
+`nature/crops_leafsStageA` and `crops_leafsStageB` cover the sprout and
+seedling stages every crop shares — the same beat the 2D grid's 🌱/🌿 swap
+keeps, modelled instead of iconified. From there each crop diverges into
+what the Nature Kit actually ships for it, and what it ships is uneven on
+purpose, not by oversight: wheat and corn each get two stage-2 models,
+`...StageA`/`crops_cornStageB` for "grown but not yet ripe" and
+`...StageB`/`crops_cornStageD` for ripe — a distinction the 2D grid does not
+draw at all, both reading the same emoji until the progress bar underneath
+says otherwise (`plotGrowthStage`, script.js). Carrot and pumpkin get one
+model apiece for the whole of stage 2, because that is what the kit ships
+for them; inventing a halfway carrot to match wheat's pair would be dressing
+up a guess as an asset, the same call §18 made about a resting pose for the
+guardians. All eight models were vendored back in step 2, anticipating this
+step by name — `tools/vendor.mjs`'s own comment already read "the three
+growth stages the rules already model."
+
+**Real models needed to be told apart per plot, so the tint moved from the
+tile to the crop.** The old system was two InstancedMeshes total, generic
+enough that a single material colour could stand for a crop's identity
+outright. Eight models, several with two materials each, is closer in shape
+to the foliage species of §15 than to the old crop system — one
+InstancedMesh per primitive per model, capacity PLOT_COUNT, shown or hidden
+per plot per frame. Wilting used to fully replace the head's colour, because
+the head had no real colour of its own to protect. A real wheat or pumpkin
+model does, so wilting is now a partial lerp toward a sour tint rather than
+a swap — the shape and its own texture keep reading through it.
+
+**Rotten still has no model, on purpose.** The kit ships nothing that is a
+wilted, unharvested crop of any kind, and there is no version of "which
+crop" for it to distinguish — what has gone off no longer needs to say what
+it used to be. The old cone and icosahedron were kept, squashed, in their
+same rotten colours, covering every crop alike; a real WILT_TINT lerp exists
+for the one case that still has a real look to sour, not for this one.
+
+**The market stall is set dressing, not a destination.** `fantasy-town/stall`
+turned out to be a small sub-piece — 0.365 units tall, table-height, clearly
+one part of a modular assembly the way the windmill was a sail assembly on
+its own. `stall-green` checked out where it didn't: one mesh, one material,
+a 1 × 1.24 × 1 footprint, a real assembled stall. It stands in the dooryard
+because that is where a farm's other commerce-adjacent clutter — the chest,
+the crates — already was, not because anything walks her to it: the Market
+tab is a flat screen with no seat in the 3D world at all, the same as
+Achievements and Dream (see `field-screen` in index.html, present on Farm
+and Animals, absent on the other three).
+
+**A stray file, found while adding a real one.** `fantasy-town/windmill.glb`
+was still sitting in the repo, tracked in git since step 2, orphaned since
+step 7 dropped it from `KENNEY_MODELS` and never removed the file itself —
+70 KB of dead weight the service worker was never even precaching, since
+the manifest is generated from the same list that no longer named it.
+Deleted alongside the stall-green addition, not left for a future pass to
+notice a second time.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -861,6 +921,18 @@ Everything above was checked before it was written:
   overshooting its target and the Node-side round-trip gap that occasionally
   let a still-roaming cow drift back out of reach between one check and the
   next, neither of which showed up on a single pass.
+- `fantasy-town/stall` and `stall-green` were both fetched and their glTF
+  JSON read for a real bounding box before either was judged — `stall` at
+  0.365 units tall is table-height, not a stall, and `stall-green` at 1.24
+  units is — rather than assuming a plausible-sounding filename meant a
+  complete model the way `windmill` turned out not to.
+- §19's own crop-stage test found a real timing bug in itself before it ever
+  reached this document: fixtures written with secondsAgo, resolved at page
+  boot, put wheat's 5.25-second seedling window up against this sandbox's
+  own page-load and asset-fetch overhead, and lost a plot to the next stage
+  over on the very first run. Fixed by writing state.plots directly, in the
+  page's own clock, immediately before each check, rather than by widening
+  the margin and hoping — confirmed with five repeats, not one green run.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

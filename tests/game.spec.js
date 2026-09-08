@@ -3843,6 +3843,112 @@ test.describe('animals that roam', () => {
   });
 });
 
+test.describe('crops, modelled', () => {
+  const banked = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
+  const sceneReady = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.cropModelsReady());
+  };
+  const stageAt = (page, i) => page.evaluate((idx) => window.Farm3DScene.cropStageAt(idx), i);
+
+  // Growth times, in seconds — see CROPS in script.js. A fraction of one
+  // lands a plot at a chosen point in plotGrowthStage's own boundaries
+  // (script.js: <0.4 sprout, <0.75 seedling, <1 growing, >=1 ripe).
+  const GROW_TIME = { wheat: 15, corn: 30, carrot: 50, pumpkin: 70 };
+
+  test('every crop shows the model its growth stage actually calls for', async ({ page }) => {
+    /* One plot per crop per stage that has a model of its own — sixteen
+       plots, four crops, four stages apiece, wheat and corn using the extra
+       growing/ripe split the kit happens to give them (see CROP_STAGE_MODEL
+       in scene.js), carrot and pumpkin repeating their one stage-2 model for
+       both. Sprout and seedling are shared across every crop, so this also
+       covers SPROUT_MODEL without a fixture of its own.
+
+       Set live, in the page's own clock, immediately before each check —
+       not via secondsAgo at boot. Wheat's growTime is 15s, so its seedling
+       window (40%-75% of that) is only 5.25 seconds wide; the page's own
+       startup plus loading the eight crop models both eat into a boot-timed
+       margin before the first check ever runs, and the first version of
+       this test did exactly that and lost a wheat plot to the next stage
+       over. Poking state.plots directly and checking a moment later has
+       nothing but one short wait to drift across. */
+    await load(page, makeSave({ unlockedPlots: 16 }));
+    await sceneReady(page);
+
+    const cases = [];
+    for (const crop of ['wheat', 'corn', 'carrot', 'pumpkin']) {
+      cases.push(
+        [crop, 0.1, 'nature/crops_leafsStageA'],
+        [crop, 0.5, 'nature/crops_leafsStageB'],
+        [crop, 0.85, crop === 'wheat' ? 'nature/crops_wheatStageA'
+          : crop === 'corn' ? 'nature/crops_cornStageB'
+            : `nature/crop_${crop}`],
+        [crop, 1.3, crop === 'wheat' ? 'nature/crops_wheatStageB'
+          : crop === 'corn' ? 'nature/crops_cornStageD'
+            : `nature/crop_${crop}`],
+      );
+    }
+
+    for (let i = 0; i < cases.length; i += 1) {
+      const [crop, frac, expectedId] = cases[i];
+      const elapsed = frac * GROW_TIME[crop];
+      await page.evaluate(([idx, c, ago]) => {
+        state.plots[idx] = { crop: c, plantedAt: Date.now() / 1000 - ago, spoilsAt: null, rotten: false };
+      }, [i, crop, elapsed]);
+      await page.waitForTimeout(120); // one drawn frame's worth of margin, and then some
+      expect(await stageAt(page, i), `plot ${i}: ${crop} at ${frac} of its grow time`).toBe(expectedId);
+    }
+  });
+
+  test('a rotten plot shows the abstract rotten shape, not a crop model', async ({ page }) => {
+    await load(page, banked({
+      plots: Array.from({ length: PLOT_COUNT }, (_, i) => (
+        i === 0
+          ? { crop: 'wheat', plantedAt: secondsAgo(60), spoilsAt: Date.now() - 1, rotten: true }
+          : { crop: null, plantedAt: null }
+      )),
+    }));
+    await sceneReady(page);
+
+    // None of the eight real models — the rotten stand-in isn't one of them,
+    // by construction, so this is really asking "is nothing here confused
+    // about whose turn it is" rather than naming what should show instead.
+    expect(await stageAt(page, 0)).toBeNull();
+  });
+
+  test('harvesting and replanting never leaves the old crop\'s model standing', async ({ page }) => {
+    /* The regression this step's own bookkeeping could actually cause:
+       hideCropStage clears every stage's instance at a plot before
+       showCropStage turns exactly one back on, but only syncPlots' own
+       per-frame call is what enforces that — nothing stops a stale instance
+       from a crop that used to grow here from simply never being told to
+       hide if that call were ever skipped for a plot. Harvest a ripe wheat,
+       plant a corn in the same plot, and check the wheat is gone rather
+       than merely trusting that it must be. */
+    await load(page, banked({
+      coins: 500, selectedSeed: 'corn',
+      plots: Array.from({ length: PLOT_COUNT }, (_, i) => (
+        i === 0
+          ? { crop: 'wheat', plantedAt: secondsAgo(60), spoilsAt: Date.now() + 999999 }
+          : { crop: null, plantedAt: null }
+      )),
+    }));
+    await sceneReady(page);
+    expect(await stageAt(page, 0)).toBe('nature/crops_wheatStageB');
+
+    /* Straight to runPlotIntent, bypassing the walk-to-work queue entirely
+       — this is a rendering-bookkeeping question, not a walking one, and
+       that path is already covered in "walking to work" above. */
+    await page.evaluate(() => window.Farm3DBridge.runPlotIntent(0, 'harvest'));
+    await expect.poll(async () => (await readSave(page)).plots[0].crop).toBeNull();
+    expect(await stageAt(page, 0)).toBeNull();
+
+    await page.evaluate(() => window.Farm3DBridge.runPlotIntent(0, 'plant'));
+    await expect.poll(async () => (await readSave(page)).plots[0].crop).toBe('corn');
+    expect(await stageAt(page, 0)).toBe('nature/crops_leafsStageA');
+  });
+});
+
 test.describe('driving her yourself', () => {
   const ripeAt = (...indices) => Array.from({ length: PLOT_COUNT }, (_, i) => (
     indices.includes(i) ? { crop: 'wheat', plantedAt: secondsAgo(40) } : { crop: null, plantedAt: null }
