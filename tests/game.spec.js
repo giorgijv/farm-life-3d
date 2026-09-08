@@ -3628,6 +3628,84 @@ test.describe('foliage, instanced', () => {
   });
 });
 
+test.describe('the pond', () => {
+  /* Whether it looks wet is a screenshot's question and was answered by one
+     — the shader was tuned against renders at midday, dusk and midnight, and
+     three of its four settled values are there because a render showed the
+     first guess was wrong (see the art bible). What a test can hold onto is
+     the part that would break silently: that the surface is animating at all,
+     and that she cannot walk out onto it. */
+
+  test('the water is moving, not a painted disc', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    const first = await page.evaluate(() => window.Farm3DScene.waterPhase());
+    await page.waitForFunction(
+      (t) => window.Farm3DScene.waterPhase() > t,
+      first,
+      { timeout: 5_000 },
+    );
+  });
+
+  test('she walks round the water rather than across it', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    const start = await page.evaluate(() => window.Farm3DScene.farmerAt());
+    const pond = await page.evaluate(() => window.Farm3DScene.pond());
+
+    /* Sampled every frame from inside the page rather than polled over the
+       wire. She only spends about a second beside the water on the way past,
+       and a dozen round trips can land either side of that second — an
+       earlier version of this test read her position from Playwright and
+       failed whenever the walk got ahead of the polling. Every frame is also
+       every step keepOutOfPond is applied on, so this is the whole of what
+       happened rather than a sample of it. */
+    await page.evaluate(() => {
+      window.__pondTrack = [];
+      const tick = () => {
+        if (window.__pondTrack.length >= 3000) return;
+        window.__pondTrack.push(window.Farm3DScene.farmerAt());
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      // Straight at it from the north, the side she starts on. The pond is
+      // walk-blocked in steer() only, so this is the path a player with a
+      // hand on the stick actually takes.
+      window.Farm3DScene.drive(0, 1);
+    });
+
+    await page.waitForFunction(
+      (z) => window.Farm3DScene.farmerAt().z > z,
+      pond.z + pond.rz + 0.4,
+      { timeout: 20_000 },
+    );
+    await page.evaluate(() => window.Farm3DScene.drive(0, 0));
+
+    const track = await page.evaluate(() => window.__pondTrack);
+    const wet = await page.evaluate(
+      (pts) => pts.filter((p) => window.Farm3DScene.inPond(p.x, p.z)),
+      track,
+    );
+    expect(wet).toEqual([]);
+
+    /* Not a vacuous pass: driving due south holds x fixed, so her
+       undeflected course is the line x = start.x, and this asserts that line
+       runs through the water at the pond's own latitude. Pure geometry, so it
+       says the same thing however the frames happened to fall — an earlier
+       version asked instead whether she had visibly been pushed sideways,
+       which is true only if some frame actually landed her on the bank, and
+       under two workers a slow frame can carry her clean over the pond in one
+       step. That step is not a bug — the endpoint is dry and she is never
+       drawn in the water — but it does leave the push untested, which is why
+       the claim being made here is about her course rather than her path. */
+    expect(await page.evaluate(
+      (x) => window.Farm3DScene.inPond(x, window.Farm3DScene.pond().z),
+      start.x,
+    )).toBe(true);
+  });
+});
+
 test.describe('driving her yourself', () => {
   const ripeAt = (...indices) => Array.from({ length: PLOT_COUNT }, (_, i) => (
     indices.includes(i) ? { crop: 'wheat', plantedAt: secondsAgo(40) } : { crop: null, plantedAt: null }

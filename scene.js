@@ -186,8 +186,16 @@ function startScene(bridge) {
     else target.copy(stops.dusk).lerp(stops.night, (t - 0.5) * 2);
   }
 
+  /* How far into night we are, last time the sky was synced. The water below
+     needs the same number — its sun glint has to die with the sun rather than
+     glittering at midnight — and this is cheaper and less brittle than a
+     second bridge.daySkyState() call in the same frame that could, if the
+     clock ticked between them, disagree with the sky it is reflecting. */
+  let skyNight = 0;
+
   function syncSky() {
     const { phase, nightFactor } = bridge.daySkyState();
+    skyNight = nightFactor;
 
     lerpStops(scene.background, BG_STOPS, nightFactor);
     scene.fog.color.copy(scene.background);
@@ -656,6 +664,379 @@ function startScene(bridge) {
   scene.add(paths);
 
   /* -------------------------------------------------------------- */
+  /* The pond                                                          */
+  /* -------------------------------------------------------------- */
+
+  /* Water is the one surface in this scene that cannot be a flat colour and
+     still read as itself. A green rectangle is a field; a blue rectangle is
+     not a pond, it is a hole in the ground with paint in it. What makes water
+     look wet is that it disagrees with itself across the frame: nearly a
+     mirror where you see it edge-on, nearly its own colour where you look
+     straight down into it, with the boundary between the two moving. That is
+     Fresnel plus ripples, and it is what the shader below does.
+
+     Not three's own Water.js/Water2.js, which were the obvious answer and are
+     the wrong one here: they get their reflection from a second render of the
+     whole scene through a mirrored camera every frame. This project has
+     already dropped shadows twice, gated the whole post-processing chain
+     behind rendererIsSoftware(), and thinned the foliage on the same signal,
+     for exactly the reason a second scene render is unaffordable — and a
+     ninety-centimetre pond seen at a glancing angle would spend that budget
+     reflecting a sky it can get from scene.background for free.
+
+     Not a photographic normal map either, for the same reason the terrain
+     never got a tileable ground texture (see buildTerrain above): it would
+     fight the flat-shaded kit models standing around it, and it is another
+     file to vendor and cache. The ripples below are three crossing sine
+     wavelets differentiated analytically — the normal is the exact slope of
+     the height field, not a sampled approximation of one — which is a dozen
+     lines of arithmetic per pixel and no bytes at all. */
+
+  /* The dooryard, south-west of the field, near the camera.
+
+     It was first dug in the quiet north-west corner between the farmhouse and
+     the orchard, which is where a farm would actually put a pond and which
+     cleared every neighbour on paper. The screenshot killed it: from this
+     camera the farmhouse sits at almost exactly the same bearing as that
+     corner and only half the distance, so it covered the water completely.
+     A pond nobody can see is not worth shading.
+
+     Here it is in the open foreground the default view had nothing in — and
+     near the camera is where water most wants to be anyway, because the
+     Fresnel term below is an angle, not a distance: across two metres of
+     nearby water the view angle swings far enough to run the whole way from
+     sky-mirror at the far lip to see-through at the near one, which is the
+     entire effect. The same pond twelve metres off would have been one flat
+     tone whatever the shader did.
+
+     The neighbours, measured: the path spine stops at x = -3.15 and the
+     pond's widest point at -2.75; the branch out to the pasture gate ends at
+     z = 3.95 against the pond's northern lip at 4.13; she spawns at z = 2.44,
+     in front of it, not in it. It is well inside the flat farm, so
+     terrainHeight is exactly 0 under all of it — which is why the bowl below
+     is a mesh laid on top rather than a dent in the terrain: at 1.25 units
+     between terrain vertices, a pond this size would have had two of them to
+     be carved out of. */
+  const POND = { x: -1.25, z: 5.4, rx: 1.35, rz: 1.15 };
+  const POND_RINGS = 14;
+  const POND_SEGMENTS = 48;
+
+  /* An embanked pond — a ring of earth thrown up around a shallow pool —
+     rather than a hole dug into the ground, and the reason is the terrain
+     mesh rather than agriculture.
+
+     The first version was the obvious one: a bowl sunk half a metre into the
+     ground. It rendered as a faint scratch on the grass, because the terrain
+     is a single unbroken sheet at y = -0.08 across the whole farm, and every
+     part of the bowl below that line was simply behind it. Only the couple of
+     centimetres of rim above the sheet ever showed.
+
+     Cutting a hole in the terrain to see through is the other way, and it is
+     not affordable here: at 1.25 units between terrain vertices this pond is
+     two cells across, so the hole would be a ragged square nothing like the
+     outline of the pond, and making it fit means an order of magnitude more
+     terrain vertices — on a project that has already had to drop shadows,
+     gate post-processing and thin its foliage to keep the software rasteriser
+     in CI inside its budget.
+
+     Building upward costs nothing and needs no terrain change at all, and it
+     is the better read from a camera twenty degrees above the ground: a
+     raised bank catches the light and casts its own shading, where a
+     depression at this angle mostly shows you the grass on its far side.
+     Farms do build them this way — a stock pond banked out of its own spoil —
+     so it is not a compromise anyone has to be told about. */
+  const FLOOR_Y = -0.075; // the pool bottom, a hair above the terrain sheet
+  const CREST_Y = 0.16;   // the top of the bank
+  const SKIRT_Y = -0.072; // where the bank's outer slope meets the grass
+
+  // Positions along the radius, 0 at the middle and 1 at the outer foot of
+  // the bank: flat pool floor, then up the inner face, then down the skirt.
+  const POOL_T = 0.7;
+  const CREST_T = 0.86;
+  /* Where the water meets the bank. Stating it as a position on the profile
+     and reading the height off it, rather than picking a height and solving
+     for the radius that matches, means the water's edge lands exactly on the
+     bank's inner face by construction — no arithmetic to get wrong, and no
+     gap opening up if the bank is ever retuned. */
+  const WATER_T = 0.755;
+
+  /* A perfect ellipse reads as a swimming pool. This is the same trick the
+     terrain's noise plays, in one dimension and without the lattice: two low
+     harmonics on the radius, so the outline bulges and pinches by about a
+     tenth of its width. Deterministic and closed-form because the walk
+     exclusion below has to agree with the geometry exactly — a seeded random
+     edge would mean storing it. */
+  function pondEdge(theta) {
+    return 1 + 0.07 * Math.sin(theta * 3 + 0.7) + 0.035 * Math.sin(theta * 5 - 2.1);
+  }
+
+  function bankY(t) {
+    if (t <= POOL_T) return FLOOR_Y;
+    if (t <= CREST_T) {
+      return FLOOR_Y + (CREST_Y - FLOOR_Y) * THREE.MathUtils.smoothstep(t, POOL_T, CREST_T);
+    }
+    return CREST_Y + (SKIRT_Y - CREST_Y) * THREE.MathUtils.smoothstep(t, CREST_T, 1);
+  }
+  const WATER_Y = bankY(WATER_T);
+
+  /* One centre vertex and POND_RINGS rings of POND_SEGMENTS around it, out to
+     tMax of the bank's outer foot. Both the bank and the water surface are
+     this shape at different radii and heights, so it is built once and handed
+     back with each vertex's own t — the caller needs that to colour mud
+     against grass, or to fade the water from deep to shallow, without working
+     out a second time where the vertex came from. */
+  function radialDisc(tMax, yFn) {
+    const position = [POND.x, yFn(0), POND.z];
+    const ts = [0];
+    const index = [];
+
+    for (let ring = 1; ring <= POND_RINGS; ring += 1) {
+      /* Rings bunched toward the outside rather than spread evenly. All the
+         shape is in the outer third — the floor is flat, and everything that
+         has a silhouette is the bank — so evenly spaced rings would spend
+         most of themselves on the featureless middle and leave the crest to
+         be described by three of them. The square root is just the cheapest
+         curve that does it. */
+      const t = Math.sqrt(ring / POND_RINGS) * tMax;
+      for (let seg = 0; seg < POND_SEGMENTS; seg += 1) {
+        const theta = (seg / POND_SEGMENTS) * Math.PI * 2;
+        const r = t * pondEdge(theta);
+        position.push(
+          POND.x + Math.cos(theta) * r * POND.rx,
+          yFn(t),
+          POND.z + Math.sin(theta) * r * POND.rz,
+        );
+        ts.push(t);
+      }
+    }
+
+    // Wound so the faces point up: with theta running from +x toward +z, that
+    // means going the other way round each triangle than it reads.
+    for (let seg = 0; seg < POND_SEGMENTS; seg += 1) {
+      index.push(0, 1 + ((seg + 1) % POND_SEGMENTS), 1 + seg);
+    }
+    for (let ring = 1; ring < POND_RINGS; ring += 1) {
+      const inner = 1 + (ring - 1) * POND_SEGMENTS;
+      const outer = inner + POND_SEGMENTS;
+      for (let seg = 0; seg < POND_SEGMENTS; seg += 1) {
+        const next = (seg + 1) % POND_SEGMENTS;
+        index.push(inner + seg, inner + next, outer + seg);
+        index.push(inner + next, outer + next, outer + seg);
+      }
+    }
+
+    return { position, ts, index };
+  }
+
+  const POND_MUD = new THREE.Color(0x6a5334);
+
+  function buildPondBank() {
+    const { position, ts, index } = radialDisc(1, bankY);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+    geo.setIndex(index);
+    geo.computeVertexNormals();
+
+    /* Coloured by the terrain's own function at the outer edge, so where the
+       bank's skirt meets the ground it is literally the same green as the
+       grass it interrupts and the seam between the two meshes disappears
+       without anything being matched by hand. The normalY passed is 1, i.e.
+       "flat", rather than the bank's real slope: the terrain mixes dirt into
+       steep ground, and the wet part of this mesh is being painted mud on
+       purpose two lines later, so letting slope do it as well would darken the
+       waterline twice over. The dry/wet crossover is put a little above the
+       waterline because a pond's bank is muddy for a hand's width above the
+       water, not exactly to it. */
+    const colors = new Float32Array(ts.length * 3);
+    for (let i = 0; i < ts.length; i += 1) {
+      terrainVertexColor(terrainColorTmp, position[i * 3], position[i * 3 + 2], 1);
+      const dry = THREE.MathUtils.smoothstep(ts[i], WATER_T, WATER_T + 0.09);
+      terrainColorTmp.lerp(POND_MUD, 1 - dry);
+      colors[i * 3] = terrainColorTmp.r;
+      colors[i * 3 + 1] = terrainColorTmp.g;
+      colors[i * 3 + 2] = terrainColorTmp.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return geo;
+  }
+
+  const pondBank = new THREE.Mesh(
+    buildPondBank(),
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
+  );
+  scene.add(pondBank);
+
+  function buildWaterSurface() {
+    const { position, ts, index } = radialDisc(WATER_T, () => WATER_Y);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+    // 0 in the middle, 1 where it meets the bank. The shader reads it as "how
+    // shallow" — no depth-buffer trick needed for a pond whose floor is known.
+    geo.setAttribute('shore', new THREE.Float32BufferAttribute(ts.map((t) => t / WATER_T), 1));
+    geo.setIndex(index);
+    /* The shader below never reads these — its normals are the ripples',
+       computed per pixel. They are here for SSAOPass, which draws the whole
+       scene a second time with MeshNormalMaterial swapped in to build its
+       normal buffer, and which would be reading an attribute that does not
+       exist. A flat disc's computed normals are all straight up, so this is
+       one array and no judgement calls. */
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  const waterUniforms = {
+    uTime: { value: 0 },
+    uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uSunColor: { value: new THREE.Color(0xfff3d6) },
+    uSkyColor: { value: new THREE.Color(0x7ec8f0) },
+    uDeep: { value: new THREE.Color(0x2a6273) },
+    uShallow: { value: new THREE.Color(0x6fb0ad) },
+    uNight: { value: 0 },
+  };
+
+  const WATER_VERT = /* glsl */`
+    attribute float shore;
+    varying vec3 vWorld;
+    varying float vShore;
+    void main() {
+      vShore = shore;
+      vec4 world = modelMatrix * vec4(position, 1.0);
+      vWorld = world.xyz;
+      gl_Position = projectionMatrix * viewMatrix * world;
+    }
+  `;
+
+  const WATER_FRAG = /* glsl */`
+    uniform float uTime;
+    uniform float uNight;
+    uniform vec3 uSunDir;
+    uniform vec3 uSunColor;
+    uniform vec3 uSkyColor;
+    uniform vec3 uDeep;
+    uniform vec3 uShallow;
+
+    varying vec3 vWorld;
+    varying float vShore;
+
+    // Three wavelet directions that share no common angle, so the pattern
+    // never lines up into visible stripes the way two crossing sets do — and
+    // three amplitudes close enough together that no one of them dominates,
+    // which is the other way stripes appear.
+    const vec2 D1 = vec2(0.94, 0.34);
+    const vec2 D2 = vec2(-0.37, 0.93);
+    const vec2 D3 = vec2(0.62, -0.78);
+
+    /* A fixed direction for the ripple shading below, deliberately not the
+       sun's. Lighting the ripples by the real sun looked right at midday and
+       fell apart at dusk: a sun near the horizon grazes the wave faces, so
+       the shading term swung nearly its whole range between one ripple and
+       the next and the pond came out in hard diagonal bars. The sun still
+       drives the glint and the reflected sky colour, which is what actually
+       reads as the time of day; the ripple texture itself just needs a light
+       to have relief against. */
+    const vec3 RIPPLE_LIGHT = vec3(0.4, 0.8199, -0.4099); // already unit length
+
+    /* The height field is a sum of a_i * sin(k_i * (D_i . p) + w_i * t), and
+       this is its gradient, term by term: d/dp of that sum is
+       a_i * k_i * cos(...) * D_i. Differentiating on paper rather than
+       sampling a normal map is why there is no texture to load, and why the
+       ripples stay exactly as sharp however close the camera gets. */
+    vec3 rippleNormal(vec2 p) {
+      float c1 = 0.065 * cos(17.0 * dot(D1, p) + 2.2 * uTime);
+      float c2 = 0.055 * cos(27.0 * dot(D2, p) - 3.1 * uTime);
+      float c3 = 0.040 * cos(41.0 * dot(D3, p) + 4.4 * uTime);
+      vec2 slope = c1 * D1 + c2 * D2 + c3 * D3;
+      return normalize(vec3(-slope.x, 1.0, -slope.y));
+    }
+
+    void main() {
+      vec3 n = rippleNormal(vWorld.xz);
+      vec3 viewDir = normalize(cameraPosition - vWorld);
+
+      /* Schlick's cheap Fresnel, without even the F0 term: at a glancing
+         angle this goes to 1 and the surface becomes the sky, looked straight
+         down into it goes to ~0 and the surface becomes the water. The whole
+         reason the pond reads as a surface rather than a coloured hole is
+         that this number is different at the near lip than the far one. */
+      float fres = pow(1.0 - max(dot(viewDir, n), 0.0), 2.0);
+
+      vec3 body = mix(uDeep, uShallow, vShore * vShore);
+      // The ripples shade the body as well as bending the reflection, so the
+      // surface still has texture in the middle of the pond where the view is
+      // steep and the Fresnel term is nearly nothing.
+      body *= 0.86 + 0.28 * max(dot(n, RIPPLE_LIGHT), 0.0);
+      /* Nothing else in this shader knows the sun has gone down. Every other
+         material in the scene is lit, so it darkens on its own as the
+         hemisphere light and the sun fade; a hand-written one keeps whatever
+         colour it was given, and the first night render had the pond glowing
+         like a lit pool in an otherwise black farm. The reflected sky needs
+         no such help — it is already the night sky's own colour. */
+      body *= mix(1.0, 0.16, uNight);
+      /* The reflection is pulled a little back toward the water's own
+         colour rather than being the raw sky. At midday the two are close
+         enough that it makes no odds, but at dusk the sky is a saturated
+         orange against a teal pond, and a full-strength reflection turned
+         every wave crest into a hard bar — the pond came out looking brushed
+         rather than wet. Real water does glitter like that; at this ripple
+         scale and this screen size it just reads as stripes. */
+      vec3 reflected = mix(uSkyColor, body, 0.3);
+      vec3 col = mix(body, reflected, clamp(fres * 0.72, 0.0, 1.0));
+
+      // A tight Blinn-Phong glint, faded out as the sun goes down: a pond
+      // still sparkling at midnight is the giveaway that nothing is lighting
+      // it, only painting it.
+      vec3 halfDir = normalize(uSunDir + viewDir);
+      /* A broad lobe, not a tight one. The obvious exponent for water is in
+         the hundreds, and at that sharpness this pond never glints at all:
+         these ripples tilt about nine degrees, and a highlight that narrow
+         needs a face turned two and a half times further than that to catch
+         the sun. Widening the lobe until the slopes the surface actually has
+         can reach it is what puts the sheen back, and it varies ripple to
+         ripple rather than sitting flat, which is the point of it. */
+      float spec = pow(max(dot(n, halfDir), 0.0), 24.0) * (1.0 - uNight);
+      col += uSunColor * spec * 0.9;
+
+      // Clearer at the bank, where the mud below is close enough to see
+      // through to, and near-opaque over the deep middle.
+      gl_FragColor = vec4(col, mix(0.97, 0.8, vShore));
+    }
+  `;
+
+  const water = new THREE.Mesh(buildWaterSurface(), new THREE.ShaderMaterial({
+    uniforms: waterUniforms,
+    vertexShader: WATER_VERT,
+    fragmentShader: WATER_FRAG,
+    transparent: true,
+    depthWrite: false, // the bank underneath is opaque and already drawn
+  }));
+  scene.add(water);
+
+  const pondCentre = new THREE.Vector3(POND.x, WATER_Y, POND.z);
+  const waterSunDir = new THREE.Vector3();
+
+  /* Everything the shader cannot know for itself, refreshed per drawn frame.
+     The sky colour and the sun are taken from the same scene objects syncSky
+     just set rather than re-derived from the clock, so the pond reflects the
+     sky that is actually behind it at dusk instead of a second guess at it. */
+  function syncWater(now) {
+    waterUniforms.uTime.value = now / 1000;
+    waterUniforms.uNight.value = skyNight;
+    waterUniforms.uSunColor.value.copy(sun.color);
+    waterUniforms.uSkyColor.value.copy(scene.background);
+    waterUniforms.uSunDir.value.copy(waterSunDir.copy(sun.position).sub(pondCentre).normalize());
+  }
+
+  /* Is this point over the pond? The margin is what pushes grass back from
+     the water's edge; the walk exclusion further down asks for more of it, to
+     keep her off the wet slope rather than merely out of the water. */
+  function inPondFootprint(x, z, margin = 0) {
+    const u = (x - POND.x) / POND.rx;
+    const v = (z - POND.z) / POND.rz;
+    const r = Math.hypot(u, v);
+    return r <= pondEdge(Math.atan2(v, u)) + margin;
+  }
+
+  /* -------------------------------------------------------------- */
   /* Dressing the rooms                                                */
   /* -------------------------------------------------------------- */
 
@@ -702,18 +1083,29 @@ function startScene(bridge) {
        around; the gap is recorded in the art bible with the missing barn and
        silo. */
 
-    // --- the dooryard, south: knee-high only, so nothing blocks the view ---
+    /* --- the dooryard, south: knee-high only, so nothing blocks the view ---
+       Everything here is also arranged around the pond, which the step that
+       dug it moved into this yard. Four entries changed: the two barrels and
+       the yellow flower stood where the water now is, and one box was close
+       enough to the rim to argue about. They were moved onto the bank rather
+       than deleted, which is what a farm looks like — things get put down
+       near the water, not cleared away from it — and the reeds and the log
+       below are new, because a rim of bare mud reads as a hole. */
     { id: 'survival/signpost', x: -3.0, z: 4.3, ry: 0.4 },
-    { id: 'survival/barrel', x: -0.35, z: 5.0, ry: 0.2 },
-    { id: 'survival/barrel', x: -0.05, z: 5.35, ry: 1.1 },
-    { id: 'survival/box', x: -2.55, z: 5.3, ry: -0.3 },
+    { id: 'survival/barrel', x: 1.35, z: 6.15, ry: 0.2 },
+    { id: 'survival/barrel', x: 1.65, z: 6.45, ry: 1.1 },
+    { id: 'survival/box', x: -2.8, z: 5.25, ry: -0.3 },
     { id: 'survival/box', x: -2.75, z: 5.65, ry: 0.6 },
     { id: 'survival/chest', x: 0.75, z: 4.6, ry: -0.2 },
     { id: 'nature/plant_bush', x: -2.2, z: 4.5 },
     { id: 'nature/plant_bush', x: 0.3, z: 6.2 },
     { id: 'nature/flower_redA', x: -2.6, z: 4.1 },
-    { id: 'nature/flower_yellowA', x: -0.9, z: 4.35 },
+    { id: 'nature/flower_yellowA', x: -2.4, z: 6.5 },
     { id: 'nature/stump_round', x: 1.9, z: 5.4, ry: 0.9 },
+    // Reeds on the west bank, a log rolled down to the south one.
+    { id: 'nature/grass_large', x: -2.7, z: 6.05 },
+    { id: 'nature/grass_large', x: 0.55, z: 4.75 },
+    { id: 'nature/log', x: -0.4, z: 6.75, ry: 1.5 },
 
     // --- the orchard, north: rows that loosen toward the hills ---
     { id: 'nature/tree_default', x: -2.6, z: -4.6, ry: 0.3, h: 2.9 },
@@ -799,6 +1191,9 @@ function startScene(bridge) {
     for (const b of BUILDING_CLEARINGS) {
       if (Math.hypot(x - b.x, z - b.z) <= b.r) return true;
     }
+    // Grass does not grow in the pond, and the margin keeps a tuft from
+    // standing in the shallows at the bank either.
+    if (inPondFootprint(x, z, 0.1)) return true;
     return false;
   }
 
@@ -1365,11 +1760,47 @@ function startScene(bridge) {
     maxZ: FARM_SOUTH - 0.3,
   };
 
+  /* How far past the water's edge she is held, in the pond's own normalised
+     units — about 18cm of bank, enough that she stands on level ground rather
+     than halfway down the wet slope with her feet at y=0 and the mud below
+     them. */
+  const POND_BANK = 0.12;
+
+  /* Pushed straight out to the bank along the ray from the pond's middle,
+     rather than refusing the step outright. The difference is what it feels
+     like to walk the shore: a refused step means walking into an invisible
+     wall and stopping dead, while projecting the step onto the rim lets the
+     component of her movement that runs *along* the bank survive, so she
+     slides round the water instead of sticking to it.
+
+     Only steering is blocked, deliberately — not stepToward, which the job
+     queue walks in a straight line to a plot or a pen. A queue that could be
+     given a target it can never reach because something is in the way is a
+     farmer stuck forever, and there is nothing to reach across the pond
+     anyway: every plot, gate and animal is east of the path spine. */
+  function keepOutOfPond(x, z, out) {
+    const u = (x - POND.x) / POND.rx;
+    const v = (z - POND.z) / POND.rz;
+    const r = Math.hypot(u, v);
+    const rim = pondEdge(Math.atan2(v, u)) + POND_BANK;
+    if (r >= rim) {
+      out.x = x;
+      out.z = z;
+      return;
+    }
+    // Dead centre has no ray to push along; unreachable in practice, but it
+    // is a divide by zero rather than a rounding error, so it gets an answer.
+    const push = r > 1e-6 ? rim / r : 0;
+    out.x = POND.x + (push ? u * push : rim) * POND.rx;
+    out.z = POND.z + (push ? v * push : 0) * POND.rz;
+  }
+
   function steer(dt) {
     const mag = Math.min(1, Math.hypot(drive.x, drive.z));
     const step = WALK_SPEED * mag * dt;
-    at.x = Math.max(ROAM.minX, Math.min(ROAM.maxX, at.x + (drive.x / mag) * step));
-    at.z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, at.z + (drive.z / mag) * step));
+    const x = Math.max(ROAM.minX, Math.min(ROAM.maxX, at.x + (drive.x / mag) * step));
+    const z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, at.z + (drive.z / mag) * step));
+    keepOutOfPond(x, z, at);
     facing = Math.atan2(drive.x, drive.z);
   }
 
@@ -1838,6 +2269,14 @@ function startScene(bridge) {
        free movement without synthesising a drag on every assertion, and it is
        the same call the stick and the keys already make. */
     drive: (x, z) => setDrive(x, z),
+    /* The pond, as numbers. A test cannot look at a canvas and say whether
+       that is water, but it can ask whether she is standing in it, and it can
+       watch the shader's clock to know the ripples are actually running
+       rather than frozen at t=0 — which is the difference between water and a
+       painting of water. */
+    pond: () => ({ x: POND.x, z: POND.z, rx: POND.rx, rz: POND.rz, surfaceY: WATER_Y }),
+    inPond: (x, z) => inPondFootprint(x, z),
+    waterPhase: () => waterUniforms.uTime.value,
   };
 
   /* -------------------------------------------------------------- */
@@ -1938,6 +2377,7 @@ function startScene(bridge) {
     if (lastDrawAt) chargeFrame(now - lastDrawAt);
     lastDrawAt = now;
     syncSky();
+    syncWater(now); // after syncSky: it reflects the sky that pass just set
     syncPlots(now);
     syncAnimals(now);
     poseFarmer(now);

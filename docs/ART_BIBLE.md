@@ -602,6 +602,94 @@ one direction, not oscillate. 15 of 15 after.
 
 ---
 
+## 17. Water — step 9
+
+The ask was "a pond or an irrigation channel gets an animated Fresnel-plus-
+scrolling-normal-map shader", and the delivered thing is a pond with a
+hand-written `ShaderMaterial`. Four decisions in it went the other way from
+the obvious one, and all four were forced by something measured rather than
+preferred.
+
+**No `Water.js` / `Water2.js`.** three's own water objects get their
+reflection from a second render of the scene through a mirrored camera, every
+frame. This project dropped shadows twice, gated the whole post-processing
+chain behind `rendererIsSoftware()` and thinned the foliage on the same
+signal, all to keep the software rasteriser in CI inside its budget. A second
+scene render is the one thing that budget cannot buy. The sky it would be
+reflecting is already in `scene.background`, for nothing.
+
+**No normal map.** Same reasoning that kept a photographic tileable off the
+terrain in §10: it would fight the flat-shaded kit models standing around it,
+and it is another file to vendor, cache and version. The ripples are three
+crossing sine wavelets differentiated on paper — the surface normal is the
+exact analytic gradient of the height field, not a sampled approximation —
+which costs a dozen lines of arithmetic per pixel and no bytes at all.
+
+**Banked, not dug.** The first version was a bowl sunk half a metre into the
+ground, which is what a pond is. It rendered as a faint scratch on the grass:
+the terrain is one unbroken sheet at `y = -0.08` across the whole farm, so
+everything below that line was simply behind it, and only the couple of
+centimetres of rim above the sheet ever showed. Cutting a hole to see through
+is the other way and is not affordable — at 1.25 units between terrain
+vertices this pond is two cells across, so the hole would be a ragged square
+nothing like its outline, and making it fit means an order of magnitude more
+terrain vertices on the machine class that is already the binding constraint.
+Building the bank upward costs nothing, needs no terrain change, and reads
+better from a camera twenty degrees above the ground, where a depression
+mostly shows you the grass on its far side. Farms do build stock ponds this
+way, out of their own spoil, so nothing has to be explained away.
+
+**Moved into the dooryard.** It was first dug in the quiet north-west corner
+between the farmhouse and the orchard — where a farm would put it, and it
+cleared every neighbour on paper. The screenshot killed it: from this camera
+the farmhouse sits at almost exactly the same bearing and half the distance,
+and covered the water completely. Near the camera is also where water most
+wants to be, because Fresnel is an angle and not a distance: across two metres
+of nearby water the view angle swings far enough to run from sky-mirror at the
+far lip to see-through at the near one, which is the entire effect. The same
+pond twelve metres off is one flat tone whatever the shader does. Four props
+that stood where the water now is were moved onto the bank rather than
+deleted, and reeds and a log were added, because a rim of bare mud reads as a
+hole.
+
+### Three shader values that are what a render made them
+
+- **The ripple light is not the sun.** Lighting the wave faces by the real sun
+  looked right at midday and fell apart at dusk: a sun near the horizon grazes
+  them, so the shading term swung nearly its whole range between one ripple
+  and the next and the pond came out in hard diagonal bars. The ripple relief
+  now uses a fixed direction; the sun still drives the glint and the reflected
+  sky colour, which is what actually reads as time of day.
+- **The reflection is pulled 30% back toward the water's own colour.** At
+  midday sky and pond are close enough that this makes no odds. At dusk a
+  saturated orange sky against a teal pond turned every wave crest into a bar
+  and the surface looked brushed rather than wet. Real water does glitter like
+  that; at this ripple scale and this screen size it just reads as stripes.
+- **The specular lobe is exponent 24, not the several hundred water deserves.**
+  At that sharpness this pond never glints at all: the ripples tilt about nine
+  degrees, and a highlight that narrow needs a face turned two and a half times
+  further to catch the sun. Widening the lobe until the slopes the surface
+  actually has can reach it is what puts the sheen back.
+
+And one that a render made necessary rather than merely better: **the body
+colour is scaled by night**. Every other material in the scene is lit, so it
+darkens on its own as the hemisphere light and the sun fade. A hand-written
+shader keeps whatever colour it is given, and the first night render had the
+pond glowing like a lit pool in an otherwise black farm.
+
+### Where she may and may not walk
+
+The water is blocked in `steer()` — the player-driven path — and deliberately
+not in `stepToward()`, which the job queue walks in a straight line to a plot
+or a pen. A queue that can be handed a target it can never reach is a farmer
+stuck forever, and there is nothing to reach across the pond anyway: every
+plot, gate and animal is east of the path spine. The block projects her step
+out onto the bank along the ray from the pond's middle rather than refusing it,
+so the component of her movement running *along* the bank survives and she
+slides round the water instead of sticking to an invisible wall.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -650,6 +738,17 @@ Everything above was checked before it was written:
   because the fix went in ahead of the first render. What was checked by
   screenshot afterward is that the fringe renders correctly at all, not that
   a bug it never shipped with used to be visible.
+- Every claim in §17 about how the pond looks is a render, not an intention.
+  The sunk bowl being invisible behind the terrain sheet, the farmhouse
+  covering the north-west site, the dusk banding, the night glow and the
+  missing glint were each found by looking at a screenshot of the thing, at
+  midday, dusk and midnight, with `state.dayElapsedMs` pinned before each
+  shutter. Every one of them was a design that read fine in the code.
+- The pond's neighbours — the path spine, the branch out to the pasture gate,
+  her spawn point, and each prop within reach of the water — were checked as
+  arithmetic against the pond's own edge function, not judged from the
+  screenshot, because a prop half in the water at one camera angle is out of
+  frame at another.
 - The step 8 CI failure was checked against a clean pre-step-8 tree before it
   was attributed to step 8 — the same failure there ruled step 8 out as the
   cause before any fix was written. The fix was then measured, not assumed
