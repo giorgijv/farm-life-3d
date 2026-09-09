@@ -3940,29 +3940,93 @@ test.describe('the keyboard plays the same game', () => {
        the same loop a player with a mouse gets — walk up, act on what is in
        reach — done entirely from the keyboard, with the grid untouched.
        Planting through the grid was already possible before step 12; playing
-       the actual game from the keyboard was not. */
+       the actual game from the keyboard was not.
+
+       Marked slow because it legitimately is: a plant, a growth, and a
+       harvest, each waiting on the farmer rather than on a stopwatch. About
+       five seconds at the worker count CI uses, and rather more on a loaded
+       box — given that room explicitly rather than being guillotined at the
+       default thirty seconds mid-harvest, which is one of the two ways this
+       test was failing. */
+    test.slow();
+
     await load(page, makeSave({ coins: 500, selectedSeed: 'wheat', unlockedPlots: PLOT_COUNT }));
     await sceneReady(page);
 
-    const walkUntilReachable = async () => {
-      await page.keyboard.down('ArrowUp');
-      await page.waitForFunction(
-        () => window.Farm3DScene.reachable()?.type === 'plot',
-        null,
-        { timeout: 15_000 },
-      );
-      await page.keyboard.up('ArrowUp');
+    /* Walks her up the field in short pushes, and only ever asks what is in
+       reach while she is standing still.
+
+       The first version held the key down, waited in-page for a tile to come
+       into reach, then released the key and asked Node-side what that tile
+       was. She kept walking for the width of that round trip — frequently
+       straight past the tile the wait had just seen — so `reachable()` came
+       back null and the line below read `.intent` off nothing. It failed
+       about one run in three under contention, and took a CI run down with
+       both its attempt and its retry. Same race, and the same fix, as the
+       roaming-cow test in §18: never read a position that is still moving
+       underneath you. Here that means stopping first and then looking,
+       rather than looking and then stopping.
+
+       It looks before it walks at all, which matters more than it reads:
+       she spawns at the gate already within reach of a tile (the live-region
+       test above turns on exactly that), so the usual answer is the first
+       one and she never moves. That is not laziness — under contention rAF
+       starves to a few ticks a second while `advanceFarmer` still credits
+       real elapsed time unconditionally, by design and for good reason (see
+       the note by the visibility handler in scene.js), so one starved frame
+       can carry her most of the way across the farm. A version that always
+       walked first overshot the whole field and never saw a plot at any
+       moment it happened to sample. Walking itself is covered by its
+       neighbour above; what this test is for is the plant and the harvest. */
+    const walkToAPlot = async () => {
+      for (let push = 0; push <= 40; push += 1) {
+        const target = await page.evaluate(() => {
+          const t = window.Farm3DScene.reachable();
+          return t && t.type === 'plot' ? t : null;
+        });
+        if (target) return target;
+        await page.keyboard.down('ArrowUp');
+        await page.waitForTimeout(120);
+        await page.keyboard.up('ArrowUp');
+      }
+      throw new Error('walked the length of the field without a plot coming into reach');
     };
 
-    await walkUntilReachable();
-    const target = await page.evaluate(() => window.Farm3DScene.reachable());
+    const target = await walkToAPlot();
     expect(target.intent).toBe('plant');
 
-    await page.keyboard.press('Space');
-    await expect.poll(async () => (await readSave(page)).plots[target.plot].crop).toBe('wheat');
+    /* Space sends her to the job and the rules run when she arrives, so what
+       is waited on is the outcome — and, if it does not come, the key is
+       pressed again, which is what a person sitting there would do.
 
-    /* And back again once it is ripe — the same tile, the same key, no grid
-       and no mouse anywhere in it. */
+       Both halves of that are load-bearing. `worked()` looks like the right
+       tool and is not: it waits for the action queue to empty, and straight
+       after a keypress the queue is still empty because the press has not
+       been handled yet, so it returns at once having proved nothing. A
+       single press and a five-second poll was the other end of the same
+       mistake — right about what to wait for, too impatient under
+       contention, where rAF starves to a few ticks a second while the walk
+       still credits real elapsed time (see the visibility note in scene.js).
+       Under that starvation a press can also land while she is mid-stride
+       between one job and the next and simply find nothing to act on. One
+       more press costs nothing when the first worked, because the check
+       comes before the press, not after it. */
+    const pressUntil = async (done, what) => {
+      for (let press = 0; press < 12; press += 1) {
+        if (await done()) return;
+        await page.keyboard.press('Space');
+        await page.waitForTimeout(600);
+      }
+      if (!(await done())) throw new Error(`space never ${what}`);
+    };
+
+    await pressUntil(
+      async () => (await readSave(page)).plots[target.plot].crop === 'wheat',
+      'planted the seed',
+    );
+
+    // And back again once it is ripe — the same tile, the same key, no grid
+    // and no mouse anywhere in it.
     await page.evaluate((idx) => {
       state.plots[idx].plantedAt = Date.now() / 1000 - 60; // wheat grows in 15s
     }, target.plot);
@@ -3971,8 +4035,10 @@ test.describe('the keyboard plays the same game', () => {
       { timeout: 10_000 },
     ).toBe('harvest');
 
-    await page.keyboard.press('Space');
-    await expect.poll(async () => (await readSave(page)).inventory.wheat).toBeGreaterThan(0);
+    await pressUntil(
+      async () => (await readSave(page)).inventory.wheat > 0,
+      'harvested the crop',
+    );
   });
 });
 

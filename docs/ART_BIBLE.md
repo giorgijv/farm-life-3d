@@ -1250,6 +1250,59 @@ to this sandbox's Chromium, so the tool ran here and nowhere a contributor
 would run it. It now reads `CHROMIUM_PATH` and otherwise takes Playwright's
 own browser, the same escape hatch `playwright.config.js` already uses.
 
+### The flake that took CI down, and what was actually wrong with it
+
+Step 15's own push went red, on a test it had not touched: *a keyboard-only
+player can plant and harvest without touching the plot grid*, step 12's
+acceptance test. It lost its attempt and its retry, which is how a
+one-in-three flake eventually spends a CI run. It had been failing on a
+clean tree since at least step 13 — noticed then, attributed to contention,
+and left. Leaving it was the mistake; a step called "tests, re-armed" is
+where that debt comes due.
+
+Three distinct faults, each found by measurement rather than by reading:
+
+1. **Reading a position that was still moving.** It held ArrowUp, waited
+   *in the page* for a tile to come into reach, then released the key and
+   asked *from Node* what that tile was. She kept walking for the width of
+   that round trip, frequently past the tile the wait had just seen, so
+   `reachable()` returned null and the next line read `.intent` off
+   nothing. Exactly the race §18's roaming-cow test was rewritten for.
+   Fixed by stopping first and looking second.
+2. **Walking at all was the wrong default.** The replacement pushed the key
+   in short bursts and checked between them — better, and still wrong,
+   because under contention rAF starves to a few ticks a second while
+   `advanceFarmer` still credits real elapsed time (deliberately: see the
+   visibility-handler note in scene.js). One starved frame can carry her
+   most of the way across the farm, so a version that always walked first
+   overshot the field entirely. She spawns within reach of a tile — the
+   live-region test above turns on precisely that — so it now looks before
+   it walks, and usually never moves.
+3. **A single keypress is not guaranteed to land on anything.** Under the
+   same starvation a press can arrive while she is mid-stride between one
+   job and the next and find nothing to act on. `worked()` looked like the
+   fix and is not — it waits for the action queue to drain, and immediately
+   after a press that queue is still empty because the press has not been
+   handled, so it returns at once having proved nothing. What works is what
+   a person does: check, and press again if nothing happened. The check
+   comes before the press, so the extra presses cost nothing when the first
+   one worked.
+
+Measured at four workers, twelve repeats, which is the load that shows it:
+
+| | failed | passed |
+|---|---|---|
+| as it stood | 4 | 8 |
+| after fault 1 fixed | 2 | 10 |
+| all three fixed | **0** | **36** (three runs) |
+
+At the worker count CI actually uses it is ten of ten, about five seconds
+apiece. The test is also marked `test.slow()`, because it honestly is —
+a plant, a growth and a harvest, each waiting on the farmer rather than a
+stopwatch — and was being guillotined at the default thirty seconds
+mid-harvest, which was the second of the two ways it failed rather than a
+separate bug.
+
 ---
 
 ## Verified, not assumed
@@ -1423,9 +1476,16 @@ Everything above was checked before it was written:
   the diff. Both halves of the new liveness check were exercised too: it
   fires against the broken bot and stays quiet against the fixed one, which
   is the only way to know a watchdog is wired to anything.
-- Nothing in step 15 touched the game or the suite — `git diff` is one file
-  — so step 14's 271-of-271 green is still the standing result rather than
-  being re-quoted from a fresh run that would have proved nothing.
+- The step 15 flake fix was measured at every stage rather than declared:
+  the failure rate at four workers went 4-in-12, then 2-in-12, then 0-in-36
+  across three runs, with each of the three faults fixed in turn. The
+  pre-fix number was taken by stashing the fix and re-running the same
+  command, not remembered from earlier. Both worker counts were checked,
+  because the one that matters is the one CI uses and the one that shows
+  the bug is not it.
+- That flake was also, honestly, known and left: it had been failing on a
+  clean tree since step 13 and was written off as contention at the time.
+  It is recorded here as debt that came due rather than as a discovery.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.
