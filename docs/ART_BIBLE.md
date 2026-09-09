@@ -1159,6 +1159,99 @@ blame, which is what it was run for.
 
 ---
 
+## 23. Tests and the playtest bot, re-armed — step 15
+
+Three things were asked for here. Two of them had already happened, and
+saying so is more useful than doing them twice. The third was true, and
+considerably worse than the plan knew.
+
+**"Rebuild the Playwright suite around free movement."** Already done, not
+as a rebuild but as a habit: every step since 6 brought its own tests for
+its own mechanic as it landed — the stick, the keys and the prompt in step
+6, roaming animals in 10, modelled crops in 11, the keyboard's own path
+through the game in 12, seasons and rain in 13, what the scene costs to
+draw in 14. There is no separate pile of old-mechanic tests waiting to be
+replaced, because none was ever allowed to accumulate. Rebuilding working
+tests to satisfy the wording would have been churn, and §20 already
+established what this project does when a plan's instruction and the code
+disagree.
+
+**"Redesign the accessibility test story around the reachability
+prompts."** Step 12 did this, and §20 records it: the roving tabindex, the
+arrows belonging to whoever has focus, the marker drawn on the real tile,
+and the live region that finally gave free movement a voice. The six older
+accessibility tests still describe the game as it is played now — plots
+are still labelled buttons, a crop can still be planted from the keyboard
+alone — so they stayed.
+
+**"Update `tools/playtest.js` to drive a walking character instead of
+tapping a grid."** True. And what looking found was not a bot testing the
+wrong mechanic — it was a bot testing *nothing at all*, and saying so in
+the affirmative.
+
+`.plots-grid` has been `pointer-events: none` since step 6; that is the
+whole reason the camera could turn to the horizon (§13). The bot drove the
+farm with real mouse clicks on those tiles, every one wrapped in
+`.catch(() => {})`. So every click went through to the scene behind the
+grid, did nothing, threw nothing, and was swallowed. Run for eight steps,
+the bot's verdict was:
+
+```
+relaxed #1  day 1  coins 60  earned 0  harvested 0  plots 8
+farmer  #1  day 1  coins  0  earned 0  harvested 0  plots 8
+hard    #1  day 1  coins 10  earned 0  harvested 0  plots 8
+
+NO PROBLEMS FOUND
+```
+
+Not one seed planted, not one crop harvested, not one coin earned, not one
+plot unlocked, on any tier — and a clean bill of health, because **a farm
+that nothing happens to cannot break an invariant.** The animals column
+was the tell that something still worked: those are ordinary DOM buttons,
+which is why they alone kept being pressed.
+
+The fix is the one the suite had already found for itself: activate a tile
+the way a keyboard does, through the element's own handler, rather than
+with a mouse press that now lands on the scene. Same call and same reason
+as `tapPlot`. On top of that the bot now also plays the mechanic step 6
+actually shipped — driving her by hand and taking whatever the prompt
+offers when she arrives somewhere — because no sweep of tiles reaches
+that, and a fuzzer's whole value is being somewhere no scripted path
+thought to go. After it:
+
+```
+relaxed #1  day 2  coins 38  earned 156  harvested 36  plots 10
+farmer  #1  day 1  coins 13  earned 144  harvested 24  plots 8
+hard    #1  day 1  coins 30  earned  72  harvested 18  plots 8
+```
+
+**The part worth keeping is the guard, not the fix.** A fuzzer that stops
+reaching the game reports no problems, which is indistinguishable from
+good news — that is the failure mode, and it will recur the next time the
+UI moves under it. So the bot now holds an invariant about *itself*: a run
+that ends without a single crop in the ground has not exercised the loop
+it exists for, and says so instead of printing a row of zeroes nobody
+reads. Getting a seed into the ground is the signal rather than harvesting
+one, deliberately — planting is the first thing the loop does and happens
+at any run length, while a harvest also needs the crop to grow and the
+farmer to walk back to it, which a twenty-second run can honestly miss. A
+watchdog that cries wolf on short runs is one nobody reads either. Checked
+both ways: it fires on the broken bot, and is silent on the fixed one.
+
+What this step deliberately did **not** do is put the bot in CI. It is a
+nondeterministic fuzzer that plays for minutes; CI already sits at about
+fourteen minutes against a twenty-minute budget (see `ci.yml`, and the
+step 7 run that was cancelled mid-stride at 10.3). Adding a fuzzer to that
+buys flaky failures rather than coverage. The liveness check is the guard
+appropriate to a tool a person runs on purpose.
+
+One thing fixed in passing: the launcher's `executablePath` was hardcoded
+to this sandbox's Chromium, so the tool ran here and nowhere a contributor
+would run it. It now reads `CHROMIUM_PATH` and otherwise takes Playwright's
+own browser, the same escape hatch `playwright.config.js` already uses.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1321,6 +1414,18 @@ Everything above was checked before it was written:
   discipline step 8 used on the walk-timing bug and step 13 used on the
   touch-target regression, and the same discipline that would have caught
   the opposite answer had the clean tree come back green.
+
+- Step 15 did not take the plan's word for the playtest bot being stale, nor
+  its own reading of the CSS for the bot being broken: it ran the bot, and
+  the zeroes in every column of its own summary line are the evidence. The
+  fix was then confirmed the same way — the same command, the same three
+  tiers, harvests and earnings in every row — rather than by arguing from
+  the diff. Both halves of the new liveness check were exercised too: it
+  fires against the broken bot and stays quiet against the fixed one, which
+  is the only way to know a watchdog is wired to anything.
+- Nothing in step 15 touched the game or the suite — `git diff` is one file
+  — so step 14's 271-of-271 green is still the standing result rather than
+  being re-quoted from a fresh run that would have proved nothing.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

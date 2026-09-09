@@ -134,6 +134,33 @@ async function playOnce(browser, tier, run) {
     return true;
   };
 
+  /* Activating a plot is not a mouse press any more, and has not been since
+     step 6: .plots-grid is pointer-events: none, so every real click this
+     bot aimed at a tile went through to the scene behind it and did nothing
+     at all. Silently — each one was wrapped in a catch — so run after run
+     reported NO PROBLEMS FOUND having never planted a seed. What the tiles
+     still are is the keyboard's way of sending her to work, so activate them
+     the way a keyboard does: the element's own handler, the same call and
+     the same reason as tapPlot in the suite. */
+  const activate = async (locator) => {
+    await locator.dispatchEvent('click').catch(() => {});
+  };
+
+  /* The mechanic step 6 actually shipped, which no sweep of tiles reaches:
+     walk her by hand and take whatever the game offers when she arrives
+     somewhere. Four short pushes rather than a route — this is a fuzzer, and
+     what it is for is an invariant broken in a state no scripted path would
+     have thought to visit. */
+  const driveAndWork = async () => {
+    if (!(await page.evaluate(() => !!window.Farm3DScene).catch(() => false))) return;
+    for (const [dx, dz] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+      await page.evaluate(([x, z]) => window.Farm3DScene.drive(x, z), [dx, dz]).catch(() => {});
+      await page.waitForTimeout(400);
+      await page.evaluate(() => window.Farm3DScene.drive(0, 0)).catch(() => {});
+      await tap('#actionPrompt:not([hidden]):not([disabled])', 'prompt while driving');
+    }
+  };
+
   const deadline = Date.now() + SECS * 1000;
   const seeds = ['wheat', 'corn', 'carrot', 'pumpkin'];
   let n = 0;
@@ -144,20 +171,22 @@ async function playOnce(browser, tier, run) {
     await page.locator('button[data-tab="farm"]').click().catch(() => {});
     await tap('#farmerFeedBtn:not([disabled])', 'farmer eats');
     for (const p of await page.locator('#plotsGrid .plot.ready').all()) {
-      await p.click({ timeout: 2000 }).catch(() => {});
+      await activate(p);
     }
     await check('harvest sweep');
     for (const p of await page.locator('#plotsGrid .plot.rotten').all()) {
-      await p.click({ timeout: 2000 }).catch(() => {});
+      await activate(p);
     }
     await check('clear rot');
     // Rotate which seed, so every crop gets exercised.
     await tap(`.seed-btn:nth-child(${(n % 4) + 1}):not([disabled])`, "pick seed");
     for (const p of await page.locator('#plotsGrid .plot.empty').all()) {
-      await p.click({ timeout: 2000 }).catch(() => {});
+      await activate(p);
     }
     await check('plant sweep');
-    await tap('#plotsGrid .plot.locked.unlockable', 'unlock plot');
+    await activate(page.locator('#plotsGrid .plot.locked.unlockable').first());
+    await check('unlock plot');
+    await driveAndWork();
 
     // ANIMALS: buy, feed, collect, feed guardians, occasionally sell.
     await page.locator('button[data-tab="animals"]').click().catch(() => {});
@@ -207,7 +236,30 @@ async function playOnce(browser, tier, run) {
     earned: state.stats.totalCoinsEarned, plots: state.unlockedPlots,
     animals: ANIMAL_ORDER.reduce((t, k) => t + state[ANIMALS[k].stateKey].length, 0),
     home: state.dreamHome, subsidies: state.subsidiesPaid, over: state.gameOver,
+    // For the liveness check below, not for the summary line.
+    inGround: state.plots.filter((p) => p.crop).length,
   }));
+
+  /* The watchdog on the watchdog, and the reason this whole step exists.
+     A fuzzer that has quietly stopped reaching the game still finds no
+     invariant broken, because a farm nothing happens to cannot break one —
+     which is exactly how a bot that had not planted a seed since step 6
+     went on printing NO PROBLEMS FOUND. So a run that got nowhere is
+     itself a finding: not an invariant about the game, an invariant about
+     the test.
+
+     Getting a crop into the ground is the signal, rather than harvesting
+     one, because planting is the first thing the loop does and happens
+     whatever the run length, while a harvest additionally needs the crop to
+     grow and the farmer to walk back to it — a 20-second run can honestly
+     miss that, and a watchdog that cries wolf on short runs is one nobody
+     reads. Nothing was ever planted before this step's fix, so this would
+     have caught it on the very first run after step 6. */
+  if (!final.over && final.inGround === 0 && final.harvested === 0) {
+    note(tier, run, 'the bot never got a single crop into the ground — it is not '
+      + 'reaching the game, so "no problems" from this run means nothing');
+  }
+
   await ctx.close();
   return final;
 }
@@ -551,7 +603,15 @@ async function stressOnce(browser, tier) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+  /* Same escape hatch, and the same reason, as playwright.config.js: a
+     sandbox with a prebuilt Chromium whose build number does not match this
+     Playwright version needs to be pointed at it. Hardcoding that path — as
+     this line used to — meant the tool only ran in one sandbox and nowhere
+     a contributor would actually run it. */
+  const browser = await chromium.launch({
+    args: ['--no-sandbox'],
+    ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+  });
   console.log(`playing ${SECS}s x ${RUNS} runs x ${TIERS.length} tiers\n`);
   for (const tier of TIERS) {
     for (let r = 1; r <= RUNS; r += 1) {
