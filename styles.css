@@ -446,6 +446,7 @@ body {
 .day-badge {
   padding: 6px 13px;
   border-radius: 999px;
+  white-space: nowrap; /* see .stats — the row wraps, the label does not */
   font-size: 0.98rem;
   color: #fff4dd;
   background: rgba(72, 40, 14, 0.42);
@@ -3009,6 +3010,13 @@ body {
   .topbar { padding: 10px 12px; }
   .stats { gap: 7px; }
   .coin-badge, .day-badge { font-size: 0.9rem; padding: 5px 11px; }
+  /* One notch smaller again for the day badge alone. Step 13 added a season
+     glyph to it and step 16 found the result folding "Day 10" onto two lines
+     inside its own pill on a narrow phone. Letting the badge shrink is the
+     cheap fix; letting the whole row wrap instead was tried and cost the
+     360px layout an entire extra topbar row, which is worse where vertical
+     space is scarcest. */
+  .day-badge { font-size: 0.82rem; padding: 5px 9px; }
 
   .animal-list, .market-list, .inventory-list, .achievements-list {
     grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));

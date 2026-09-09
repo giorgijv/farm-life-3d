@@ -9,23 +9,35 @@ Play it at **https://giorgijv.github.io/farm-life-3d/**
 ## About this fork
 
 This started as a copy of [Farm Life](https://giorgijv.github.io/farm-game/)
-([source](https://github.com/giorgijv/farm-game)) and was rebuilt with a 3D
-field: a farmer who walks to a plot before working it, animals in a pen she
-crosses the yard to milk, and the day/night cycle driving real light.
+([source](https://github.com/giorgijv/farm-game)) and was rebuilt around a 3D
+farm: a farmer you steer to the work, animals in a pen she crosses the yard to
+milk, seasons and weather over the top, and the day/night cycle driving real
+light.
 
 Everything below describes the game as it plays today. The 3D work is layered on
 top of these rules rather than replacing them — the simulation, the economy and
 the save format are shared with the original.
 
-**What's 3D:** the field is a 3D yard, and the farmer walks it. Tapping a plot
-sends her there, and the crop is worked when she arrives rather than when you tap
-— so clearing a ripe field is a round she walks rather than four instant taps. A
-fenced pen sits beside the field with the herd in it; feeding and collecting from
-the Animals tab send her there the same way, and a dog on duty trots the fence
-line while a hungry one waits it out. The sun tracks the same clock the 2D sky
-strip reads, warming and dimming the yard through dusk into a moonlit night, and
-the camera is no longer fixed — drag to orbit, pinch to zoom, two fingers to pan,
-clamped so it can't go underground or flip upside down.
+**What's 3D:** the field is a 3D yard, and you drive the farmer around it —
+an on-screen stick under your thumb, or the arrow keys or WASD. Walk up to
+something and the game offers what it is for ("Plant 🌾 Wheat", "Harvest",
+"Collect 🥛"); press that button, or the space bar, and she does it. Clearing
+a ripe field is a round she walks rather than four instant taps.
+
+Beside the field is a fenced pen with the herd in it — animated cows,
+chickens, sheep, a dog and a cat, each wandering its own lane, a guardian on
+duty trotting the fence line while a hungry one waits it out. The crops are
+modelled too, and change shape as they grow rather than just colour. There is
+a pond whose water actually moves, an orchard that turns to autumn colour and
+back, grass that disappears under winter, and rain that builds in across the
+three days before a hurricane lands, greying the sky as it comes. The sun
+tracks the same clock the 2D sky strip reads, carrying the yard from daylight
+through a warm dusk into a moonlit night. The camera follows her and is yours
+to move — drag to orbit, pinch to zoom, two fingers to pan, clamped so it
+can't go underground or flip upside down.
+
+None of that is required to play. The whole game is still reachable from the
+keyboard alone, and from a screen reader — see [Accessibility](#accessibility).
 
 ### Its save is its own
 
@@ -74,10 +86,10 @@ screen can never drift from the rules being enforced.
   the way out stays open right up to the last moment. The choice of farmer can
   be changed later under Market → Farmer. The game refers to your farmer by the
   gender you picked — he/him or she/her.
-- **Farm** — pick a seed (wheat, corn, carrot or pumpkin) and plant it on an
-  empty plot. Crops grow through seed → sprout → ripe; tap a ripe plot to
-  harvest. Eight of the sixteen plots start locked and are bought one at a
-  time with coins.
+- **Farm** — pick a seed (wheat, corn, carrot or pumpkin), walk her to an empty
+  plot and take the prompt. Crops grow through seed → sprout → ripe; walk her
+  back to a ripe one and the prompt offers to harvest it. Eight of the sixteen
+  plots start locked and are bought one at a time with coins.
 - **Spoilage** — a ripe crop keeps for two in-game days. The plot's bar
   switches from growth to shelf life the moment it ripens, turning red with an
   hourglass for the last third of the window; leave it past that and the crop
@@ -205,18 +217,32 @@ full-screen and run with no network connection. (As usual for service workers,
 the first visit loads from the network and the offline cache takes effect from
 the next load onwards.)
 
-Every control is sized to Material's 48dp touch target, the layout reflows from
-a three-column field in portrait to six columns in landscape, hover effects are
-suppressed on touch so they cannot stick after a tap, and padding respects
-display cutouts and the gesture bar when running full-screen.
+Every control is sized to Material's 48dp touch target. Turned to landscape the
+3D scene gives up height rather than pushing the tabs off the bottom of the
+screen, and the driving stick and the action prompt both stay where a thumb can
+reach them. Hover effects are suppressed on touch so they cannot stick after a
+tap, and padding respects display cutouts and the gesture bar when running
+full-screen.
 
 ## Accessibility
 
-Every control is a real button, so the whole game — including the plot grid —
-is reachable and operable from the keyboard, with a high-contrast focus ring.
-Plots carry descriptive labels ("Plot 3, Wheat ready to harvest"), growth and
-production are exposed as progress bars, and status messages are announced
-through a polite live region. Animation is disabled under
+Driving a character around a field is no use to a player who cannot see it, so
+the game keeps two complete ways to play and neither is a lesser one.
+
+Every control is a real button, and the sixteen plots are a real grid of them
+with descriptive labels ("Plot 3, Wheat ready to harvest"). The grid takes
+**one tab stop, not sixteen**: the arrow keys move between plots while it has
+focus, Home and End jump to the ends, and Enter or Space sends her to the plot
+you are on. Away from the grid those same arrows drive her, so they always
+mean "move whatever I am paying attention to". Which plot the keyboard is on is
+drawn in the scene itself, on the tile where it actually is, rather than as a
+flat marker over the canvas.
+
+Because the game is played by walking, what is **within reach** is announced
+through a polite live region as it changes — otherwise the prompt button's text
+would change silently to anyone not looking at it, which is exactly what free
+movement broke and what this puts back. Growth and production are exposed as
+progress bars, toasts are announced, and animation is disabled under
 `prefers-reduced-motion`.
 
 ## Development
@@ -258,9 +284,22 @@ the ending celebration, keyboard operability, and offline play. It also asserts 
 once-a-second render reuses DOM nodes, since rebuilding them would silently
 restart every CSS animation.
 
+The 3D half is tested by asking the scene questions rather than by looking at
+pixels: that the pond's water is moving rather than painted, which crop model
+a plot is actually showing, where a roaming animal really is, that the season
+turns the orchard and hides the grass, that rain thickens as a hurricane
+nears, and that a keyboard-only player can plant and harvest without touching
+the plot grid at all. There is also a **draw budget** — the worst state the
+game can reach must stay inside a stated ceiling of draw calls and triangles,
+and a farm behind another tab must draw nothing whatever, which is the
+difference between a phone spending its battery on a scene nobody is looking
+at and not.
+
 `tests/mobile.spec.js` runs the game at phone sizes — 360px, 393px and
 landscape — checking that nothing scrolls sideways, that no control falls below
-the 44px touch floor, and that the whole loop can be played by tapping.
+the 44px touch floor, that the scene shrinks rather than shunting the tab bar
+off screen in landscape, and that the whole loop can be played by touch alone:
+driving her there with the stick and taking the prompt when she arrives.
 
 If you are running in a sandbox that already ships a Chromium whose build
 number does not match this Playwright version, point the tests at it:
@@ -288,3 +327,10 @@ Every scenario asserts what it expected to happen, not merely that nothing
 threw: a structural check alone will happily pass a subsidy that quietly
 forgets to record itself. The harness is verified by injecting known faults and
 confirming it reports them.
+
+It also holds one invariant about **itself**. A fuzzer that has quietly stopped
+reaching the game finds no problems either, which looks exactly like good news
+— and that is not hypothetical: the bot spent several rounds of work clicking a
+plot grid that had stopped taking pointer input, planting nothing and reporting
+a clean bill of health every time. So a run that ends without a single crop in
+the ground now says so instead of printing a row of zeroes nobody reads.

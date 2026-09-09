@@ -1305,6 +1305,59 @@ separate bug.
 
 ---
 
+## 24. Ship — step 16
+
+The last step, and mostly a matter of making the writing catch up with the
+game. Two things were found by looking rather than by assuming they were
+fine.
+
+**The README described a game that no longer existed.** It said, in the
+paragraph introducing the whole 3D half: *"Tapping a plot sends her there,
+and the crop is worked when she arrives rather than when you tap."* That has
+not been how this game works since step 6 — `.plots-grid` is
+`pointer-events: none`, and the field is driven and acted on through the
+prompt. It is the same staleness the playtest bot had in §23, in prose
+instead of code, and it had sat at the top of the file for ten steps.
+Three other claims went with it: "tap a ripe plot to harvest"; a promise of
+"a high-contrast focus ring" on plots, which step 12 replaced with a marker
+drawn in the scene; and a phone layout that "reflows from a three-column
+field in portrait to six columns in landscape", which is a leftover from the
+2D game — `.plots-grid` is a fixed four columns with no landscape rule at
+all, checked before it was rewritten rather than after. What replaced them
+describes driving, the prompt, the pond, the seasons, the rain, the modelled
+crops and animals, the one-tab-stop grid and the reachability live region.
+
+**A cross-device look, at six configurations.** Desktop, phone, landscape,
+360px, plus autumn and winter on the large screen, each mid-game with a
+worked farm rather than an empty one. No console errors anywhere, no
+sideways scroll anywhere, and draw costs between 144 and 150 calls — well
+inside §22's ceiling, and a reminder that winter is the cheapest season to
+draw (29,364 triangles against summer's 47,252) because the snow takes the
+grass with it.
+
+That pass found one real blemish, and it was step 13's doing: the season
+glyph had made the day badge wide enough to fold "Day 10" onto two lines
+inside its own pill on a narrow phone. The first fix — letting the whole
+stats row wrap — worked and was worse, because at 360px it spent an entire
+extra topbar row and pushed the farm further down the page, which is the
+opposite of what a small screen needs. What shipped instead is a notch off
+the badge's own font and padding below 480px, so the row stays one row and
+the label stays one line. Both versions were screenshotted before choosing;
+the mobile suite's touch-target test was re-run afterwards, since the last
+time this badge changed width it cost two controls their 44px floor (§21).
+
+**What ships, and what does not.** CI green, Pages deploying on every push
+to `main`. The live site itself could not be fetched from this sandbox —
+`giorgijv.github.io` is outside what the egress policy in §1 allows, the
+same wall that shaped the asset pipeline in the first place — so
+"deployed" here means the deployment ran and succeeded, not that the page
+was loaded and looked at. And the phone frame rate from §22 remains
+unverified for the same reason it was then: there is no GPU here to measure
+one on. Those are the two things a person with a phone and a browser can
+confirm in a minute and this environment cannot confirm at all.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1486,6 +1539,20 @@ Everything above was checked before it was written:
 - That flake was also, honestly, known and left: it had been failing on a
   clean tree since step 13 and was written off as contention at the time.
   It is recorded here as debt that came due rather than as a discovery.
+
+- Step 16 checked the README's claims against the code rather than reading
+  them for plausibility, which is the only reason the four stale ones were
+  found — the tap mechanic, the harvest instruction, the focus ring and the
+  phone column counts. The last of those looked entirely reasonable and was
+  simply false: `.plots-grid` is `repeat(4, 1fr)` with no landscape override,
+  read out of the stylesheet before a word was changed.
+- The day-badge fix was chosen between two working versions by screenshot at
+  360px, not by argument, and the losing one is recorded above with why. The
+  touch-target test was re-run after it, because the last change to that
+  badge's width is what broke the 44px floor in §21.
+- "Pages deployed" is stated as what was actually verified — the deployment
+  workflow ran and succeeded on every push — and explicitly not as "the live
+  page was loaded", which this sandbox's egress policy makes impossible.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.
