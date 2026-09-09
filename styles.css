@@ -457,6 +457,12 @@ body {
 .mute-btn {
   width: 38px;
   height: 38px;
+  /* Never the one that gives: at a narrow width the row would otherwise
+     shrink every flex child evenly, including this one, and a touch target
+     shrinking below 44px is not a fair trade for a wider day label — see
+     the step 13 addendum in docs/ART_BIBLE.md. The label and the coin badge
+     are free to give ground; the tap target is not. */
+  flex-shrink: 0;
   padding: 0;
   font-size: 1.05rem;
   line-height: 1;

@@ -193,15 +193,29 @@ function startScene(bridge) {
      clock ticked between them, disagree with the sky it is reflecting. */
   let skyNight = 0;
 
-  function syncSky() {
+  /* 1 for a clear sky, dimmer as a hurricane closes in — the same
+     stormProximity ramp the 2D sky and the day label already key off, so
+     the 3D yard never disagrees with the forecast above it. The wobble on
+     top is valueNoise sampled by clock time instead of position, the same
+     function the terrain and the foliage scatter already use for their own
+     texture, so the cloud cover drifts across the three warning days
+     instead of snapping to one flat darkness for all of them. */
+  function cloudFactor(now, proximity) {
+    if (proximity <= 0) return 1;
+    const drift = valueNoise(now * 0.00015, 0);
+    return 1 - proximity * (0.55 + drift * 0.25);
+  }
+
+  function syncSky(now) {
     const { phase, nightFactor } = bridge.daySkyState();
     skyNight = nightFactor;
+    const cloud = cloudFactor(now, bridge.stormProximity());
 
     lerpStops(scene.background, BG_STOPS, nightFactor);
     scene.fog.color.copy(scene.background);
     lerpStops(hemi.color, HEMI_SKY_STOPS, nightFactor);
     lerpStops(hemi.groundColor, HEMI_GROUND_STOPS, nightFactor);
-    hemi.intensity = 0.22 + 0.63 * (1 - nightFactor);
+    hemi.intensity = (0.22 + 0.63 * (1 - nightFactor)) * cloud;
 
     /* A single continuous circle driven straight off `phase`, rather than
        the 2D moon/sun icon's day/night-split arc above — that formula
@@ -220,7 +234,7 @@ function startScene(bridge) {
     const angle = phase * Math.PI * 2;
     const elevation = 1 - 2 * nightFactor;
     sun.position.set(VIEW_CX + Math.sin(angle) * 9, elevation * 8 + 3, 3);
-    sun.intensity = Math.max(0.05, 1.15 * (1 - nightFactor * 0.94));
+    sun.intensity = Math.max(0.05, 1.15 * (1 - nightFactor * 0.94)) * cloud;
     sun.color.copy(sunColorTmp.copy(SUN_STOPS.day).lerp(SUN_STOPS.dusk, Math.min(nightFactor * 2.2, 1)));
 
     /* The sky dome (below) wants a unit direction, not a lit position, so
@@ -728,19 +742,46 @@ function startScene(bridge) {
   const TERRAIN_DIRT = new THREE.Color(0x8a7256);
   const terrainColorTmp = new THREE.Color();
 
+  /* Step 13's three seasonal tints, blended into the same grass-and-dirt
+     mix rather than replacing it — a field is still visibly a field under
+     frost or fallen leaves, not a different material. */
+  const SPRING_TINT = new THREE.Color(0x9fd66a); // a touch brighter, fresher green
+  const AUTUMN_TINT = new THREE.Color(0xb97a3a); // dry grass and fallen leaves
+  const SNOW_TINT = new THREE.Color(0xeef3f6);
+
   /* Even on the flat yard, a single flat green would still read as a green
-     rectangle up close — the thing this whole step exists to stop being
-     true. So every vertex, flat ground included, mixes in a little of a
-     second grass tone from the same noise function at a different
-     frequency; slopes further out mix toward bare dirt, standing in for
-     the "blended textures" ask without needing a photographic tileable
-     texture the low-poly kit assets were never going to match anyway. */
-  function terrainVertexColor(target, x, z, normalY) {
+     rectangle up close — the thing step 3 existed to stop being true. So
+     every vertex, flat ground included, mixes in a little of a second grass
+     tone from the same noise function at a different frequency; slopes
+     further out mix toward bare dirt, standing in for the "blended
+     textures" ask without needing a photographic tileable texture the
+     low-poly kit assets were never going to match anyway.
+
+     season, added in step 13, blends one more tint on top of that same
+     base — never a replacement for it, so the ground under snow or fallen
+     leaves still reads as the same field. rockAmount already answers "how
+     bare is this ground", computed a line above, and both seasonal tints
+     reuse it rather than asking the question twice: autumn leaves do not
+     collect on scree, and neither does snow. Winter goes further and reuses
+     slope directly too — flatter ground holds more of what falls on it,
+     which is the same physical fact snow and scree already agree on. */
+  function terrainVertexColor(target, x, z, normalY, season) {
     const mottle = valueNoise(x * 0.35 + 100, z * 0.35 + 100);
     target.copy(GRASS_A).lerp(GRASS_B, mottle * 0.5);
     const slope = THREE.MathUtils.clamp(1 - normalY, 0, 1);
     const rockAmount = THREE.MathUtils.smoothstep(slope, 0.18, 0.55);
     target.lerp(TERRAIN_DIRT, rockAmount);
+
+    const bare = 1 - rockAmount;
+    if (season === 'spring') {
+      target.lerp(SPRING_TINT, 0.16 * bare);
+    } else if (season === 'autumn') {
+      target.lerp(AUTUMN_TINT, 0.35 * bare);
+    } else if (season === 'winter') {
+      const coverage = bare * (1 - slope * 0.6);
+      target.lerp(SNOW_TINT, THREE.MathUtils.clamp(coverage, 0, 1) * 0.85);
+    }
+    // summer: the plain grass-and-dirt mix above, unchanged since step 3.
   }
 
   function buildTerrain() {
@@ -795,6 +836,25 @@ function startScene(bridge) {
   );
   terrain.position.y = -0.08; // the same offset the flat ground used to sit at
   scene.add(terrain);
+
+  /* Repaints the terrain's own vertex colours for a season, in place —
+     buildTerrain's geometry, index and normals never change with the
+     seasons, only what colour each vertex reads as, so this walks the same
+     loop buildTerrain used to fill the color attribute the first time
+     rather than rebuilding the mesh. syncSeason calls it once per season
+     change, not per frame — the same "rebuild on change" idiom the plot
+     tiles already use for buildPlotCell. */
+  function applySeasonToTerrain(season) {
+    const geo = terrain.geometry;
+    const posAttr = geo.getAttribute('position');
+    const normalAttr = geo.getAttribute('normal');
+    const colorAttr = geo.getAttribute('color');
+    for (let i = 0; i < posAttr.count; i += 1) {
+      terrainVertexColor(terrainColorTmp, posAttr.getX(i), posAttr.getZ(i), normalAttr.getY(i), season);
+      colorAttr.setXYZ(i, terrainColorTmp.r, terrainColorTmp.g, terrainColorTmp.b);
+    }
+    colorAttr.needsUpdate = true;
+  }
 
   /* -------------------------------------------------------------- */
   /* The paths between the rooms                                       */
@@ -1006,8 +1066,14 @@ function startScene(bridge) {
 
   const POND_MUD = new THREE.Color(0x6a5334);
 
+  // The bank's own vertices' shore-distance, 0 at the waterline to 1 at the
+  // outer edge — kept alongside the mesh so applySeasonToPondBank can redo
+  // the wet/dry mud blend below without re-walking radialDisc for it.
+  let pondBankTs = null;
+
   function buildPondBank() {
     const { position, ts, index } = radialDisc(1, bankY);
+    pondBankTs = ts;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
     geo.setIndex(index);
@@ -1041,6 +1107,21 @@ function startScene(bridge) {
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
   );
   scene.add(pondBank);
+
+  // Same idea as applySeasonToTerrain, and the same reason it exists: the
+  // geometry buildPondBank built is fine forever, only the paint changes.
+  function applySeasonToPondBank(season) {
+    const geo = pondBank.geometry;
+    const posAttr = geo.getAttribute('position');
+    const colorAttr = geo.getAttribute('color');
+    for (let i = 0; i < pondBankTs.length; i += 1) {
+      terrainVertexColor(terrainColorTmp, posAttr.getX(i), posAttr.getZ(i), 1, season);
+      const dry = THREE.MathUtils.smoothstep(pondBankTs[i], WATER_T, WATER_T + 0.09);
+      terrainColorTmp.lerp(POND_MUD, 1 - dry);
+      colorAttr.setXYZ(i, terrainColorTmp.r, terrainColorTmp.g, terrainColorTmp.b);
+    }
+    colorAttr.needsUpdate = true;
+  }
 
   function buildWaterSurface() {
     const { position, ts, index } = radialDisc(WATER_T, () => WATER_Y);
@@ -1291,16 +1372,21 @@ function startScene(bridge) {
     { id: 'nature/grass_large', x: 0.55, z: 4.75 },
     { id: 'nature/log', x: -0.4, z: 6.75, ry: 1.5 },
 
-    // --- the orchard, north: rows that loosen toward the hills ---
+    /* --- the orchard, north: rows that loosen toward the hills ---
+       Two of these were tree_default_fall permanently, for variety, before
+       this step gave the orchard a real autumn of its own. Turning the
+       whole orchard together, all six trees at once, reads as a season
+       changing; two trees fixed in fall colour year-round would have argued
+       with it instead of joining in. See syncSeason and orchardTrees. */
     { id: 'nature/tree_default', x: -2.6, z: -4.6, ry: 0.3, h: 2.9 },
     { id: 'nature/tree_detailed', x: -0.6, z: -4.8, ry: 1.2, h: 3.1 },
     { id: 'nature/tree_default', x: 1.4, z: -4.7, ry: 2.1, h: 2.7 },
-    { id: 'nature/tree_default_fall', x: 3.3, z: -4.9, ry: 0.8, h: 2.8 },
+    { id: 'nature/tree_default', x: 3.3, z: -4.9, ry: 0.8, h: 2.8 },
     { id: 'nature/tree_detailed', x: -3.1, z: -6.4, ry: 2.6, h: 3.0 },
     { id: 'nature/tree_default', x: -1.1, z: -6.6, ry: 1.6, h: 2.8 },
     { id: 'nature/tree_pineDefaultA', x: 1.0, z: -6.8, ry: 0.4, h: 3.4 },
     { id: 'nature/tree_pineDefaultA', x: 3.6, z: -7.0, ry: 2.2, h: 3.2 },
-    { id: 'nature/tree_default_fall', x: -2.2, z: -8.0, ry: 1.0, h: 2.6 },
+    { id: 'nature/tree_default', x: -2.2, z: -8.0, ry: 1.0, h: 2.6 },
     { id: 'nature/tree_default', x: 2.0, z: -8.2, ry: 2.8, h: 2.7 },
     { id: 'nature/stump_round', x: 0.2, z: -5.6, ry: 0.5 },
     { id: 'nature/stump_round', x: 4.6, z: -6.1, ry: 1.9 },
@@ -1318,6 +1404,16 @@ function startScene(bridge) {
      the network to start playing. Failures are per-prop and silent beyond a
      warning: a farm missing its windmill is still a farm, and a rejected
      promise here must not take the rest of the dressing down with it. */
+  /* The six hand-placed orchard trees, plus the fall companion each one gets
+     loaded alongside — see the PROPS comment above and syncSeason, below,
+     for why the whole orchard turns together rather than each tree keeping
+     its own clock. Only tree_default and tree_detailed are orchard entries;
+     grep confirmed it before this leaned on that fact — the hillside fringe
+     scattered by scatterInstanced is a different population and keeps its
+     summer green year-round, a scope cut recorded in docs/ART_BIBLE.md. */
+  const ORCHARD_TREE_IDS = new Set(['nature/tree_default', 'nature/tree_detailed']);
+  const orchardTrees = []; // { base, fall } pairs, toggled by syncSeason
+
   function dressFarm() {
     for (const prop of PROPS) {
       loadModel(prop.id, prop.h).then(({ object }) => {
@@ -1330,6 +1426,24 @@ function startScene(bridge) {
           for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
         });
         scene.add(object);
+
+        if (!ORCHARD_TREE_IDS.has(prop.id)) return;
+        loadModel(`${prop.id}_fall`, prop.h).then(({ object: fall }) => {
+          fall.position.copy(object.position);
+          fall.rotation.y = object.rotation.y;
+          fall.traverse((obj) => {
+            for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
+          });
+          // Asked directly rather than left at the object's own default and
+          // waiting for the next syncSeason tick: a tree that finishes
+          // loading mid-autumn should not spend even one frame in summer
+          // colour, the same reasoning hideIfWinter applies to grass below.
+          const showFall = bridge.currentSeason() === 'autumn';
+          object.visible = !showFall;
+          fall.visible = showFall;
+          scene.add(fall);
+          orchardTrees.push({ base: object, fall });
+        }).catch((err) => console.warn(`farm: ${prop.id}_fall did not load`, err));
       }).catch((err) => console.warn(`farm: ${prop.id} did not load`, err));
     }
   }
@@ -1421,9 +1535,9 @@ function startScene(bridge) {
      hold up a scene that is otherwise ready to play. */
   async function scatterInstanced(id, count, { heightRange, seed, bounds, accept }) {
     const n = Math.round(count * FOLIAGE_SCALE);
-    if (n <= 0) return;
+    if (n <= 0) return [];
     const { meshes, height: authoredHeight } = await loadMeshes(id);
-    if (!authoredHeight || meshes.length === 0) return;
+    if (!authoredHeight || meshes.length === 0) return [];
 
     const rng = makeRng(seed);
     const points = scatterPoints(rng, n, bounds.xMin, bounds.xMax, bounds.zMin, bounds.zMax, accept);
@@ -1444,6 +1558,7 @@ function startScene(bridge) {
       };
     });
 
+    const instances = [];
     for (const { geometry, material } of meshes) {
       // Arrives after the scene-wide tone-mapping opt-out pass below, so —
       // like every other prop loaded after the scene stands — it opts out
@@ -1466,10 +1581,15 @@ function startScene(bridge) {
          both. */
       mesh.computeBoundingSphere();
       scene.add(mesh);
+      instances.push(mesh);
     }
     // Read by the tests, which have no other way to ask a canvas how many
     // grass tufts it just decided to draw.
     foliageCounts[id] = transforms.length;
+    // Handed back so a caller — winter's grass, in syncSeason — can hide
+    // exactly the meshes this call created, instead of hunting the scene
+    // graph for them after the fact.
+    return instances;
   }
 
   const foliageCounts = {};
@@ -1486,6 +1606,22 @@ function startScene(bridge) {
   const HILL_BOUNDS = { xMin: FARM_LEFT - 13, xMax: FARM_RIGHT + 13, zMin: FARM_NORTH - 13, zMax: FARM_SOUTH + 13 };
   const onHillside = (x, z) => Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z);
 
+  /* The two grass populations' own InstancedMeshes, collected as they land —
+     syncSeason hides them under snow rather than styling grass blades that
+     have no winter texture to switch to. Trees stay off this list on
+     purpose: bare branches read as winter well enough on their own, and the
+     kit has no snow variant for them either (checked, not assumed — see
+     docs/ART_BIBLE.md). */
+  const grassMeshes = [];
+
+  // Grass fetched mid-winter should not flash in green before the next
+  // syncSeason tick catches it — same reason the fall companion loader
+  // below checks the season itself rather than waiting to be told.
+  function hideIfWinter(meshes) {
+    if (bridge.currentSeason() === 'winter') meshes.forEach((m) => { m.visible = false; });
+    return meshes;
+  }
+
   /* Collected so a test can wait on all of it finishing rather than on a
      fixed delay, and so a page that never got a network reply still resolves
      rather than leaving a caller waiting on a promise that was never going to
@@ -1493,11 +1629,13 @@ function startScene(bridge) {
   const foliageReady = Promise.all([
     scatterInstanced('nature/grass', 220, {
       heightRange: [0.22, 0.34], seed: 1, bounds: FARM_BOUNDS, accept: onFarmGround,
-    }).catch((err) => console.warn('farm: grass did not load', err)),
+    }).then((meshes) => grassMeshes.push(...hideIfWinter(meshes)))
+      .catch((err) => console.warn('farm: grass did not load', err)),
 
     scatterInstanced('nature/grass_large', 70, {
       heightRange: [0.34, 0.5], seed: 2, bounds: FARM_BOUNDS, accept: onFarmGround,
-    }).catch((err) => console.warn('farm: grass_large did not load', err)),
+    }).then((meshes) => grassMeshes.push(...hideIfWinter(meshes)))
+      .catch((err) => console.warn('farm: grass_large did not load', err)),
 
     scatterInstanced('nature/tree_default', 14, {
       heightRange: [2.1, 3.1], seed: 10, bounds: HILL_BOUNDS, accept: onHillside,
@@ -1507,6 +1645,133 @@ function startScene(bridge) {
       heightRange: [2.4, 3.6], seed: 11, bounds: HILL_BOUNDS, accept: onHillside,
     }).catch((err) => console.warn('farm: hillside pines did not load', err)),
   ]);
+
+  /* -------------------------------------------------------------- */
+  /* Seasons — the calendar script.js already keeps, read here once     */
+  /* a day rather than driving a second clock of its own                */
+  /* -------------------------------------------------------------- */
+
+  // Repaint and re-dress only on the day the season actually turns, not
+  // every frame — the same guard plotSignature uses to gate buildPlotCell.
+  let lastSeason = null;
+
+  function syncSeason() {
+    const season = bridge.currentSeason();
+    if (season === lastSeason) return;
+    lastSeason = season;
+
+    applySeasonToTerrain(season);
+    applySeasonToPondBank(season);
+
+    const showFall = season === 'autumn';
+    for (const { base, fall } of orchardTrees) {
+      base.visible = !showFall;
+      fall.visible = showFall;
+    }
+
+    // Grass has no winter texture of its own to switch to — see
+    // grassMeshes' own comment — so winter hides it instead of drawing a
+    // summer-green tuft through ground that just went white around it.
+    const hideGrass = season === 'winter';
+    for (const mesh of grassMeshes) mesh.visible = !hideGrass;
+  }
+
+  /* -------------------------------------------------------------- */
+  /* Weather — rain, building in on the hurricane's own forecast       */
+  /* -------------------------------------------------------------- */
+
+  // Halved on the software path for the same reason PEN_CAP and
+  // FOLIAGE_SCALE are: swiftshader/llvmpipe pays for every instance drawn,
+  // not just every one visible, and this scene already has plenty of those.
+  const RAIN_COUNT = rendererIsSoftware() ? 150 : 500;
+  const RAIN_BOUNDS = { xMin: FARM_LEFT - 1, xMax: FARM_RIGHT + 1, zMin: FARM_NORTH - 1, zMax: FARM_SOUTH + 1 };
+  const RAIN_TOP = 6.5;
+  const RAIN_FLOOR = -0.15;
+  const RAIN_FALL_SPEED = 11; // units/sec
+
+  /* A stretched box, not a sprite: no texture to load, and it reads as a
+     falling streak from any angle this camera reaches, where a flat quad
+     turned edge-on to the camera would vanish the way the selection marker's
+     first, flat attempt did. Unlit and additive-ish translucency, the same
+     toneMapped opt-out every other unlit material here uses, so rain never
+     dims with the storm's own light drop — the drop already reads in how
+     much of it there is. */
+  const rainGeo = new THREE.BoxGeometry(0.02, 0.35, 0.02);
+  const rainMat = new THREE.MeshBasicMaterial({
+    color: 0xcfe3ee, transparent: true, opacity: 0.55, toneMapped: false, depthWrite: false,
+  });
+  const rainMesh = new THREE.InstancedMesh(rainGeo, rainMat, RAIN_COUNT);
+  rainMesh.visible = false;
+
+  /* Seeded once, like every other scatter in this file — makeRng and the
+     same "rebuild on change" spirit, not scatterPoints itself, since rain
+     wants a free column anywhere in the box rather than rejection-sampled
+     open ground. x and z never move once picked; only y falls and wraps,
+     which is what keeps a computeBoundingSphere taken once, right after
+     these initial matrices are set, valid for the rest of the game — the
+     drops never leave the box it was measured from. */
+  const rainRng = makeRng(99);
+  const rainDrops = Array.from({ length: RAIN_COUNT }, () => ({
+    x: RAIN_BOUNDS.xMin + rainRng() * (RAIN_BOUNDS.xMax - RAIN_BOUNDS.xMin),
+    z: RAIN_BOUNDS.zMin + rainRng() * (RAIN_BOUNDS.zMax - RAIN_BOUNDS.zMin),
+    y: RAIN_FLOOR + rainRng() * (RAIN_TOP - RAIN_FLOOR),
+    speed: RAIN_FALL_SPEED * (0.85 + rainRng() * 0.3),
+  }));
+  rainDrops.forEach((drop, i) => {
+    tmpMatrix.compose(tmpPos.set(drop.x, drop.y, drop.z), tmpQuat.set(0, 0, 0, 1), tmpScale.set(1, 1, 1));
+    rainMesh.setMatrixAt(i, tmpMatrix);
+  });
+  rainMesh.instanceMatrix.needsUpdate = true;
+  rainMesh.computeBoundingSphere();
+  scene.add(rainMesh);
+
+  // The clock the fall loop below advances by, in real elapsed seconds
+  // rather than a fixed per-frame step — the same reasoning poseFarmer and
+  // the water shader already time themselves by `now` instead of by tick.
+  let rainLastNow = null;
+  // Read back by the tests, the same way foliageCounts is: the honest
+  // question of how many columns are actually falling right now, rather
+  // than a re-derivation of the ramp formula at assertion time.
+  let rainActiveCount = 0;
+
+  function syncWeather(now) {
+    const proximity = bridge.stormProximity();
+    rainMesh.visible = proximity > 0;
+    if (proximity <= 0) {
+      rainLastNow = null; // next storm starts clean, not with a huge dt
+      rainActiveCount = 0;
+      return;
+    }
+
+    const dt = rainLastNow === null ? 0 : Math.min((now - rainLastNow) / 1000, 0.1);
+    rainLastNow = now;
+
+    /* How many of the seeded columns are actually falling, out of the
+       fixed pool above — proximity itself, not a curve of its own, so the
+       rain thickens across exactly the three days the forecast in
+       updateHurricane already warns across. The *1.4 lets it reach full
+       density a little before the hurricane actually lands rather than
+       right on the doorstep. */
+    const active = Math.min(RAIN_COUNT, Math.round(RAIN_COUNT * Math.min(proximity * 1.4, 1)));
+    rainActiveCount = active;
+
+    for (let i = 0; i < RAIN_COUNT; i += 1) {
+      const drop = rainDrops[i];
+      const falling = i < active;
+      if (falling) {
+        drop.y -= drop.speed * dt;
+        if (drop.y < RAIN_FLOOR) drop.y += RAIN_TOP - RAIN_FLOOR;
+      }
+      tmpPos.set(drop.x, drop.y, drop.z);
+      // Idle columns are scaled to nothing rather than left out of the
+      // instance count: RAIN_COUNT is fixed at construction, so "how many
+      // are falling" has to be told through the matrices already there.
+      tmpScale.setScalar(falling ? 1 : 0);
+      tmpMatrix.compose(tmpPos, tmpQuat.set(0, 0, 0, 1), tmpScale);
+      rainMesh.setMatrixAt(i, tmpMatrix);
+    }
+    rainMesh.instanceMatrix.needsUpdate = true;
+  }
 
   /* -------------------------------------------------------------- */
   /* Sky — a real atmospheric dome, not a flat colour                  */
@@ -2658,6 +2923,27 @@ function startScene(bridge) {
        itself rather than re-derived from state. */
     cropModelsReady: () => cropModelsReady,
     cropStageAt: (plotIndex) => activeCropStage(plotIndex),
+    /* Step 13. The season the ground and the orchard are actually painted
+       for right now — bridge.currentSeason() directly, the live source,
+       rather than lastSeason's change-gated cache, so a test asking early
+       gets today's real answer instead of null. orchardReady lets a test
+       wait for both fall companions to have finished their own network
+       fetch before asking whether they're showing, the same shape
+       cropModelsReady already gives crops. rainVisible and rainActive read
+       the weather system the same honest way foliageCounts reads the
+       scatter: off the thing itself, not a re-derivation of its formula. */
+    season: () => bridge.currentSeason(),
+    orchardReady: () => orchardTrees.length >= PROPS.filter((p) => ORCHARD_TREE_IDS.has(p.id)).length,
+    orchardAutumn: () => orchardTrees.length > 0 && orchardTrees.every(({ fall }) => fall.visible),
+    grassShowing: () => grassMeshes.length > 0 && grassMeshes.every((m) => m.visible),
+    rainVisible: () => rainMesh.visible,
+    rainActive: () => rainActiveCount,
+    // The same honest question the pond's water asks of its own shader
+    // clock: is this actually falling, or a field of streaks frozen in
+    // place. Index 0 is always among the first to fall once any are —
+    // syncWeather's active count only ever grows from the front of the
+    // seeded array.
+    rainDropY: (i) => rainDrops[i]?.y ?? null,
   };
 
   /* -------------------------------------------------------------- */
@@ -2757,7 +3043,9 @@ function startScene(bridge) {
     if (now - lastDrawAt < FRAME_INTERVAL_MS) return;
     if (lastDrawAt) chargeFrame(now - lastDrawAt);
     lastDrawAt = now;
-    syncSky();
+    syncSeason();
+    syncSky(now);
+    syncWeather(now);
     syncWater(now); // after syncSky: it reflects the sky that pass just set
     syncPlots(now);
     syncAnimals(now);

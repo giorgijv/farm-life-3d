@@ -147,6 +147,17 @@ for stage 2 rather than four crops getting a matched pair:
 **Seasons come free:** every nature tree ships `_default`, `_dark` and `_fall`
 variants. Step 13's autumn is a model swap, not a shader.
 
+*What step 13 found, checked against the pinned Kenney mirror rather than
+assumed from this table: true for `tree_default` and `tree_detailed`, not
+true for the pines. `tree_pineDefaultA` and `tree_pineRoundA` ship no
+`_dark`, `_fall` or `_snow` variant at all — four fetches each, all 404.
+Caught before anything was built on top of it, not after. The shipped scope
+follows the assets that exist: the six hand-placed `tree_default`/
+`tree_detailed` trees in the orchard get a real fall companion and turn
+together, as one season changing rather than six trees on separate clocks;
+the instanced hillside fringe from step 8 — both species, pines included —
+keeps its summer green all year. See §21.*
+
 ## 6. Two gaps, and what to do about them
 
 **There is no sheep.** Not in Cube Pets, not anywhere in 4,812 models (the only
@@ -919,6 +930,107 @@ silence says it just as well.
 
 ---
 
+## 21. Weather, seasons, and a UI that matches — step 13
+
+The plan's own wording for this step was "weather, seasons, and a UI that
+matches" — the last three words asking, by the same phrasing §20 opened
+with, for "world-space prompts." §20 already answered that question once,
+for a different feature: the DOM grid and its prompt button are the
+interface, not scaffolding standing in for one. Nothing in this step
+reopens that finding, so nothing here draws text in the 3D world either.
+"A UI that matches" turned out to mean the day label already on screen
+learning to say what season it is and whether a storm is coming — a glyph
+change, not a new layer.
+
+**The calendar was already there.** Four seasons cycling every four weeks is
+just `WEEK_LENGTH_DAYS` read a second way — `SEASON_LENGTH_DAYS` is the same
+seven, `SEASON_ORDER` cycles spring/summer/autumn/winter through it, and
+`seasonIndex()` is the same `Math.floor((state.day - 1) / N) % length` shape
+`weeksElapsed`-style helpers already use elsewhere in script.js. No new
+clock, no new field on `state` — a season is a pure function of the day
+already being counted for the subsidy.
+
+**The storm was already there too.** Rather than invent a second weather RNG
+for rain to key off, `stormProximity()` reads the same forecast
+`updateHurricane()` already warns the player with: 0 outside
+`HURRICANE_WARNING_DAYS`, ramping to 1 on the day itself. The sky's cloud
+cover, the light level's dip, and the rain's own density all read this one
+number, so a player who sees the sky start to grey and rain start to fall is
+seeing the same three-day window the toast already told them about, not a
+second forecast that might disagree with the first.
+
+**The orchard's fall colour is real, and scoped to what the kit actually
+has.** §5 records what checking the mirror found: `tree_default` and
+`tree_detailed` each ship a `_fall` variant, the two pine species ship
+neither. The six hand-placed orchard trees — all `tree_default` or
+`tree_detailed`, confirmed by grep against `PROPS` before relying on it —
+each get their fall companion loaded alongside the summer one and swap
+together in autumn, which reads as one season arriving rather than six
+trees on independent clocks. The instanced hillside fringe from step 8,
+pines included, keeps its summer green in every season; there is nothing to
+swap it to, and a fringe that greyed toward a texture it does not have would
+have looked worse than a fringe that simply held its colour.
+
+**The ground repaints; the geometry does not rebuild.** `terrainVertexColor`
+already mixed grass, dirt and slope into one colour per vertex — steps 3 and
+9's own function, extended with a fifth `season` argument rather than
+replaced, so summer's look is exactly what it always was, reached by falling
+through every seasonal branch untaken. Spring and autumn lerp a tint over
+the existing mix, weighted by the same "how bare is this ground"
+(`rockAmount`) the slope blend already computed; winter goes one step further
+and reuses slope a second time, so snow gathers less on a scree slope than
+on flat ground, which is the same physical fact steep ground already got
+credit for. `applySeasonToTerrain` and `applySeasonToPondBank` repaint the
+`color` attribute in place on a season change — the same "rebuild on
+change, not per frame" idiom the plot tiles already use for
+`buildPlotCell` — rather than reconstructing geometry that never actually
+moves.
+
+**Grass disappears in winter; trees do not.** The Nature Kit's grass tufts
+have no winter texture to switch to, and a summer-green tuft standing in
+snow-tinted ground would have read as a bug rather than a season. Hidden
+instead, by toggling the `InstancedMesh`es `scatterInstanced` now hands back
+to its caller rather than swallowing internally — a caller-visible return
+value it never needed before this step. Trees, orchard and hillside alike,
+keep their leaves: bare branches are what winter usually asks a tree to do,
+but this kit's canopies are not built to hide, and a wall of leafless trunks
+across the whole tree line was a worse trade than the small dishonesty of a
+green tree in the snow. Recorded here rather than silently decided.
+
+**The storm darkens the sky twice, on purpose, by two different paths.**
+The 3D yard's `hemi` and `sun` lights are scaled by a `cloudFactor` — mostly
+`stormProximity` itself, with a little `valueNoise` sampled by clock time
+laid on top so the cloud cover drifts across the three warning days instead
+of arriving as one flat dimmer switch. The 2D strip above the UI darkens
+independently, by blending `skyColorAt`'s three gradient stops toward a flat
+grey. The two were kept apart rather than driven off one shared number: the
+2D sky already had a `--night` custom property doing double duty as the
+star field's opacity switch (see `styles.css`), and blending storm gloom
+into it would have put stars in a daytime sky the moment a hurricane got
+close — caught while writing the darkening, not after a screenshot showed
+it, by reading what else `--night` already drove before reusing it.
+
+**What a test can hold onto, same question the pond and the crops already
+asked of themselves:** not whether the ramp looks right — that is what the
+screenshots in "Verified, not assumed" below are for — but that nothing
+here is frozen. `rainDropY` gives a test the same "moving, not painted"
+check `waterPhase` already gives the pond.
+
+**A regression the full suite caught, not a screenshot.** Widening
+`#dayLabel` with a season glyph pushed the topbar's `.stats` row over its
+available width at a 360px viewport, and flexbox's default shrink behaviour
+spread the deficit evenly across every child in that row — including the
+help and mute buttons, which lost 5 of their 48px down to 43. Caught by the
+mobile suite's own existing "touch targets hold up at 360px" test, confirmed
+as this step's regression rather than a pre-existing one by reproducing it
+against a clean pre-step-13 tree and watching it pass there. The fix keeps
+the accessibility floor non-negotiable rather than shrinking the label back
+down: `.mute-btn` now carries `flex-shrink: 0`, so a narrow row gives ground
+from the coin and day badges — text that can afford to lose a few pixels —
+before it ever touches a tap target.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1021,6 +1133,42 @@ Everything above was checked before it was written:
   and the second one only by drawing it in hot magenta at full opacity: a
   flat marker that could not be seen might have been a marker that was never
   drawn, and those two have entirely different fixes. It was being drawn.
+
+- §5's "seasons come free" claim was checked against the pinned Kenney
+  mirror before step 13 built anything on it, not after: every candidate
+  tree variant URL was fetched directly, which is what found the pines
+  shipping neither `_dark` nor `_fall` nor `_snow` while `tree_default` and
+  `tree_detailed` shipped both of the first two. The orchard's scope in §21
+  follows from that fetch, not from the table it corrects.
+- Screenshots at midday, for spring, summer, autumn, winter, and a storm two
+  days out, with `state.day` set directly and `state.dayElapsedMs` pinned
+  before each shutter — the same discipline every earlier lighting claim in
+  this document was held to. Autumn showed the orchard's two species in
+  fall colour against the still-green pine fringe; winter showed the ground
+  and pond bank pass genuinely white and the grass tufts gone; the storm
+  shot showed visible falling streaks over a sky perceptibly greyer than
+  the same day without one.
+- The rain system's `computeBoundingSphere` call was reasoned through
+  rather than left to chance: every seeded drop's x and z are fixed for the
+  life of the page and only y moves, wrapped inside a known range, so a
+  sphere computed once from the initial scatter — before any drop has ever
+  fallen — already bounds everywhere a drop can ever be. The alternative,
+  recomputing it every frame the way §16's moving parts sometimes must, was
+  checked and found unnecessary rather than assumed unnecessary.
+- The first pass at testing the season/orchard/grass hooks was itself wrong,
+  and caught before being trusted: polling `season()` — a live, un-lagged
+  read of script.js's own calendar — and then asserting `orchardAutumn()`
+  or `grassShowing()` with a plain read right after looked reasonable and
+  flaked under four-worker contention, because the thing worth waiting for
+  was the 3D scene's own next animation frame, not the calendar. Fixed by
+  polling the lagged, rAF-driven value directly; confirmed with five
+  repeated runs at four workers, 20 of 20, after the fix.
+- The day-label touch-target regression above was pinned to step 13, not
+  assumed to be it, by running the failing test against a `git stash`ed
+  clean pre-step-13 tree first — it passed there — before writing the fix.
+  The full suite was then run twice more in full: once at 268 tests to
+  confirm the fix with nothing else broken, matching 264 from step 12 plus
+  the four new season/weather tests exactly.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

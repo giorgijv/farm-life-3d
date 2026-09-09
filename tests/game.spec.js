@@ -4430,6 +4430,115 @@ test.describe('footer', () => {
   });
 });
 
+test.describe('seasons and weather', () => {
+  const banked = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
+  const sceneReady = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+  };
+  /* Jumps the calendar without going through updateHurricane — plain state,
+     read back by season() and rainActive() alike. Every day used here stays
+     below 57, the day a hurricane against a fresh save first comes due (see
+     the 'hurricanes' describe block above): past that, the game's own tick
+     resolves the storm on its next real interval and proximity drops back
+     to zero out from under the assertion, which is a fact about hurricanes
+     rather than a bug in either system. */
+  const setDay = (page, day) => page.evaluate((d) => { state.day = d; }, day);
+
+  test('the calendar turns the season, and the season turns the orchard', async ({ page }) => {
+    await load(page, banked());
+    await sceneReady(page);
+    await page.waitForFunction(() => window.Farm3DScene.orchardReady());
+
+    // One day into each of the four weeks a fresh save's day 1 already
+    // sits in the first of — spring, summer, autumn, winter — plus day 29,
+    // the first day of the cycle's second lap, to check it wraps rather
+    // than counting stormward forever.
+    const cases = [
+      [1, 'spring'], [8, 'summer'], [15, 'autumn'], [22, 'winter'], [29, 'spring'],
+    ];
+    for (const [day, season] of cases) {
+      await setDay(page, day);
+      // The calendar itself turns the instant state.day does — no polling
+      // needed for a plain read of script.js's own state.
+      expect(await page.evaluate(() => window.Farm3DBridge.currentSeason())).toBe(season);
+      /* The orchard only catches up once syncSeason has run a frame since —
+         polled, not read once, so a slow tick under load is a wait rather
+         than a flake. This is also the honest reason season() above is
+         read on the far side of it: were it read first, it would report
+         the same live, un-lagged calendar currentSeason() already checked,
+         proving nothing about whether the 3D yard had caught up yet. */
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.orchardAutumn())).toBe(season === 'autumn');
+      expect(await page.evaluate(() => window.Farm3DScene.season())).toBe(season);
+    }
+  });
+
+  test('winter undresses the grass, not the trees', async ({ page }) => {
+    await load(page, banked());
+    await sceneReady(page);
+
+    await setDay(page, 1); // spring
+    expect(await page.evaluate(() => window.Farm3DBridge.currentSeason())).toBe('spring');
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.grassShowing())).toBe(true);
+
+    await setDay(page, 22); // winter
+    expect(await page.evaluate(() => window.Farm3DBridge.currentSeason())).toBe('winter');
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.grassShowing())).toBe(false);
+    // The hillside fringe scattered in step 8 has no snow variant either
+    // (checked against the Kenney mirror, not assumed — see
+    // docs/ART_BIBLE.md) and is deliberately out of scope for this step,
+    // so foliageCounts — unaffected by the visibility toggle above — should
+    // still report the trees it always did.
+    const counts = await page.evaluate(() => window.Farm3DScene.foliageCounts());
+    expect(counts['nature/tree_default']).toBeGreaterThan(0);
+    expect(counts['nature/tree_pineDefaultA']).toBeGreaterThan(0);
+
+    await setDay(page, 29); // back to spring
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.grassShowing())).toBe(true);
+  });
+
+  test('rain builds in across the hurricane forecast, and only then', async ({ page }) => {
+    await load(page, banked());
+    await sceneReady(page);
+
+    await setDay(page, 50); // well outside the 3-day warning window
+    expect(await page.evaluate(() => window.Farm3DBridge.stormProximity())).toBe(0);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.rainVisible())).toBe(false);
+
+    await setDay(page, 55); // two days out
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.rainVisible())).toBe(true);
+    const early = await page.evaluate(() => window.Farm3DScene.rainActive());
+    expect(early).toBeGreaterThan(0);
+
+    await setDay(page, 56); // one day out — closer, so more of it falling
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.rainActive())).toBeGreaterThan(early);
+
+    /* And it is actually falling, not a field of frozen streaks: the same
+       "moving, not painted" question the pond's own test asks of its water.
+       Drop 0 is guaranteed to be among the active ones whenever any are —
+       syncWeather always fills the active count from the front of the
+       seeded array — so its y is a fair sample of the whole field. */
+    const before = await page.evaluate(() => window.Farm3DScene.rainDropY(0));
+    await page.waitForFunction(
+      (y) => window.Farm3DScene.rainDropY(0) !== y,
+      before,
+      { timeout: 5_000 },
+    );
+  });
+
+  test('the day label carries the season, and a storm warning when one is due', async ({ page }) => {
+    await load(page, banked());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    await setDay(page, 15); // autumn, no storm due
+    await expect.poll(() => page.locator('#dayLabel').textContent()).toContain('🍂');
+    expect(await page.locator('#dayLabel').textContent()).not.toContain('🌪️');
+
+    await setDay(page, 56); // storm two-to-one day out
+    await expect.poll(() => page.locator('#dayLabel').textContent()).toContain('🌪️');
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Smoke                                                               */
 /* ------------------------------------------------------------------ */

@@ -122,6 +122,21 @@ const ANIMAL_SELL_REFUND_RATE = 0.5;
 const WEEK_LENGTH_DAYS = 7;
 const SUBSIDY_AMOUNT = 100;
 
+/* Seasons. A season is a week, so a year — spring, summer, autumn, winter —
+   is four weeks, the same calendar the subsidy already counts by. Nothing
+   here touches rules: no crop grows faster or slower for the season it lands
+   in. It is the 3D yard's own clock — see syncSeason in scene.js — and, for
+   the storm about to be added below it, the strip above the UI too. */
+const SEASON_LENGTH_DAYS = WEEK_LENGTH_DAYS;
+const SEASON_ORDER = ['spring', 'summer', 'autumn', 'winter'];
+const SEASON_GLYPH = { spring: '🌱', summer: '🌻', autumn: '🍂', winter: '❄️' };
+function seasonIndex() {
+  return Math.floor((state.day - 1) / SEASON_LENGTH_DAYS) % SEASON_ORDER.length;
+}
+function currentSeason() {
+  return SEASON_ORDER[seasonIndex()];
+}
+
 /* Hurricanes. Once every eight weeks the weather takes the whole farm: every
    crop in the ground is flattened, with no defence at any price; every animal
    outside a barn is lost; and everything harvested is blown out of the stores
@@ -2359,6 +2374,11 @@ window.Farm3DBridge = {
      stands, which is the whole reason the grid no longer needs to paint a
      2D face of it over the canvas in the wrong place. */
   selectedPlot: () => (plotGridFocused ? selectedPlot : null),
+  /* Step 13: the calendar the 3D yard turns its orchard and its ground by,
+     and how close the next hurricane is, for the rain and cloud it builds
+     in with. */
+  currentSeason,
+  stormProximity,
 };
 
 /* ------------------------------------------------------------------ */
@@ -3296,18 +3316,36 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-function lerpColor(c1, c2, t) {
-  return `rgb(${Math.round(lerp(c1[0], c2[0], t))}, ${Math.round(lerp(c1[1], c2[1], t))}, ${Math.round(lerp(c1[2], c2[2], t))})`;
+// The three numbers, not yet a css string — skyColorAt below needs to lerp
+// a second time, toward a storm tint, before it settles on one.
+function lerp3(c1, c2, t) {
+  return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)];
 }
+
+function lerpColor(c1, c2, t) {
+  const [r, g, b] = lerp3(c1, c2, t);
+  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+}
+
+// A flat, colourless grey — what a heavy overcast bleeds every band of the
+// sky toward, top and ground alike, which is why one tint covers all three.
+const STORM_TINT = [98, 104, 110];
 
 // Pass the sky through a warm dusk band instead of fading blue straight to
 // navy. The sinusoidal night factor lingers near its extremes, so the orange
 // window stays brief — which is what makes it read as a real sunset.
-function skyColorAt(band, nightFactor) {
+//
+// storm, added in step 13, blends toward STORM_TINT on top of whatever the
+// time of day already produced, in the same way stormProximity ramps rather
+// than snaps: the forecast in updateHurricane already gives three days'
+// warning, so the sky the player sees is the same three days going grey.
+function skyColorAt(band, nightFactor, storm = 0) {
   const t = clamp01(nightFactor);
-  return t < 0.5
-    ? lerpColor(SKY_COLORS.day[band], SKY_COLORS.dusk[band], t * 2)
-    : lerpColor(SKY_COLORS.dusk[band], SKY_COLORS.night[band], (t - 0.5) * 2);
+  const base = t < 0.5
+    ? lerp3(SKY_COLORS.day[band], SKY_COLORS.dusk[band], t * 2)
+    : lerp3(SKY_COLORS.dusk[band], SKY_COLORS.night[band], (t - 0.5) * 2);
+  const [r, g, b] = storm > 0 ? lerp3(base, STORM_TINT, storm * 0.6) : base;
+  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
 }
 
 /* Everything downstream of the clock — the sky's colour, where the sun or
@@ -3334,9 +3372,13 @@ function daySkyState() {
 function updateDayNightVisuals() {
   const { nightFactor, arc, isNight } = daySkyState();
   const root = document.documentElement.style;
-  root.setProperty('--sky-top', skyColorAt('top', nightFactor));
-  root.setProperty('--sky-bottom', skyColorAt('bottom', nightFactor));
-  root.setProperty('--sky-ground', skyColorAt('ground', nightFactor));
+  const storm = stormProximity();
+  root.setProperty('--sky-top', skyColorAt('top', nightFactor, storm));
+  root.setProperty('--sky-bottom', skyColorAt('bottom', nightFactor, storm));
+  root.setProperty('--sky-ground', skyColorAt('ground', nightFactor, storm));
+  // Not blended with storm: --night also drives the star field (see
+  // styles.css), and a storm gone grey at noon still has no business
+  // showing stars. The gradient above carries the gloom on its own.
   root.setProperty('--night', (nightFactor * 0.8).toFixed(3));
 
   const body = document.getElementById('celestialBody');
@@ -3368,8 +3410,12 @@ function renderTopbar() {
 
   const isNight = currentNightFactor > 0.5;
   const farmer = FARMERS[state.farmer];
+  const seasonGlyph = SEASON_GLYPH[currentSeason()];
+  // Only once the forecast itself has something to say — same window as the
+  // toast in updateHurricane, not a separate threshold invented for the label.
+  const stormGlyph = stormProximity() > 0 ? ' 🌪️' : '';
   document.getElementById('dayLabel').textContent =
-    `${farmer ? `${farmer.emoji} ` : ''}${isNight ? '🌙 Night' : '☀️ Day'} ${state.day}`;
+    `${farmer ? `${farmer.emoji} ` : ''}${seasonGlyph} ${isNight ? '🌙 Night' : '☀️ Day'} ${state.day}${stormGlyph}`;
 
   const muteBtn = document.getElementById('muteBtn');
   muteBtn.textContent = state.muted ? '🔇' : '🔊';
@@ -3487,6 +3533,17 @@ function nextHurricaneDay() {
 
 function daysToHurricane() {
   return Math.max(0, nextHurricaneDay() - state.day);
+}
+
+/* 0 outside the forecast window, climbing to 1 on the day itself — the same
+   window updateHurricane already warns across, read as a ramp instead of a
+   threshold so the yard can darken and the rain can build in rather than
+   snap on. Storms arrive on a clean calendar boundary, so this never needs
+   the "several came due at once" handling resolveHurricane does. */
+function stormProximity() {
+  const away = daysToHurricane();
+  if (away > HURRICANE_WARNING_DAYS) return 0;
+  return 1 - away / HURRICANE_WARNING_DAYS;
 }
 
 function updateHurricane() {

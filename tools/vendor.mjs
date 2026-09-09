@@ -71,7 +71,7 @@ const KENNEY_MODELS = {
     // Set dressing, all instanced later.
     'grass', 'grass_large', 'plant_bush',
     'flower_redA', 'flower_yellowA',
-    'tree_default', 'tree_detailed', 'tree_default_fall', 'tree_pineDefaultA',
+    'tree_default', 'tree_detailed', 'tree_default_fall', 'tree_detailed_fall', 'tree_pineDefaultA',
     'stump_round', 'log', 'rock_largeA', 'rock_smallA',
   ],
   'cube-pets': ['animal-cow', 'animal-chick', 'animal-dog', 'animal-cat', 'animal-polar'],
