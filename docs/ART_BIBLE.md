@@ -1031,6 +1031,134 @@ before it ever touches a tap target.
 
 ---
 
+## 22. Performance, at ten times the scene — step 14
+
+This step's plan asked for LOD, draw-call budgeting, texture compression and
+a real-phone GPU pass. What it got first was a measurement, because three of
+those four are answers and nobody had yet established the question.
+
+**How it was measured.** The counts below come from patching
+`drawElements`/`drawArrays` and their instanced forms on the GL context
+prototypes before the page loads, so the game is measured exactly as it
+ships with nothing added to it. A second, independent instrument —
+`renderer.info`, now exposed as `Farm3DScene.drawCost()` — agrees with it to
+the call and to the triangle, which is the only reason either is trusted
+here.
+
+**What this box cannot tell you, stated plainly.** There is no GPU in this
+sandbox. Every run is swiftshader, which means `rendererIsSoftware()` is
+true, the scene starts at its PLAIN tier, and foliage, pen and rain all come
+up at their reduced counts. So every *frame time* measured here — 183ms at
+1280×800, 217ms and 250ms under 4× and 6× CPU throttling on a phone
+viewport — describes this box's software rasteriser and says nothing
+whatever about a phone. **The plan's "holds 30fps on your own phone" was not
+verified and cannot be from here.** What is portable is what the scene asks
+the driver to do, which is the same on every machine; that is what the
+numbers below are, and what the tests hold to.
+
+To get the counts for the settings real hardware gets, the
+`UNMASKED_RENDERER_WEBGL` string is spoofed so `rendererIsSoftware()`
+answers no — the same hint the scene itself reads — giving PEN_CAP 6,
+FOLIAGE_SCALE 1 and RAIN_COUNT 500. Swiftshader still rasterises, so only
+the counts from that configuration mean anything, not its timings.
+
+**What was found.** One drawn frame, hardware-path settings:
+
+| state | before | after |
+|---|---|---|
+| opening farm, nothing planted | 114 calls / 96,796 tris | 95 / 66,012 |
+| worst case, summer | 234 / 108,684 | 216 / 79,116 |
+| worst case, winter + rain at full | 233 / 69,964 | 215 / 40,396 |
+
+Two of those rows are the finding. **Planting all sixteen plots cost exactly
+zero extra draw calls and exactly zero extra triangles** — 114 and 67,442 on
+an empty farm, 114 and 67,442 on a full one, identical. A cost that does not
+move when the thing it is drawing changes is a cost being paid for nothing.
+The cause is that crop stages hide by scaling an instance to nothing, which
+leaves it in the draw: all eight stage models were submitting all sixteen
+instances every frame regardless. Read straight out of the vendored `.glb`
+files, the eight models are 1,924 triangles and 19 primitives per set, so
+that is 30,784 triangles and 19 draw calls on a farm with nothing in it.
+Capping each mesh's `count` to how far the frame actually reached — three.js
+skips a zero-count instanced draw outright — gave back exactly 30,784
+triangles and 19 calls, prediction and measurement agreeing to the triangle.
+The instance index deliberately stays the plot index rather than being
+packed down, which is what keeps `cropSpin`, the wilt tint and
+`activeCropStage` all addressing the plot they mean; the saving is therefore
+largest on an empty or early farm and smallest with a crop on the last plot.
+
+The third row is step 13 paying a dividend nobody designed: winter draws
+40,396 triangles against summer's 79,116, because hiding the grass under
+snow hides half the farm's geometry.
+
+**LOD: already answered, in step 8.** The Nature Kit ships one detail level
+per model. The only LOD available to a single-detail kit is fewer instances,
+not simpler ones, which is exactly what FOLIAGE_SCALE, PEN_CAP and now
+RAIN_COUNT already do off the same `rendererIsSoftware()` signal. There is
+nothing to add here that is not already there under a different name.
+
+**Texture compression: measured, and refused.** Every texture the game ships
+is a shared kit colormap: six PNGs totalling **76 KB** across the whole
+game, inside a 1.8 MB asset set whose weight is geometry, not pixels. A
+KTX2/Basis transcoder is several hundred kilobytes of WASM and JavaScript —
+*larger than the entire payload it would compress* — and would need the
+build step this project deliberately does not have (decision 01). Compressing
+76 KB by adding 200 KB is not an optimisation. Recorded as declined with the
+number, not skipped quietly.
+
+**What the scene actually costs, and whether that is a problem.** 216 draw
+calls and 79,116 triangles in the worst state the game can reach. For any
+real GPU, including a mid-range phone, neither figure is near where trouble
+starts. The honest conclusion is that this scene was not draw-call bound or
+triangle bound before this step and is not after it; what it had was one
+unconditional cost, now conditional. The frame budget from step 4 remains
+the thing that copes with a machine that genuinely cannot keep up, and it
+still has the last word.
+
+**So the lasting deliverable is the instrument and its ceiling.** Today's
+numbers being fine is not a property that stays true by itself — step 16
+adding thirty props, or a later hand at the foliage un-instancing something,
+is exactly the regression nobody notices. `Farm3DScene.drawCost()` makes the
+cost askable, and three tests hold it: a ceiling on the worst case (260
+calls, 100,000 triangles — above both paths with room, tight enough that
+putting the crop instances back would breach it), the conditional-cost
+property that was broken here, and that a farm behind another tab draws
+nothing at all. That last one is not a micro-optimisation: it is the
+difference between a phone spending its battery on a 3D scene nobody is
+looking at and not. `renderer.info.autoReset` had to be turned off and reset
+by hand in `frame()` for any of it to be true at the composer tiers, where
+the renderer's own per-`render()` reset would otherwise have reported a
+frame's cost as the three calls of its last fullscreen pass.
+
+**The four-worker stress, and what it actually showed.** The plan's "done
+when" for this step names it, so it was run — and then run again against a
+clean pre-step-14 tree, because a stress run's failures mean nothing until
+you know what the same stress does to the same box without your change:
+
+| full suite, `--workers=4`, no retries | failed | passed |
+|---|---|---|
+| clean tree, step 13 as shipped | 12 | 256 |
+| with step 14 | 6 | 265 |
+
+Every failure in the step 14 run was a timeout or a timing assertion, and
+the two most incriminating — `crops, modelled`, which exercises the exact
+instance counts this step changed, and the farmer's walk cycle — **fail on
+the clean tree too**. So they are the four-worker contention this project
+has been documenting since step 8, not a regression. Four workers on this
+box with no GPU is past what the environment sustains; CI itself runs the
+default worker count with one retry, which is the number that has to be
+green, and is.
+
+The step 14 run failing half as often as the clean one is consistent with
+30,000 fewer triangles a frame leaving more CPU for everything else, since
+on the software rasteriser every one of those triangles is main-thread work.
+That is stated as consistent-with rather than proven: variance this deep
+into contention is large, and one pair of runs is not a measurement of an
+improvement in flakiness. What the pair does establish is the direction of
+blame, which is what it was run for.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1169,6 +1297,30 @@ Everything above was checked before it was written:
   The full suite was then run twice more in full: once at 268 tests to
   confirm the fix with nothing else broken, matching 264 from step 12 plus
   the four new season/weather tests exactly.
+
+- Step 14 measured before it changed anything, and measured again to check
+  that what it changed did what it claimed. The saving was predicted from
+  the vendored `.glb` files' own accessor counts — 1,924 triangles across 19
+  primitives per crop-stage set, times sixteen instances — and the frame
+  afterwards gave back exactly 30,784 triangles and exactly 19 calls. Two
+  independent instruments were used and cross-checked against each other
+  before either was believed: GL context prototypes patched from outside the
+  page, and `renderer.info` from inside it. They agree exactly.
+- The one thing step 14 could not verify, it says so about rather than
+  claiming: **this sandbox has no GPU**, so "holds 30fps on a phone" is
+  untested. Every frame time measurable here is swiftshader's. The
+  hardware-path *counts* were obtained by spoofing the renderer string the
+  scene itself reads, which is honest about being a configuration change
+  rather than a hardware one — the timings under it are meaningless and are
+  not quoted.
+- Texture compression was declined against a measurement rather than a
+  feeling: 76 KB of PNG across the entire game, against a transcoder several
+  times that size.
+- Step 14's own four-worker failures were checked against a clean
+  pre-step-14 tree before any of them were called flakes — the same
+  discipline step 8 used on the walk-timing bug and step 13 used on the
+  touch-target regression, and the same discipline that would have caught
+  the opposite answer had the clean tree come back green.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

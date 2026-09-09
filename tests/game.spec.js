@@ -4539,6 +4539,99 @@ test.describe('seasons and weather', () => {
   });
 });
 
+test.describe('what the scene costs to draw', () => {
+  /* Step 14's instrument, and the part of it a test can hold to. Frame
+     *times* are a property of the machine as much as of the scene — this
+     box has no GPU at all, so every run here is the software rasteriser —
+     but what the scene asks the driver for is its own doing and means the
+     same thing everywhere. That is what these assert.
+
+     The ceilings are set from measurement, not taste. At the settings real
+     hardware gets (PEN_CAP 6, FOLIAGE_SCALE 1, RAIN_COUNT 500) the worst
+     case the game can reach measured 216 calls and 79,116 triangles; on the
+     software path CI actually runs, 168 and 44,992. The ceilings sit above
+     the higher of the two with room to spare, so they pass on either path
+     and still catch the kind of regression worth catching — un-instancing
+     the foliage or the forty-four hand-placed props would blow through the
+     call ceiling immediately, and putting back the always-drawn crop
+     instances step 14 removed would put ~30,000 triangles back. */
+  const CALL_CEILING = 260;
+  const TRIANGLE_CEILING = 100_000;
+
+  const ago = (s) => secondsAgo(s);
+  const fullPlots = () => Array.from({ length: PLOT_COUNT }, (_, i) => ({
+    crop: ['wheat', 'corn', 'carrot', 'pumpkin'][i % 4], plantedAt: ago(4),
+  }));
+  const fullPen = {
+    cows: [1, 2, 3, 4, 5, 6].map((id) => ({ id, state: 'producing', feedAt: ago(2) })),
+    chickens: [7, 8, 9, 10, 11, 12].map((id) => ({ id, state: 'producing', feedAt: ago(2) })),
+    sheep: [13, 14, 15, 16, 17, 18].map((id) => ({ id, state: 'producing', feedAt: ago(2) })),
+  };
+  const drawn = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+    await page.evaluate(() => window.Farm3DScene.cropModelsReady());
+    // A frame has to have been drawn since the models landed for the count
+    // to describe the scene as it now stands rather than as it loaded.
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls))
+      .toBeGreaterThan(0);
+    return page.evaluate(() => window.Farm3DScene.drawCost());
+  };
+
+  test('the worst case the game can reach stays inside its draw budget', async ({ page }) => {
+    // Everything at once: every plot grown, every pen row full, and a
+    // hurricane one day out so the rain is at its densest.
+    await load(page, makeSave({
+      unlockedPlots: PLOT_COUNT, plots: fullPlots(), ...fullPen,
+      nextAnimalId: 40, day: 56, hurricaneWarned: true, subsidiesPaid: 7,
+      unlockedAchievements: [...ACHIEVEMENT_IDS],
+    }));
+    const cost = await drawn(page);
+    expect(cost.calls).toBeLessThanOrEqual(CALL_CEILING);
+    expect(cost.triangles).toBeLessThanOrEqual(TRIANGLE_CEILING);
+  });
+
+  test('an empty field does not pay for crops it is not growing', async ({ page }) => {
+    /* The bug step 14 went looking for and found. Crop stages hide by
+       scaling an instance to nothing, which leaves it in the draw — so all
+       eight stage models were submitting all sixteen instances every frame
+       whether or not a seed was in the ground, and planting the entire
+       field cost measurably nothing on top. A cost that does not move when
+       the thing being drawn changes is a cost being paid for nothing.
+
+       Both halves are measured in the same run, on whatever path this
+       machine gives them, so the comparison holds without either number
+       having to be pinned. Same day, so the same season is drawing the
+       same grass in both. */
+    await load(page, makeSave({ unlockedPlots: PLOT_COUNT, day: 10 }));
+    const empty = await drawn(page);
+
+    await load(page, makeSave({ unlockedPlots: PLOT_COUNT, day: 10, plots: fullPlots() }));
+    const planted = await drawn(page);
+
+    expect(planted.triangles).toBeGreaterThan(empty.triangles);
+  });
+
+  test('a farm nobody is looking at is not drawn at all', async ({ page }) => {
+    /* Not a micro-optimisation — it is the difference between a phone
+       spending its battery on a 3D scene behind the Market tab and not.
+       frame() already skipped the draw; what step 14 added is the ability
+       to ask whether it really does. */
+    await load(page, makeSave({ unlockedPlots: PLOT_COUNT, plots: fullPlots() }));
+    expect((await drawn(page)).calls).toBeGreaterThan(0);
+
+    // By data-tab rather than by name: on the Market tab "Farm" also matches
+    // the farmer difficulty button and "Start a New Farm".
+    await page.locator('button[data-tab="market"]').click();
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls)).toBe(0);
+
+    // And picks it straight back up, rather than needing a nudge.
+    await page.locator('button[data-tab="farm"]').click();
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls))
+      .toBeGreaterThan(0);
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Smoke                                                               */
 /* ------------------------------------------------------------------ */

@@ -96,6 +96,14 @@ function startScene(bridge) {
   // would otherwise ask for nine times the pixels for no visible gain.
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  /* Step 14's instrument. Left to itself, renderer.info resets at the start
+     of every renderer.render() call — which is once per *pass*, so on the
+     composer tiers the counts would describe only the last fullscreen quad
+     rather than the frame, and would quietly read as "3 draw calls" for a
+     scene drawing hundreds. Reset once per frame in frame(), by hand,
+     instead: then the numbers mean the same thing at every quality tier,
+     which is the whole point of having them. */
+  renderer.info.autoReset = false;
   /* Not an early start on step 4's post-processing pass — this is here
      because the sky below does not work without it. Sky.js's atmospheric
      model outputs unclamped HDR radiance by design (the same Preetham
@@ -480,6 +488,18 @@ function startScene(bridge) {
     }
   }
 
+  /* The highest instance each crop-stage model actually reached this frame,
+     which is what its InstancedMesh.count is set to at the end of syncPlots.
+     Step 14 measured why this exists: hiding an instance by scaling it to
+     nothing leaves it in the draw, so all eight stage models were submitting
+     all sixteen instances every frame whether or not a single seed was in
+     the ground — 1,924 triangles a set at sixteen apiece, 30,784 triangles
+     and nineteen draw calls, on a farm with nothing planted. Planting the
+     whole field cost exactly nothing on top of that, which is what gave the
+     game away: a cost that does not move when the thing it is drawing
+     changes is a cost being paid for nothing. */
+  const cropDrawTop = {};
+
   /** Shows model id's instance i at (x, y, z) with the plot's own fixed
       spin, tinted by colorHex (0xffffff for "exactly as authored") — always
       passed, never left to the caller's judgement, because InstancedMesh
@@ -493,6 +513,7 @@ function startScene(bridge) {
   function showCropStage(id, i, x, y, z, colorHex) {
     const meshes = cropMeshes[id];
     if (!meshes) return; // still being fetched; nothing to draw yet
+    cropDrawTop[id] = Math.max(cropDrawTop[id] ?? 0, i + 1);
     const spin = cropSpin(i);
     for (const mesh of meshes) {
       tmpMatrix.compose(
@@ -560,6 +581,11 @@ function startScene(bridge) {
     // script.js for why the highlight lives out here rather than in the DOM.
     const selected = bridge.selectedPlot();
 
+    // Rebuilt from nothing each frame; showCropStage below raises each one
+    // as it places an instance. See cropDrawTop, and where it is applied at
+    // the end of this function.
+    for (const id of CROP_MODEL_IDS) cropDrawTop[id] = 0;
+
     for (let i = 0; i < PLOT_COUNT; i++) {
       const { x, z } = tileWorldPos(i);
       const locked = i >= unlocked;
@@ -622,6 +648,22 @@ function startScene(bridge) {
     if (selected !== null) {
       const spot = tileWorldPos(selected);
       selection.position.set(spot.x, 0, spot.z); // the pin carries its own height
+    }
+
+    /* Draw each stage model only as far as this frame actually used it —
+       zero, and three.js skips the draw call outright rather than issuing
+       one for sixteen instances that will all collapse to nothing. The
+       instance index stays the plot index rather than being packed down,
+       which is what keeps cropSpin, the wilt tint and activeCropStage all
+       still addressing the plot they mean; the saving is therefore best on
+       an empty or early farm (the common case, and the one every test page
+       load renders) and smallest when a crop sits on the last plot, which
+       is the honest trade for not renumbering anything. hideCropStage still
+       zero-scales, so an instance inside the count but not in use this
+       frame is still invisible — the count is the saving, not the
+       correctness. */
+    for (const id of CROP_MODEL_IDS) {
+      for (const mesh of cropMeshes[id] ?? []) mesh.count = cropDrawTop[id];
     }
 
     tileMesh.instanceMatrix.needsUpdate = true;
@@ -2944,6 +2986,19 @@ function startScene(bridge) {
     // syncWeather's active count only ever grows from the front of the
     // seeded array.
     rainDropY: (i) => rainDrops[i]?.y ?? null,
+    /* Step 14. What the last drawn frame actually asked the driver for.
+       The frame budget above measures how long frames take, which is a
+       property of the machine as much as of the scene; this is the part
+       that is purely the scene's own doing and means the same thing on
+       every machine, which is what makes it something a test can hold to a
+       ceiling. `calls` is zero when the farm is not on screen, because a
+       frame that is not drawn is not charged for — see frame(). */
+    drawCost: () => ({
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      geometries: renderer.info.memory.geometries,
+      textures: renderer.info.memory.textures,
+    }),
   };
 
   /* -------------------------------------------------------------- */
@@ -3038,6 +3093,12 @@ function startScene(bridge) {
        zero, quietly disabling the step-down on the machines that need it. */
     if (document.hidden || !farmTabVisible()) {
       lastDrawAt = 0;
+      /* Zeroed on the way past, so drawCost() reports what this frame cost
+         — nothing — rather than holding up the last frame drawn before the
+         player switched tabs. Without this the instrument reads as though
+         the scene were still drawing a farm nobody is looking at, which is
+         precisely the claim it exists to be able to check. */
+      renderer.info.reset();
       return;
     }
     if (now - lastDrawAt < FRAME_INTERVAL_MS) return;
@@ -3054,6 +3115,10 @@ function startScene(bridge) {
     followFarmer();
     controls.update();
 
+    // Zeroed here rather than by the renderer itself, so what drawCost()
+    // reports is this whole frame across every pass — see renderer.info
+    // .autoReset above.
+    renderer.info.reset();
     if (post && quality !== QUALITY.PLAIN) post.composer.render();
     else renderer.render(scene, camera);
   }
