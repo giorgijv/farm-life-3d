@@ -1404,6 +1404,25 @@ function startScene(bridge) {
        same as Achievements or Dream — just what a dooryard already thick
        with crates and a chest would plausibly also have standing in it. */
     { id: 'fantasy-town/stall-green', x: 2.2, z: 4.85, ry: -0.5 },
+    /* A short pull-in and a car, so the stall reads as somewhere goods
+       actually arrive rather than a booth that stands alone in the grass.
+       Neither city-suburban nor fantasy-town has a road or a vehicle of its
+       own — found by probing the mirror, not assumed from a kit name — but
+       a dedicated city-roads kit and a car kit both exist alongside them.
+       Pure set dressing, the same as the stall itself: nothing drives it,
+       nothing walks her to it. road-end caps the far side so the strip
+       reads as a real turning off rather than tarmac that stops for no
+       reason; the near end is left open, toward the rest of the farm.
+
+       The car's rotation was chosen by rendering all six of the obvious
+       candidates side by side rather than guessed at once — nose-on and
+       parked broadside both read fine, but only one broadside direction
+       also points the car's own nose back down the road it arrived by,
+       rather than at the crop fence behind the stall. */
+    { id: 'city-roads/road-end', x: 3.6, z: 7.1, ry: Math.PI },
+    { id: 'city-roads/road-straight', x: 3.6, z: 6.1 },
+    { id: 'city-roads/road-straight', x: 3.6, z: 5.1 },
+    { id: 'car/sedan', x: 3.4, z: 4.35, ry: -Math.PI / 2 },
     { id: 'nature/plant_bush', x: -2.2, z: 4.5 },
     { id: 'nature/plant_bush', x: 0.3, z: 6.2 },
     { id: 'nature/flower_redA', x: -2.6, z: 4.1 },

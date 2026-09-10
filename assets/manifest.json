@@ -3,7 +3,7 @@
     "kenney": "3694c6879e487c108f55677be7dd2ca75b07cc3b",
     "three": "r169"
   },
-  "bytes": 1719874,
+  "bytes": 1923343,
   "files": [
     "./assets/models/nature/crops_leafsStageA.glb",
     "./assets/models/nature/crops_leafsStageB.glb",
@@ -53,7 +53,12 @@
     "./assets/models/city-suburban/building-type-b.glb",
     "./assets/models/city-suburban/Textures/colormap.png",
     "./assets/models/fantasy-town/stall-green.glb",
-    "./assets/models/fantasy-town/Textures/colormap.png"
+    "./assets/models/fantasy-town/Textures/colormap.png",
+    "./assets/models/city-roads/road-straight.glb",
+    "./assets/models/city-roads/road-end.glb",
+    "./assets/models/city-roads/Textures/colormap.png",
+    "./assets/models/car/sedan.glb",
+    "./assets/models/car/Textures/colormap.png"
   ],
   "vendor": [
     "./vendor/jsm/controls/OrbitControls.js",

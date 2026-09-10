@@ -1429,6 +1429,57 @@ on this box's 4 cores with no GPU is past what it sustains and both step
 
 ---
 
+## 26. A road and a car at the market — a post-ship addition
+
+Asked for, after ship: a route and cars at the market, where the farmer
+sells the harvest. Scoped down on the way in, the same way §21's "a UI that
+matches" was — pure set dressing beside the stall, nothing that drives or
+is driven, matching what the stall itself already is (§19's own words:
+"nothing in this game ever walks her to it, since that tab has no seat in
+the 3D world at all"). A road with traffic on it, or a delivery mechanic
+with its own timing, would be a different, much larger ask than what a
+market stall standing alone in the grass was actually missing.
+
+**Neither kit already vendored has a road or a vehicle.** Checked before
+being declared, the same way every gap in this document has been: probed
+against the pinned mirror rather than inferred from a kit's name.
+`city-suburban` and `fantasy-town` were the two candidates that sound like
+they might, and neither does. What exists, at this same commit, is a
+dedicated `city-roads` kit (`road-straight`, `road-bend`, `road-crossroad`,
+`road-split`, `road-end`, each exactly 1×0.02×1 — the Nature Kit's own
+1-unit grid, with no conversion needed) and a `car` kit (`sedan`, `taxi`,
+`van`, `truck`, `delivery`, `tractor`, `police`, `ambulance`, `firetruck`,
+and more, each roughly 1,900–2,300 triangles across five or six primitives).
+Both need the same `Textures/colormap.png` atlas pattern as `survival` and
+`fantasy-town` already do.
+
+**Placement:** a three-tile pull-in off the dooryard's open south-east
+corner — `road-straight`, `road-straight`, `road-end` capping the far
+side — with a parked `car/sedan` at the near end, beside the stall. Nothing
+else stood there; the dooryard's own props (the pond, the chest, the
+barrels, the stump) all sit west of the stall, and `FARM_SOUTH`/`FARM_RIGHT`
+leave the flat ground east and south of it genuinely empty.
+
+**The car's rotation was chosen by rendering it, not by guessing a plausible
+number.** Six candidates — nose-on, both broadside directions, rear-on, and
+two arbitrary diagonals — were screenshotted side by side from the same
+follow-camera angle a player actually gets. Broadside read best in both
+directions; only one of the two also pointed the car's own nose back down
+the road it arrived by rather than into the crop fence behind the stall,
+which is the one that shipped. The three-tile road itself was confirmed the
+same way, from three separate camera positions including a drag-orbit, to
+be one continuous run rather than a visible seam at the join between the
+two kit pieces.
+
+**Cost:** nine more draw calls, on the order of 2,300 more triangles — a
+car's five or six primitives plus three single-primitive road tiles.
+Checked against §22's instrument rather than assumed trivial: 90 calls and
+37,506 triangles measured with these added, against a 260-call,
+100,000-triangle ceiling that already had room to spare. `sw.js`'s
+`CACHE_VERSION` bumped for the two new kits.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1636,6 +1687,13 @@ Everything above was checked before it was written:
   text, frame tier, budget EMA) rather than by reasoning from the code alone
   — the first theory tried (a stale prompt-label cache) did not match what
   the numbers showed once captured, and was dropped for one that did.
+- The road and car kits in §26 were found by probing the pinned mirror with
+  real HTTP requests before either was written into `tools/vendor.mjs`, the
+  same discipline §5 and §13 already established for this project — a
+  plausible-sounding kit name (`city-suburban`, `fantasy-town`) was checked
+  and ruled out before the one that actually exists was. The car's rotation
+  is a screenshot decision, not a guess written down as if it were one: six
+  candidates rendered, compared, and the losing five discarded.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

@@ -30,7 +30,10 @@ duty trotting the fence line while a hungry one waits it out. The crops are
 modelled too, and change shape as they grow rather than just colour. There is
 a pond whose water actually moves, an orchard that turns to autumn colour and
 back, grass that disappears under winter, and rain that builds in across the
-three days before a hurricane lands, greying the sky as it comes. The sun
+three days before a hurricane lands, greying the sky as it comes. A car sits
+parked on a short pull-in by the market stall, the way the stall itself is
+set dressing rather than somewhere she walks — the Market tab still sells
+from a flat 2D counter, same as ever. The sun
 tracks the same clock the 2D sky strip reads, carrying the yard from daylight
 through a warm dusk into a moonlit night. The camera follows her and is yours
 to move — drag to orbit, pinch to zoom, two fingers to pan, clamped so it

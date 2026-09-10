@@ -93,6 +93,15 @@ const KENNEY_MODELS = {
      ever walks her to it, since the Market is a flat tab with no seat in
      the 3D world, the same as Achievements and Dream. */
   'fantasy-town': ['stall-green'],
+  /* A road and a car for the market stall, set dressing the same way the
+     stall itself is — nothing in this game ever drives it. Two kits, found
+     by probing the mirror rather than guessed at: neither 'city-suburban'
+     nor 'fantasy-town' has a road or a vehicle of its own, but a dedicated
+     'city-roads' kit and a 'car' kit both exist alongside them. road-end
+     caps the short pull-in off the stall so it reads as a real turning, not
+     a strip that stops for no reason. */
+  'city-roads': ['road-straight', 'road-end'],
+  car: ['sedan'],
 };
 
 /* Kits whose models reference a shared texture atlas by a relative URI
@@ -103,6 +112,8 @@ const KIT_TEXTURES = {
   survival: ['Textures/colormap.png'],
   'city-suburban': ['Textures/colormap.png'],
   'fantasy-town': ['Textures/colormap.png'],
+  'city-roads': ['Textures/colormap.png'],
+  car: ['Textures/colormap.png'],
   // Blocky characters are textured per character rather than per kit.
   'blocky-characters': ['Textures/texture-a.png', 'Textures/texture-e.png'],
 };
