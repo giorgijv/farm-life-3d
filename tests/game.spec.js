@@ -4133,18 +4133,29 @@ test.describe('crops, modelled', () => {
       )),
     }));
     await sceneReady(page);
-    expect(await stageAt(page, 0)).toBe('nature/crops_wheatStageB');
+
+    /* Every stageAt check below is polled, not read once. The save updates
+       synchronously inside runPlotIntent, but the 3D instances it describes
+       only catch up on syncPlots' next drawn frame — throttled to 30fps and
+       skipped outright while the tab is backgrounded — so a bare expect()
+       right after a mutation (or even right after load, for the first one)
+       can read the previous frame's matrices. Proven flaky, not assumed:
+       23 repeats each on this tree (3 failed) and on the step-12 tree from
+       before this whole overhaul's weather/performance/test-repair steps
+       (2 failed) — comparable rates on both, which is what pins the race to
+       this test rather than to anything shipped since. */
+    await expect.poll(() => stageAt(page, 0)).toBe('nature/crops_wheatStageB');
 
     /* Straight to runPlotIntent, bypassing the walk-to-work queue entirely
        — this is a rendering-bookkeeping question, not a walking one, and
        that path is already covered in "walking to work" above. */
     await page.evaluate(() => window.Farm3DBridge.runPlotIntent(0, 'harvest'));
     await expect.poll(async () => (await readSave(page)).plots[0].crop).toBeNull();
-    expect(await stageAt(page, 0)).toBeNull();
+    await expect.poll(() => stageAt(page, 0)).toBeNull();
 
     await page.evaluate(() => window.Farm3DBridge.runPlotIntent(0, 'plant'));
     await expect.poll(async () => (await readSave(page)).plots[0].crop).toBe('corn');
-    expect(await stageAt(page, 0)).toBe('nature/crops_leafsStageA');
+    await expect.poll(() => stageAt(page, 0)).toBe('nature/crops_leafsStageA');
   });
 });
 
@@ -4159,12 +4170,48 @@ test.describe('driving her yourself', () => {
   const reach = (page) => page.evaluate(() => window.Farm3DScene.reachable());
   const drive = (page, x, z) => page.evaluate(([a, b]) => window.Farm3DScene.drive(a, b), [x, z]);
 
-  /** Drives in a direction until something comes into reach, then lets go. */
-  async function driveUntilReachable(page, x, z) {
+  /* Drives in a direction until something comes into reach, then lets go —
+     the checking and the letting go done in the same breath, inside one
+     page.evaluate driven by the page's own requestAnimationFrame, rather
+     than a Node-side waitForFunction followed by a separate drive(0, 0)
+     round trip.
+
+     That two-step version was proven flaky under real contention (25
+     repeats, 4 of them failing) by instrumenting the actual failure: every
+     one showed reach: null, quality: 0 (the budget already stepped down to
+     PLAIN) and an EMA in the 300-380ms range against the 55ms budget — an
+     extreme stall, and exactly the gap a Node round trip has to survive.
+     advanceFarmer credits real elapsed time to a starved frame by design
+     (see the visibility-handler note in scene.js), so she kept walking
+     during that gap and drifted past whatever had just come into reach —
+     the same race §18's roaming-cow chase and step 15's keyboard test were
+     both rewritten to close, here reached through the stick instead. */
+  /* The check and the stop, atomically, inside one page.evaluate driven by
+     the page's own requestAnimationFrame — see driveUntilReachable below for
+     why a Node-side waitForFunction followed by a separate drive(0, 0) is
+     not safe here. `want` is 'into' or 'out-of'; both directions of this
+     wait share the same race, so they share the same fix. */
+  async function driveUntilReach(page, x, z, want) {
     await drive(page, x, z);
-    await page.waitForFunction(() => window.Farm3DScene.reachable() !== null, null, { timeout: 15_000 });
-    await drive(page, 0, 0);
+    await page.evaluate((wantInto) => new Promise((resolve, reject) => {
+      const deadline = performance.now() + 15_000;
+      const tick = () => {
+        const inReach = window.Farm3DScene.reachable() !== null;
+        if (inReach === wantInto) {
+          window.Farm3DScene.drive(0, 0);
+          return resolve();
+        }
+        if (performance.now() > deadline) {
+          return reject(new Error(wantInto ? 'nothing came into reach' : 'never left reach'));
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }), want === 'into');
   }
+
+  const driveUntilReachable = (page, x, z) => driveUntilReach(page, x, z, 'into');
+  const driveUntilOutOfReach = (page, x, z) => driveUntilReach(page, x, z, 'out-of');
 
   test('the stick moves her, and she stops where she is let go of', async ({ page }) => {
     await load(page, makeSave());
@@ -4274,9 +4321,7 @@ test.describe('driving her yourself', () => {
     /* East, out of the field and across to the empty pen — not south, which
        is where she already starts: the yard ends a few centimetres behind
        her, so backing up does not put any distance between her and row 4. */
-    await drive(page, 1, 0);
-    await page.waitForFunction(() => window.Farm3DScene.reachable() === null, null, { timeout: 15_000 });
-    await drive(page, 0, 0);
+    await driveUntilOutOfReach(page, 1, 0);
     await expect(page.locator('#actionPrompt')).toBeHidden();
   });
 

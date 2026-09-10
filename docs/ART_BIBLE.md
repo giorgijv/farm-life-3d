@@ -1358,6 +1358,77 @@ confirm in a minute and this environment cannot confirm at all.
 
 ---
 
+## 25. A post-ship bug hunt, and two real flakes it found
+
+Asked, after step 16, to go looking for bugs the shipped game might still
+have. Two rounds of scripted exploratory testing — the playtest bot across
+all three tiers plus its stress phase, then fifteen hand-written scenarios
+covering game-over and restart, the dream-home ending, rotten crops, raids,
+a mid-game difficulty switch, a corrupted save, rapid tab switching,
+achievements, a hurricane against a Large Barn, buying every upgrade and
+selling every good, affordability at zero coins, feeding a dog, the
+save-download round trip, and a wilting-but-not-rotten harvest.
+
+**Seven apparent findings, all of them the test scripts' own bugs, not the
+game's — proven, not asserted.** Each was chased down and reproduced clean
+once fixed, the same discipline as every "verified, not assumed" entry
+above: a missing `page.on('dialog', ...)` handler read `restartGame`'s
+`window.confirm()` as declined; two scenarios read state right after a tap
+without waiting on the walk-to-work queue, the exact race §18's roaming-cow
+test and §23's keyboard test were both rewritten for; a `spoilsAt` was set
+in seconds where the game stores milliseconds, aging a crop a thousandfold
+in an instant; and a rapid loop of DOM clicks with no wait between them
+silently dropped several — confirmed a test artifact by calling `sellAll`
+directly and by re-running the same clicks one at a time with a wait, both
+of which sold everything correctly.
+
+**The full suite, re-run clean, surfaced two further flakes — real ones,
+just older than this bug hunt.** A `--workers=4` run of the shipped tree
+failed two tests neither the exploratory pass nor CI had ever caught.
+Checked against the step-12 tree, from before this overhaul's last four
+steps, before either was touched: comparable failure rates on both (2–3 in
+23 repeats each), which is what pins them to code that predates this
+session's work rather than to anything it shipped.
+
+- *`harvesting and replanting never leaves the old crop's model standing`*
+  read `stageAt()` — the 3D scene's own instance matrices — with a bare
+  `expect()` immediately after a mutation. The save updates synchronously
+  inside `runPlotIntent`; the mesh only catches up on `syncPlots`' next
+  drawn frame. Fixed by polling `stageAt()` the same way the save read
+  beside it already was. 25 of 25 afterward, up from roughly 1 in 8.
+- *`the offer keeps up with a change of seed`* took longer to place: the
+  bare-`expect()` explanation didn't fit, since `toHaveText` already polls
+  for five seconds and still never saw the update. Instrumented instead of
+  guessed at — a try/catch around the failing assertion that dumped
+  `reachable()`, the prompt text, and the frame budget's own tier and EMA
+  on failure — and every capture showed the same shape: `reach: null`,
+  `quality: 0` (already stepped down to PLAIN), an EMA of 300–380ms against
+  a 55ms budget. She had drifted out of reach entirely. The cause was
+  `driveUntilReachable`: a `page.waitForFunction` resolving in-page,
+  followed by a *separate* `drive(0, 0)` round trip to actually stop her —
+  and `advanceFarmer` credits real elapsed time to a starved frame by
+  design (see scene.js), so under the contention the diagnostics had just
+  shown, she kept walking for the width of that round trip and overshot.
+  The same race as the keyboard test in §23, reached this time through the
+  stick. Fixed the same way: the wait and the stop happen inside one
+  `page.evaluate`, driven by the page's own `requestAnimationFrame`, so
+  nothing has to survive a trip back to Node in between. A second test in
+  the same describe block, `the offer follows her, and goes away when
+  nothing is in reach`, turned out to share the identical shape for the
+  opposite condition (waiting for reach to become null rather than
+  non-null) — found by re-running the whole block under heavy repeats
+  rather than declaring the one fix finished, and folded into the same
+  helper rather than patched separately. 271 of 271 at CI's own worker
+  count afterward.
+
+Both fixes were measured before and after, not just written and trusted:
+the failing rate under contention, then the same command clean, then the
+full suite at CI's actual settings — the bar that matters, since 4 workers
+on this box's 4 cores with no GPU is past what it sustains and both step
+14's and step 15's addenda already say so.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1553,6 +1624,18 @@ Everything above was checked before it was written:
 - "Pages deployed" is stated as what was actually verified — the deployment
   workflow ran and succeeded on every push — and explicitly not as "the live
   page was loaded", which this sandbox's egress policy makes impossible.
+- The post-ship bug hunt's seven false positives were each individually
+  disproved rather than waved off as "probably the test" — every one was
+  re-run clean after fixing the actual script bug, with the fix identified
+  from reading the game's own code (units, dialog handling, the walk-to-work
+  queue) rather than from pattern-matching against earlier flakes.
+- The two real flakes were pinned to pre-existing code, not claimed to be,
+  by running the identical repeat count against the step-12 tree and finding
+  comparable failure rates on both. The `driveUntilReachable` diagnosis in
+  particular was reached by instrumenting the actual failure (reach, prompt
+  text, frame tier, budget EMA) rather than by reasoning from the code alone
+  — the first theory tried (a stale prompt-label cache) did not match what
+  the numbers showed once captured, and was dropped for one that did.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.
