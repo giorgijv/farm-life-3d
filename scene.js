@@ -139,11 +139,24 @@ function startScene(bridge) {
   // hiding a flat plane's featureless edge, and hiding it early cost nothing.
   // Now there is real relief out there worth letting fade into haze instead
   // of vanishing outright — see the terrain section, below.
-  scene.fog = new THREE.Fog(0xbfe4f5, 16, 34);
+  //
+  // Pushed out again when the farm grew: at 16/34 the near plane started
+  // inside the farm itself, and the barn — which now stands twenty-odd units
+  // from the camera rather than nine — came out of the box already half
+  // dissolved. Fog must begin past the last thing the player owns, not on
+  // top of it.
+  scene.fog = new THREE.Fog(0xbfe4f5, 30, 64);
 
   // Aimed once the pen's position is known, below — it needs to frame both
   // the field and the pen at once, off to one side of this constructor.
-  const camera = new THREE.PerspectiveCamera(48, 4 / 3, 0.1, 100);
+  /* Far plane at 200 rather than the 100 that served while the world was
+     small: the terrain now reaches 46 units out and the orbit camera can
+     stand 26 back from a target that is itself off-origin, which puts the
+     far corner of the ground at about 93 — close enough to 100 that a
+     player panning the camera would have watched the hills get clipped
+     away. Nothing is drawn out there but terrain and sky, so the extra
+     depth range costs only precision, of which this scene has plenty. */
+  const camera = new THREE.PerspectiveCamera(48, 4 / 3, 0.1, 200);
 
   const hemi = new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, 0.85);
   scene.add(hemi);
@@ -693,10 +706,16 @@ function startScene(bridge) {
      but depth is close to free, because the camera already pulls back far
      enough to fit the field's own depth. Given the choice, the five rows
      get that free dimension: keeping them apart is what makes a cow read
-     as a cow and not a paler chicken standing next to it. */
+     as a cow and not a paler chicken standing next to it.
+
+     That trade was made when the farm was fifteen units across and the
+     camera had to hold all of it. It is looser now: the ground grew to
+     twenty-five units and the camera pulled back to suit, so the pen can
+     afford some of the width it was denied — a cow is 0.86 across and six
+     of them in a 2.1-unit pen stood shoulder to shoulder. */
   const PEN_GAP = 0.4;
-  const PEN_HALF_X = 1.05;
-  const PEN_HALF_Z = 2.2;
+  const PEN_HALF_X = 1.5;
+  const PEN_HALF_Z = 2.9;
   const PEN_CX = yardHalf + PEN_GAP + PEN_HALF_X;
   /* Shown per kind; a bigger herd just crowds the last column. Each visible
      animal is its own model with its own AnimationMixer now, not one shared
@@ -707,6 +726,15 @@ function startScene(bridge) {
   const PEN_CAP = rendererIsSoftware() ? 3 : 6;
 
   buildFence(PEN_CX, 0, PEN_HALF_X, PEN_HALF_Z);
+
+  /* The middle of what the player is looking at: halfway between the field's
+     west fence and the pen's east one. Declared here, with the two fences
+     it is derived from, rather than down in the camera section that is its
+     main customer — the rain box wants the same centre, and computing the
+     expression twice would be two places to get it wrong. See the camera
+     section for why this, and not the origin, is what the shot is built
+     around. */
+  const VIEW_CX = (-yardHalf + (PEN_CX + PEN_HALF_X)) / 2;
 
   /* -------------------------------------------------------------- */
   /* The ground — flat under the yard, rolling into hills beyond it     */
@@ -722,10 +750,24 @@ function startScene(bridge) {
      already were, an orchard to the north and the dooryard she comes out
      into to the south. These bounds are the whole of the working farm — what
      stays level, what she may walk on, and what the hills start beyond. */
-  const FARM_LEFT = -7.4;  // the farmhouse stands out here
-  const FARM_RIGHT = 7.8;  // and the barn out here, past the pasture
-  const FARM_NORTH = -8.6; // orchard
-  const FARM_SOUTH = 7.6;  // dooryard
+  /* These were 15.2 by 16.2 units, and that was the size of the mistake.
+     A farm that small forced every building in it to be built as a model of
+     a building: the farmhouse was capped at 2.3 units tall because anything
+     honest would not fit between the field and the edge of the world, which
+     left a 1.45-unit farmer standing two-thirds the height of her own front
+     door. The ground had to grow before the scale could be fixed, so it did
+     — roughly 25 by 25, about two and a half times the area — and the
+     buildings, the orchard and the pen grew into it. See the scale table in
+     docs/ART_BIBLE.md for what each thing is now measured against.
+
+     Everything downstream is derived rather than restated: the flat region,
+     the walk bounds, the foliage scatter box and the rain box are all
+     computed from these four numbers, so this is the only place the farm's
+     size is written down. */
+  const FARM_LEFT = -11.9;  // the farmhouse stands out here
+  const FARM_RIGHT = 13.4;  // and the barn out here, past the pasture
+  const FARM_NORTH = -15.0; // orchard
+  const FARM_SOUTH = 10.5;  // dooryard
 
   const FLAT_LEFT = FARM_LEFT;
   const FLAT_RIGHT = FARM_RIGHT;
@@ -736,8 +778,14 @@ function startScene(bridge) {
 
   const TRANSITION_WIDTH = 5; // how far beyond the flat rectangle the rise ramps in over
   const HILL_AMPLITUDE = 2.2;
-  const TERRAIN_HALF = 30; // comfortably past the fog below, so its own edge is never seen
-  const TERRAIN_SEGMENTS = 48;
+  const TERRAIN_HALF = 46; // comfortably past the fog below, so its own edge is never seen
+  /* Kept at roughly 1.25 units between vertices, which is what it was before
+     the farm grew: raising TERRAIN_HALF alone would have stretched the same
+     48 segments over half again the distance and flattened the hills into
+     ramps. The cost is 72² × 2 triangles against 48² × 2 — about 5,800 more
+     — which the draw-cost test's ceiling has room for (measured, see that
+     test). */
+  const TERRAIN_SEGMENTS = 72;
 
   /* A cheap value noise — hash the integer lattice, smooth-interpolate
      between corners — not Perlin, not gradient noise, just enough to break
@@ -905,19 +953,29 @@ function startScene(bridge) {
   /* Worn ground rather than laid stones: a ribbon of geometry just above the
      terrain, in one mesh and one draw call. The kit does have path tiles, and
      they were the obvious answer until the numbers were checked — the terrain
-     is 48 segments across 60 units, so a vertex is 1.25 units apart and a
+     is 72 segments across 92 units, so a vertex is 1.28 units apart and a
      path 0.8 wide would not have registered in its colours at all, while
      tiling actual meshes along two routes is dozens of draw calls for
-     something nobody looks at directly. Two rectangles is what it takes.
+     something nobody looks at directly. Three rectangles is what it takes.
 
      They are laid where a farm would wear them: a spine down the west side of
      the field joining the dooryard to the orchard, and a branch east across
-     to the pasture gate. */
+     to the pasture gate and on to the barn. */
   const PATH_Y = -0.065; // above the terrain's -0.08, below anything standing on it
+  /* The spine was widened westward only when the farm grew around it. Its
+     eastern lip is load-bearing: the pond's own comment measures the pond's
+     clearance against a spine that stops at x = -3.15, and moving that edge
+     would have made a carefully checked note quietly false. */
   const PATH_RECTS = [
-    { x0: -3.95, x1: -3.15, z0: FARM_NORTH + 1.1, z1: FARM_SOUTH - 0.9 }, // the spine
-    { x0: -3.95, x1: PEN_CX - PEN_HALF_X, z0: 3.15, z1: 3.95 },           // out to the pen
-    { x0: -5.4, x1: -3.15, z0: 1.1, z1: 1.75 },                           // to the farmhouse door
+    { x0: -4.25, x1: -3.15, z0: FARM_NORTH + 1.6, z1: FARM_SOUTH - 1.2 }, // the spine
+    /* One rectangle east rather than two, because the pasture gate and the
+       barn door are on the same line: the branch runs along the pen's
+       southern fence and carries on to the barn's west wall. Its own z
+       stayed exactly where it was for the same reason the spine's east lip
+       did — the pond's comment measures against this rectangle ending at
+       z = 3.95, half a unit short of the water's northern lip at 4.13. */
+    { x0: -4.25, x1: 8.9, z0: 3.15, z1: 3.95 },
+    { x0: -6.6, x1: -3.15, z0: 1.1, z1: 1.9 },                            // to the farmhouse door
   ];
 
   function buildPaths() {
@@ -987,15 +1045,24 @@ function startScene(bridge) {
      entire effect. The same pond twelve metres off would have been one flat
      tone whatever the shader did.
 
-     The neighbours, measured: the path spine stops at x = -3.15 and the
-     pond's widest point at -2.75; the branch out to the pasture gate ends at
-     z = 3.95 against the pond's northern lip at 4.13; she spawns at z = 2.44,
-     in front of it, not in it. It is well inside the flat farm, so
-     terrainHeight is exactly 0 under all of it — which is why the bowl below
-     is a mesh laid on top rather than a dent in the terrain: at 1.25 units
-     between terrain vertices, a pond this size would have had two of them to
-     be carved out of. */
-  const POND = { x: -1.25, z: 5.4, rx: 1.35, rz: 1.15 };
+     It grew with the farm, from 2.7 by 2.3 units to 4.3 by 3.9. At the old
+     size it was two and a half metres across beside a house seven and a
+     half metres wide, which is not a pond, it is a puddle — the last piece
+     of the dooryard still carrying the doll's-house scale that everything
+     else had just been rescaled out of. Neither the shader nor the bowl
+     cares: both are built from POND's own four numbers. What had to move
+     was the handful of dooryard props left standing where the water now is,
+     and there is a test that none of them still are.
+
+     The neighbours, re-measured at the new size: the path spine stops at
+     x = -3.15 and the pond's widest point at -2.81; the branch out to the
+     pasture gate ends at z = 3.95 against the pond's northern lip at 4.37;
+     she spawns at z = 2.44, in front of it, not in it. It is well inside
+     the flat farm, so terrainHeight is exactly 0 under all of it — which is
+     why the bowl below is a mesh laid on top rather than a dent in the
+     terrain: at 1.28 units between terrain vertices, a pond even this size
+     would have had three of them to be carved out of. */
+  const POND = { x: -0.65, z: 6.3, rx: 1.95, rz: 1.75 };
   const POND_RINGS = 14;
   const POND_SEGMENTS = 48;
 
@@ -1347,33 +1414,60 @@ function startScene(bridge) {
      hills so the edge of the flat ground is never a visible line, and nothing
      stands where she has to walk between the field and the pen.
 
-     Nothing here collides — she walks through a tree trunk if she insists.
-     Collision is a step-14 question about a scene ten times this size, and
-     inventing it now for thirty props would be building it twice. */
+     Most of this does not collide: she walks through a bush or a barrel if
+     she insists, and that is the right answer for ankle-high clutter, which
+     would otherwise be an invisible kerb everywhere she goes. What does
+     collide is marked `blocks` below and collected into SOLIDS — the
+     buildings, the trees, the stall and the car. See keepOutOfSolids. */
   /* Where the tall things go is a camera question before it is a farm one.
-     The camera sits about nine units behind her, which for a farmer facing up
-     the field means it is standing in the dooryard — so a farmhouse put
-     there, the obvious place for it, spends most of the game between the
-     camera and the player's own character. Measured that way once and moved:
-     the buildings flank the field, west and east, where they are seen past
-     her rather than through. What is left in the dooryard is all knee-high.
+     The camera sits behind her, which for a farmer facing up the field means
+     it is standing in the dooryard — so a farmhouse put there, the obvious
+     place for it, spends most of the game between the camera and the
+     player's own character. Measured that way once and moved: the buildings
+     flank the field, west and east, where they are seen past her rather than
+     through. What is left in the dooryard is all knee-high.
 
-     Buildings are also sized by width here, not by the height the loader
-     normalises to — a 1.3 x 0.83 model asked to stand 3 units tall comes out
-     4.7 wide, which is how the first attempt put the barn through the pen. */
+     Sizes are target heights, and they are the point of this pass. They used
+     to be chosen by width instead — "a 1.3 x 0.83 model asked to stand 3
+     units tall comes out 4.7 wide, which is how the first attempt put the
+     barn through the pen" — and that constraint was real, but the thing it
+     was really measuring was that the farm was too small, not that the
+     buildings were too big. A 2.3-unit farmhouse beside a 1.45-unit farmer
+     is a doll's house: she stands two-thirds the height of her own front
+     door. With the ground enlarged the widths fit, so the heights are set
+     from the buildings themselves — the house at 4.8 and the barn at 5.6,
+     3.3 and 3.9 times her, which is what a person next to a house looks
+     like. Both are rotated a quarter turn, so their long axis runs north-
+     south and the width the old note worried about is spent on the free
+     dimension rather than the crowded one. */
   const PROPS = [
-    // --- the farmhouse, west: the farm's front door, seen across the field ---
-    { id: 'city-suburban/building-type-a', x: -5.8, z: 1.4, ry: Math.PI / 2, h: 2.3 },
-    { id: 'nature/plant_bush', x: -4.5, z: 0.5 },
-    { id: 'nature/plant_bush', x: -4.4, z: 2.3 },
-    { id: 'nature/flower_redA', x: -4.6, z: 1.4 },
-    { id: 'survival/box', x: -4.7, z: 3.2, ry: -0.3 },
+    /* --- the farmhouse, west: the farm's front door, seen across the field ---
+       At 4.8 it measures 5.96 across by 7.52 deep, so it is placed with its
+       west wall hard against the farm's own western edge: the strip behind a
+       building is ground the player can never use and the camera never
+       looks at, and leaving one would only have been paying for the farm to
+       be wider than it plays. The dooryard planting hugs the east wall,
+       between the house and the path spine. */
+    { id: 'city-suburban/building-type-a', x: -8.6, z: 1.4, ry: Math.PI / 2, h: 4.8, blocks: 'box' },
+    { id: 'nature/plant_bush', x: -5.2, z: -0.4 },
+    { id: 'nature/plant_bush', x: -5.1, z: 3.2 },
+    { id: 'nature/flower_redA', x: -5.3, z: 0.4 },
+    { id: 'nature/flower_yellowA', x: -5.15, z: 2.4 },
+    { id: 'survival/box', x: -4.9, z: 4.4, ry: -0.3, h: 0.5 },
+    { id: 'nature/stump_round', x: -7.6, z: 7.4, ry: 1.1 },
+    { id: 'nature/plant_bush', x: -6.4, z: 8.8 },
+    { id: 'nature/grass_large', x: -7.0, z: 8.1 },
 
-    // --- the barn, east: past the pasture, closing that side of the farm ---
-    { id: 'city-suburban/building-type-b', x: 6.7, z: -0.6, ry: -Math.PI / 2, h: 2.5 },
-    { id: 'survival/barrel', x: 5.6, z: 1.5, ry: 0.9 },
-    { id: 'survival/barrel', x: 5.9, z: 1.8, ry: 0.2 },
-    { id: 'nature/log', x: 6.2, z: 2.6, ry: 0.7 },
+    /* --- the barn, east: past the pasture, closing that side of the farm ---
+       Taller than the house, which is what a barn is for, and set far enough
+       east that the path branch can reach its west wall without running
+       under the building. Same edge-hugging logic as the farmhouse. */
+    { id: 'city-suburban/building-type-b', x: 10.2, z: -0.6, ry: -Math.PI / 2, h: 5.6, blocks: 'box' },
+    { id: 'survival/barrel', x: 6.9, z: 1.2, ry: 0.9, h: 0.75 },
+    { id: 'survival/barrel', x: 7.1, z: 1.9, ry: 0.2, h: 0.7 },
+    { id: 'nature/log', x: 6.8, z: 5.6, ry: 0.7 },
+    { id: 'nature/rock_largeA', x: 9.2, z: 7.0, ry: 0.6 },
+    { id: 'nature/plant_bush', x: 8.1, z: 6.3 },
 
     /* No windmill. fantasy-town/windmill turns out to be the sail assembly
        on its own — a ladder of blades meant to be pinned to a building, not a
@@ -1390,20 +1484,28 @@ function startScene(bridge) {
        than deleted, which is what a farm looks like — things get put down
        near the water, not cleared away from it — and the reeds and the log
        below are new, because a rim of bare mud reads as a hole. */
-    { id: 'survival/signpost', x: -3.0, z: 4.3, ry: 0.4 },
-    { id: 'survival/barrel', x: 1.35, z: 6.15, ry: 0.2 },
-    { id: 'survival/barrel', x: 1.65, z: 6.45, ry: 1.1 },
-    { id: 'survival/box', x: -2.8, z: 5.25, ry: -0.3 },
-    { id: 'survival/box', x: -2.75, z: 5.65, ry: 0.6 },
-    { id: 'survival/chest', x: 0.75, z: 4.6, ry: -0.2 },
+    /* The survival kit is authored small — a barrel comes out of the file
+       0.34 units tall, which beside a 1.45-unit farmer is a bucket. Given
+       heights here for the same reason the buildings are: the kit's own
+       scale is not this game's. */
+    { id: 'survival/signpost', x: -4.9, z: 6.4, ry: 0.4, h: 1.7 },
+    { id: 'survival/barrel', x: 2.15, z: 6.3, ry: 0.2, h: 0.75 },
+    { id: 'survival/barrel', x: 2.5, z: 6.85, ry: 1.1, h: 0.7 },
+    { id: 'survival/box', x: -2.9, z: 5.3, ry: -0.3, h: 0.5 },
+    { id: 'survival/box', x: -2.85, z: 5.95, ry: 0.6, h: 0.5 },
+    { id: 'survival/chest', x: 0.75, z: 4.6, ry: -0.2, h: 0.55 },
     /* The market stall — step 11's, not step 7's leftover windmill site.
        fantasy-town/stall-green checked out where the windmill didn't: one
        mesh, a real assembled stall rather than a modular piece of one. It
        is not the 2D Market tab's counter — nothing in this game ever walks
        her to it, since that tab has no seat in the 3D world at all, the
        same as Achievements or Dream — just what a dooryard already thick
-       with crates and a chest would plausibly also have standing in it. */
-    { id: 'fantasy-town/stall-green', x: 2.2, z: 4.85, ry: -0.5 },
+       with crates and a chest would plausibly also have standing in it.
+
+       At its authored 1.24 it stood shorter than the farmer, who would have
+       had to crawl under her own awning; 2.5 puts the counter at her waist
+       and the canopy over her head. */
+    { id: 'fantasy-town/stall-green', x: 2.6, z: 5.2, ry: -0.5, h: 2.5, blocks: 'box' },
     /* A short pull-in and a car, so the stall reads as somewhere goods
        actually arrive rather than a booth that stands alone in the grass.
        Neither city-suburban nor fantasy-town has a road or a vehicle of its
@@ -1414,51 +1516,78 @@ function startScene(bridge) {
        reads as a real turning off rather than tarmac that stops for no
        reason; the near end is left open, toward the rest of the farm.
 
-       The car's rotation was chosen by rendering all six of the obvious
-       candidates side by side rather than guessed at once — nose-on and
-       parked broadside both read fine, but only one broadside direction
-       also points the car's own nose back down the road it arrived by,
-       rather than at the crop fence behind the stall. */
-    { id: 'city-roads/road-end', x: 3.6, z: 7.1, ry: Math.PI },
-    { id: 'city-roads/road-straight', x: 3.6, z: 6.1 },
-    { id: 'city-roads/road-straight', x: 3.6, z: 5.1 },
-    { id: 'car/sedan', x: 3.4, z: 4.35, ry: -Math.PI / 2 },
+       Two lanes wide and five tiles long now, where it was one lane and
+       three. The tiles are a metre square and the sedan is 1.5 across, so
+       a single-lane strip was narrower than the car standing on it — an
+       error that only became obvious once everything around it was the
+       right size. With a real road under it the car's rotation is no
+       longer a judgement call either: it faces along the lane, which is
+       what the earlier broadside compromise was reaching for when there
+       was no lane to face along. It stands in the west lane, leaving the
+       east one clear, so the road still reads as a road rather than as
+       something hidden under a car. */
+    { id: 'city-roads/road-end', x: 4.2, z: 9.5, ry: Math.PI },
+    { id: 'city-roads/road-end', x: 5.2, z: 9.5, ry: Math.PI },
+    { id: 'city-roads/road-straight', x: 4.2, z: 8.5 },
+    { id: 'city-roads/road-straight', x: 5.2, z: 8.5 },
+    { id: 'city-roads/road-straight', x: 4.2, z: 7.5 },
+    { id: 'city-roads/road-straight', x: 5.2, z: 7.5 },
+    { id: 'city-roads/road-straight', x: 4.2, z: 6.5 },
+    { id: 'city-roads/road-straight', x: 5.2, z: 6.5 },
+    { id: 'city-roads/road-straight', x: 4.2, z: 5.5 },
+    { id: 'city-roads/road-straight', x: 5.2, z: 5.5 },
+    { id: 'car/sedan', x: 4.2, z: 7.4, blocks: 'box' },
     { id: 'nature/plant_bush', x: -2.2, z: 4.5 },
-    { id: 'nature/plant_bush', x: 0.3, z: 6.2 },
+    { id: 'nature/plant_bush', x: 1.95, z: 7.8 },
     { id: 'nature/flower_redA', x: -2.6, z: 4.1 },
-    { id: 'nature/flower_yellowA', x: -2.4, z: 6.5 },
+    { id: 'nature/flower_yellowA', x: -2.8, z: 7.3 },
     { id: 'nature/stump_round', x: 1.9, z: 5.4, ry: 0.9 },
     // Reeds on the west bank, a log rolled down to the south one.
-    { id: 'nature/grass_large', x: -2.7, z: 6.05 },
-    { id: 'nature/grass_large', x: 0.55, z: 4.75 },
-    { id: 'nature/log', x: -0.4, z: 6.75, ry: 1.5 },
+    { id: 'nature/grass_large', x: -2.95, z: 5.4 },
+    { id: 'nature/grass_large', x: -2.2, z: 8.3 },
+    { id: 'nature/log', x: -0.6, z: 8.95, ry: 1.5 },
+    // The open south end of the dooryard the enlargement opened up.
+    { id: 'nature/plant_bush', x: -1.6, z: 8.9 },
+    { id: 'nature/flower_yellowA', x: 0.4, z: 9.4 },
+    { id: 'nature/rock_smallA', x: 1.7, z: 8.6, ry: 0.9 },
+    { id: 'nature/grass_large', x: -0.8, z: 9.6 },
 
     /* --- the orchard, north: rows that loosen toward the hills ---
        Two of these were tree_default_fall permanently, for variety, before
        this step gave the orchard a real autumn of its own. Turning the
        whole orchard together, all six trees at once, reads as a season
        changing; two trees fixed in fall colour year-round would have argued
-       with it instead of joining in. See syncSeason and orchardTrees. */
-    { id: 'nature/tree_default', x: -2.6, z: -4.6, ry: 0.3, h: 2.9 },
-    { id: 'nature/tree_detailed', x: -0.6, z: -4.8, ry: 1.2, h: 3.1 },
-    { id: 'nature/tree_default', x: 1.4, z: -4.7, ry: 2.1, h: 2.7 },
-    { id: 'nature/tree_default', x: 3.3, z: -4.9, ry: 0.8, h: 2.8 },
-    { id: 'nature/tree_detailed', x: -3.1, z: -6.4, ry: 2.6, h: 3.0 },
-    { id: 'nature/tree_default', x: -1.1, z: -6.6, ry: 1.6, h: 2.8 },
-    { id: 'nature/tree_pineDefaultA', x: 1.0, z: -6.8, ry: 0.4, h: 3.4 },
-    { id: 'nature/tree_pineDefaultA', x: 3.6, z: -7.0, ry: 2.2, h: 3.2 },
-    { id: 'nature/tree_default', x: -2.2, z: -8.0, ry: 1.0, h: 2.6 },
-    { id: 'nature/tree_default', x: 2.0, z: -8.2, ry: 2.8, h: 2.7 },
-    { id: 'nature/stump_round', x: 0.2, z: -5.6, ry: 0.5 },
-    { id: 'nature/stump_round', x: 4.6, z: -6.1, ry: 1.9 },
-    { id: 'nature/log', x: -0.2, z: -7.5, ry: 1.3 },
-    { id: 'nature/rock_largeA', x: 4.9, z: -4.4, ry: 0.6 },
-    { id: 'nature/rock_smallA', x: -4.0, z: -5.2, ry: 1.4 },
-    { id: 'nature/rock_smallA', x: 2.7, z: -5.9, ry: 0.2 },
-    { id: 'nature/plant_bush', x: -3.6, z: -7.2 },
-    { id: 'nature/plant_bush', x: 4.2, z: -8.0 },
-    { id: 'nature/grass_large', x: -1.9, z: -5.4 },
-    { id: 'nature/grass_large', x: 3.0, z: -6.5 },
+       with it instead of joining in. See syncSeason and orchardTrees.
+
+       The heights are this pass's, not the original step's. An orchard tree
+       at 2.7 was shorter than twice the farmer — a sapling she could see
+       over — where a fruit tree she picks from is three times her and a
+       pine in the windbreak behind it four. The rows moved apart to suit:
+       tree_detailed throws a 3.2-unit canopy at these heights, so anything
+       closer than about three and a half units between trunks would have
+       grown one tree out of another. */
+    { id: 'nature/tree_default', x: -4.6, z: -6.5, ry: 0.3, h: 4.7, blocks: 'trunk' },
+    { id: 'nature/tree_detailed', x: -1.1, z: -6.8, ry: 1.2, h: 5.0, blocks: 'trunk' },
+    { id: 'nature/tree_default', x: 2.4, z: -6.6, ry: 2.1, h: 4.4, blocks: 'trunk' },
+    { id: 'nature/tree_default', x: 5.8, z: -6.9, ry: 0.8, h: 4.6, blocks: 'trunk' },
+    { id: 'nature/tree_detailed', x: -5.5, z: -10.3, ry: 2.6, h: 4.9, blocks: 'trunk' },
+    { id: 'nature/tree_default', x: -1.9, z: -10.6, ry: 1.6, h: 4.5, blocks: 'trunk' },
+    { id: 'nature/tree_pineDefaultA', x: 1.8, z: -10.8, ry: 0.4, h: 6.2, blocks: 'trunk' },
+    { id: 'nature/tree_pineDefaultA', x: 6.3, z: -11.1, ry: 2.2, h: 5.8, blocks: 'trunk' },
+    { id: 'nature/tree_default', x: -3.9, z: -13.2, ry: 1.0, h: 4.2, blocks: 'trunk' },
+    { id: 'nature/tree_default', x: 3.5, z: -13.5, ry: 2.8, h: 4.4, blocks: 'trunk' },
+    { id: 'nature/stump_round', x: 0.4, z: -8.6, ry: 0.5 },
+    { id: 'nature/stump_round', x: 7.4, z: -8.8, ry: 1.9 },
+    { id: 'nature/log', x: -0.3, z: -12.1, ry: 1.3 },
+    { id: 'nature/rock_largeA', x: 7.9, z: -5.2, ry: 0.6 },
+    { id: 'nature/rock_smallA', x: -6.9, z: -7.4, ry: 1.4 },
+    { id: 'nature/rock_smallA', x: 4.3, z: -9.2, ry: 0.2 },
+    { id: 'nature/plant_bush', x: -6.2, z: -12.4 },
+    { id: 'nature/plant_bush', x: 6.7, z: -13.6 },
+    { id: 'nature/plant_bush', x: 0.9, z: -13.9 },
+    { id: 'nature/grass_large', x: -3.2, z: -8.4 },
+    { id: 'nature/grass_large', x: 5.0, z: -10.2 },
+    { id: 'nature/grass_large', x: -7.6, z: -9.6 },
   ];
 
   /* Loaded after the scene is standing, like the farmer, so nothing waits on
@@ -1475,8 +1604,59 @@ function startScene(bridge) {
   const ORCHARD_TREE_IDS = new Set(['nature/tree_default', 'nature/tree_detailed']);
   const orchardTrees = []; // { base, fall } pairs, toggled by syncSeason
 
+  /* What the farmer cannot walk through, and what grass may not grow in.
+     Filled as the props land rather than written out by hand beside PROPS,
+     because a hand-written footprint is a second copy of a number that is
+     already in the model file, and the first time somebody nudges a
+     building or changes its height the copy is wrong and nothing says so.
+     Measured off the object that was actually added to the scene, it cannot
+     drift.
+
+     Two shapes, because two things are being asked. A building, a stall or
+     a car is a box: its bounding box is its footprint, near enough, and
+     walking into one should feel like a wall. A tree is a post — the trunk
+     stops her, the canopy does not, because a farmer who cannot stand under
+     her own apple tree is a farmer in a maze. The trunk radius is a measured
+     fraction of the tree's height, not its bounding box: sampled across the
+     three kit species, everything below knee height sits within 0.085 of
+     the model's own height of the centre line (0.086 for tree_default, 0.069
+     for the pine), which is the figure TRUNK_FRACTION carries. */
+  const TRUNK_FRACTION = 0.085;
+  const SOLIDS = { boxes: [], posts: [] };
+
+  /* minY/maxY are carried on the boxes although nothing about walking into a
+     wall consults them: they are how a test can ask whether the farmhouse is
+     actually a farmhouse-sized object, which is the thing this pass set out
+     to fix and therefore the thing most worth holding. Measuring it anywhere
+     else would mean re-deriving a height from a model file the scene has
+     already loaded and scaled. The id rides along for the same reason — a
+     failure that says which building is wrong is worth the eight characters. */
+  function addSolid(prop, object) {
+    const b = new THREE.Box3().setFromObject(object);
+    if (prop.blocks === 'box') {
+      SOLIDS.boxes.push({
+        id: prop.id,
+        minX: b.min.x, maxX: b.max.x,
+        minZ: b.min.z, maxZ: b.max.z,
+        minY: b.min.y, maxY: b.max.y,
+      });
+    } else if (prop.blocks === 'trunk') {
+      SOLIDS.posts.push({
+        id: prop.id, x: prop.x, z: prop.z,
+        r: (b.max.y - b.min.y) * TRUNK_FRACTION,
+        height: b.max.y - b.min.y,
+      });
+    }
+  }
+
+  /* Resolves once every prop has either landed or failed, so the foliage
+     scatter below can wait for the footprints above to exist instead of
+     racing them and sowing grass through a wall. The per-prop `catch` is
+     what keeps one model that 404s from stranding the scatter; allSettled
+     is belt and braces over it, and says the intent — this is a barrier,
+     not a promise that everything arrived. */
   function dressFarm() {
-    for (const prop of PROPS) {
+    return Promise.allSettled(PROPS.map((prop) =>
       loadModel(prop.id, prop.h).then(({ object }) => {
         object.position.set(prop.x, 0, prop.z);
         object.rotation.y = prop.ry ?? 0;
@@ -1487,6 +1667,9 @@ function startScene(bridge) {
           for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
         });
         scene.add(object);
+        // After scene.add and the position/rotation above, so the box it
+        // measures is the one the player will actually walk into.
+        addSolid(prop, object);
 
         if (!ORCHARD_TREE_IDS.has(prop.id)) return;
         loadModel(`${prop.id}_fall`, prop.h).then(({ object: fall }) => {
@@ -1505,10 +1688,9 @@ function startScene(bridge) {
           scene.add(fall);
           orchardTrees.push({ base: object, fall });
         }).catch((err) => console.warn(`farm: ${prop.id}_fall did not load`, err));
-      }).catch((err) => console.warn(`farm: ${prop.id} did not load`, err));
-    }
+      }).catch((err) => console.warn(`farm: ${prop.id} did not load`, err))));
   }
-  dressFarm();
+  const dressed = dressFarm();
 
   /* -------------------------------------------------------------- */
   /* Foliage, instanced                                                */
@@ -1534,21 +1716,30 @@ function startScene(bridge) {
   }
 
   /* Where grass may not stand: the tile grid and the pen it would otherwise
-     grow through, the paths it would otherwise cover, and a clearing around
-     each building. Reuses the same shapes buildFence, the pen and PATH_RECTS
-     already defined rather than tracing new ones. */
-  const BUILDING_CLEARINGS = [
-    { x: -5.8, z: 1.4, r: 1.7 }, // the farmhouse
-    { x: 6.7, z: -0.6, r: 1.9 }, // the barn
-  ];
+     grow through, the paths it would otherwise cover, and the footprint of
+     anything solid. Reuses the same shapes buildFence, the pen and
+     PATH_RECTS already defined rather than tracing new ones.
+
+     The building clearings used to be two hand-written circles — r = 1.7 at
+     the farmhouse, r = 1.9 at the barn — which were roughly right for two
+     buildings a third of their present size and wrong the moment those
+     changed. They are SOLIDS now, the same measured footprints the farmer
+     collides with, so a building that moves takes its clearing with it.
+     That is only true if the props have landed before the scatter runs,
+     which is what the `dressed` await below is for. */
+  const FOLIAGE_CLEARANCE = 0.3; // how far back a tuft stands from a wall or a trunk
   function inFarmClearing(x, z) {
     if (Math.abs(x) <= yardHalf + 0.35 && Math.abs(z) <= yardHalf + 0.35) return true;
     if (Math.abs(x - PEN_CX) <= PEN_HALF_X + 0.3 && Math.abs(z) <= PEN_HALF_Z + 0.3) return true;
     for (const r of PATH_RECTS) {
       if (x >= r.x0 - 0.35 && x <= r.x1 + 0.35 && z >= r.z0 - 0.35 && z <= r.z1 + 0.35) return true;
     }
-    for (const b of BUILDING_CLEARINGS) {
-      if (Math.hypot(x - b.x, z - b.z) <= b.r) return true;
+    const m = FOLIAGE_CLEARANCE;
+    for (const b of SOLIDS.boxes) {
+      if (x >= b.minX - m && x <= b.maxX + m && z >= b.minZ - m && z <= b.maxZ + m) return true;
+    }
+    for (const p of SOLIDS.posts) {
+      if (Math.hypot(x - p.x, z - p.z) <= p.r + m) return true;
     }
     // Grass does not grow in the pond, and the margin keeps a tuft from
     // standing in the shallows at the bank either.
@@ -1665,7 +1856,28 @@ function startScene(bridge) {
      genuinely on the rise, which is a free, already-computed "is this the
      hill" test rather than a new one traced by hand. */
   const HILL_BOUNDS = { xMin: FARM_LEFT - 13, xMax: FARM_RIGHT + 13, zMin: FARM_NORTH - 13, zMax: FARM_SOUTH + 13 };
-  const onHillside = (x, z) => Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z);
+
+  /* Nothing on the hillside may stand where the camera does. This was not a
+     rule before and did not need to be: the camera used to sit 1.6 units
+     past the southern fence, barely into the transition band, where the
+     ground has not risen enough for onHillside's own height test to let a
+     tree through at all. Enlarging the farm pulled the camera back to about
+     five units out — the full width of the ramp — and the first render after
+     that had a pine growing up the middle of the frame a unit in front of
+     the lens, with half the farm behind it.
+
+     Read off camera.position rather than recomputed from CAM_BACK, so it is
+     the answer for wherever the shot actually ends up rather than for where
+     this file last said it should be. Safe to read here because the scatter
+     is gated behind `dressed` and so runs well after the camera section
+     below has aimed it. The radius is the orbit controls' own minDistance,
+     which is the closest a player can pull in: inside that, a tree is not
+     scenery, it is a blindfold. */
+  const CAMERA_CLEARANCE = 5;
+  const clearOfCamera = (x, z) =>
+    Math.hypot(x - camera.position.x, z - camera.position.z) > CAMERA_CLEARANCE;
+  const onHillside = (x, z) =>
+    Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z) && clearOfCamera(x, z);
 
   /* The two grass populations' own InstancedMeshes, collected as they land —
      syncSeason hides them under snow rather than styling grass blades that
@@ -1686,26 +1898,44 @@ function startScene(bridge) {
   /* Collected so a test can wait on all of it finishing rather than on a
      fixed delay, and so a page that never got a network reply still resolves
      rather than leaving a caller waiting on a promise that was never going to
-     settle — every call is already caught above. */
-  const foliageReady = Promise.all([
-    scatterInstanced('nature/grass', 220, {
+     settle — every call is already caught above.
+
+     Gated behind `dressed` because inFarmClearing now asks SOLIDS where the
+     buildings are, and SOLIDS is filled by the props landing. Scattering
+     first would sow the grass against an empty list and grow it through the
+     farmhouse; the props have to be standing before the ground around them
+     can be read. The cost is that grass arrives a beat after the buildings
+     rather than alongside them, which is the same order it would arrive in
+     anyway on a cold cache.
+
+     The counts went up with the ground. They are absolute numbers, not a
+     density, so leaving them alone while the farm grew two and a half times
+     would have thinned the grass to two-fifths of what step 7 tuned by eye;
+     these are the old numbers scaled by the new area, which keeps the farm
+     looking as planted as it did. */
+  const foliageReady = dressed.then(() => Promise.all([
+    scatterInstanced('nature/grass', 540, {
       heightRange: [0.22, 0.34], seed: 1, bounds: FARM_BOUNDS, accept: onFarmGround,
     }).then((meshes) => grassMeshes.push(...hideIfWinter(meshes)))
       .catch((err) => console.warn('farm: grass did not load', err)),
 
-    scatterInstanced('nature/grass_large', 70, {
+    scatterInstanced('nature/grass_large', 170, {
       heightRange: [0.34, 0.5], seed: 2, bounds: FARM_BOUNDS, accept: onFarmGround,
     }).then((meshes) => grassMeshes.push(...hideIfWinter(meshes)))
       .catch((err) => console.warn('farm: grass_large did not load', err)),
 
-    scatterInstanced('nature/tree_default', 14, {
-      heightRange: [2.1, 3.1], seed: 10, bounds: HILL_BOUNDS, accept: onHillside,
+    /* The hillside fringe grew too, and not only in number: at 2.1 to 3.1 it
+       was shorter than the orchard it stands behind, which read as the hill
+       being nearer than it is. Now it is the taller population, as a
+       treeline seen across a field should be. */
+    scatterInstanced('nature/tree_default', 26, {
+      heightRange: [3.6, 5.2], seed: 10, bounds: HILL_BOUNDS, accept: onHillside,
     }).catch((err) => console.warn('farm: hillside trees did not load', err)),
 
-    scatterInstanced('nature/tree_pineDefaultA', 12, {
-      heightRange: [2.4, 3.6], seed: 11, bounds: HILL_BOUNDS, accept: onHillside,
+    scatterInstanced('nature/tree_pineDefaultA', 22, {
+      heightRange: [4.4, 6.6], seed: 11, bounds: HILL_BOUNDS, accept: onHillside,
     }).catch((err) => console.warn('farm: hillside pines did not load', err)),
-  ]);
+  ]));
 
   /* -------------------------------------------------------------- */
   /* Seasons — the calendar script.js already keeps, read here once     */
@@ -1745,7 +1975,20 @@ function startScene(bridge) {
   // FOLIAGE_SCALE are: swiftshader/llvmpipe pays for every instance drawn,
   // not just every one visible, and this scene already has plenty of those.
   const RAIN_COUNT = rendererIsSoftware() ? 150 : 500;
-  const RAIN_BOUNDS = { xMin: FARM_LEFT - 1, xMax: FARM_RIGHT + 1, zMin: FARM_NORTH - 1, zMax: FARM_SOUTH + 1 };
+  /* Not the whole farm any more. Rain is the one scattered thing that has no
+     business covering ground the camera cannot see: a drop seeded twelve
+     units behind the barn is paid for on every frame and never appears in
+     one. Before the enlargement the farm and the view were close enough in
+     size that the distinction did not arise; now the farm is twenty-five
+     units across and the default shot holds about ten of them, so the box
+     is drawn around the camera's own subject instead. Same drop count over
+     a smaller area, which is also the only reason the rain did not thin out
+     to drizzle when the ground grew. */
+  const RAIN_HALF = 11;
+  const RAIN_BOUNDS = {
+    xMin: VIEW_CX - RAIN_HALF, xMax: VIEW_CX + RAIN_HALF,
+    zMin: -RAIN_HALF, zMax: RAIN_HALF,
+  };
   const RAIN_TOP = 6.5;
   const RAIN_FLOOR = -0.15;
   const RAIN_FALL_SPEED = 11; // units/sec
@@ -1843,11 +2086,13 @@ function startScene(bridge) {
      at dusk and the deep blue overhead at noon on its own, which is the
      whole reason to use it instead of hand-tuning a third gradient to sit
      alongside BG_STOPS and HEMI_SKY_STOPS above. Scaled to sit well inside
-     the camera's far plane (100) and outside anywhere the orbit camera can
-     reach (its own maxDistance tops out around 15 from a target near the
-     origin), so it always fills the background with no visible edge. */
+     the camera's far plane (200) and outside anywhere the orbit camera can
+     reach (its own maxDistance tops out at 26 from a target near the
+     origin), so it always fills the background with no visible edge. Grown
+     from 80 along with everything else: at that size the dome's own wall
+     would have stood inside the terrain, which now reaches 46 units out. */
   const sky = new Sky();
-  sky.scale.setScalar(80);
+  sky.scale.setScalar(130);
   scene.add(sky);
   sky.material.uniforms.turbidity.value = 3;
   sky.material.uniforms.rayleigh.value = 1.2;
@@ -1876,8 +2121,9 @@ function startScene(bridge) {
      (48° rather than steps 4-7's tighter 40°) just far enough that both
      fences still fit the frame with room to spare. Everything in it reads
      a little smaller than the field-only shot did — the trade for a farmer
-     who visibly has two places to be, not one. */
-  const VIEW_CX = (-yardHalf + (PEN_CX + PEN_HALF_X)) / 2;
+     who visibly has two places to be, not one. VIEW_CX itself is declared
+     up beside the two fences it is derived from, because the rain box wants
+     the same centre. */
   /* Step 4 measured why this could not be lowered: framing the horizon needs
      the pitch under about 24 degrees, and at that pitch the sixteen tiles
      foreshorten into a band 21% of the frame tall, against a grid of
@@ -1888,11 +2134,18 @@ function startScene(bridge) {
      Step 6 removes the reason: the field is no longer tapped through that
      grid at all (see .plots-grid in styles.css, now keyboard-only), so the
      pitch is free. About 21 degrees now, which finally puts step 3's terrain
-     and sky, and step 4's bloom, in the picture the game opens on. */
-  const CAM_HEIGHT = 3.9;   // above her feet
-  const CAM_BACK = 9.2;     // and behind her
+     and sky, and step 4's bloom, in the picture the game opens on.
+
+     Raised and pulled back when the farm grew, by the two things that
+     forced it: the pen got wider, so the frame that has to hold both fences
+     did too, and the buildings went from 2.3 units tall to 5.6, which at
+     the old height put the barn's roof out of the top of the shot. Roughly
+     the same 21-degree pitch, from further away. */
+  const CAM_HEIGHT = 5.8;   // above her feet
+  const CAM_BACK = 14.0;    // and behind her
+  const CAM_LOOK_Y = 1.3;   // and what it is aimed at, a little above her waist
   camera.position.set(VIEW_CX, CAM_HEIGHT, CAM_BACK);
-  camera.lookAt(VIEW_CX, 1.1, 0);
+  camera.lookAt(VIEW_CX, CAM_LOOK_Y, 0);
   // The sun's own aim point, set now that VIEW_CX exists — syncSky(), above,
   // only ever moves the light's position around this fixed target.
   sun.target.position.set(VIEW_CX, 0, 0);
@@ -1904,11 +2157,15 @@ function startScene(bridge) {
      everyone except a player who has asked for reduced motion, for whom the
      coast-after-release drift is exactly the kind of motion they turned off. */
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(VIEW_CX, 1.1, 0);
+  controls.target.set(VIEW_CX, CAM_LOOK_Y, 0);
   controls.enableDamping = !reducedMotion();
   controls.dampingFactor = 0.08;
   controls.minDistance = 5;
-  controls.maxDistance = 14;
+  /* Far enough out to see the whole farm at once, which is new: at 14 the
+     old ceiling barely cleared the field's own fences, and on ground this
+     size that would have left the player unable to look at the half of it
+     they had just been given. */
+  controls.maxDistance = 26;
   controls.minPolarAngle = Math.PI / 6;
   controls.maxPolarAngle = Math.PI / 2.05;
   controls.enablePan = true;
@@ -2381,14 +2638,28 @@ function startScene(bridge) {
     return { x: spot.x, z: spot.z + STAND_OFF };
   }
 
+  /* The straight line the job queue walks, with the solid props taken out of
+     it — see keepOutOfSolids, which is declared below and hoists. Not the
+     pond, deliberately, for the reason recorded there.
+
+     The arrival test is deliberately computed from the step she asked for
+     rather than the one she got: a job must finish when she has walked far
+     enough to be at the target, not when collision agrees she is. Those are
+     the same thing here, because nothing solid stands within reach of any
+     plot, gate or animal, and a test holds that true — but if one ever did,
+     this way she finishes the errand rather than standing against a wall
+     forever, which is the failure that matters. */
   function stepToward(tx, tz, dt) {
-    const dx = tx - at.x;
-    const dz = tz - at.z;
+    const fromX = at.x;
+    const fromZ = at.z;
+    const dx = tx - fromX;
+    const dz = tz - fromZ;
     const dist = Math.hypot(dx, dz);
     if (dist < 0.001) return true;
     const step = Math.min(WALK_SPEED * dt, dist);
-    at.x += (dx / dist) * step;
-    at.z += (dz / dist) * step;
+    moveWithCollision(
+      fromX, fromZ, fromX + (dx / dist) * step, fromZ + (dz / dist) * step, at, false,
+    );
     facing = Math.atan2(dx, dz);
     return step >= dist;
   }
@@ -2457,11 +2728,13 @@ function startScene(bridge) {
      component of her movement that runs *along* the bank survive, so she
      slides round the water instead of sticking to it.
 
-     Only steering is blocked, deliberately — not stepToward, which the job
-     queue walks in a straight line to a plot or a pen. A queue that could be
-     given a target it can never reach because something is in the way is a
-     farmer stuck forever, and there is nothing to reach across the pond
-     anyway: every plot, gate and animal is east of the path spine. */
+     Only steering is blocked by the *water*, deliberately — not stepToward,
+     which the job queue walks in a straight line to a plot or a pen. A queue
+     that could be given a target it can never reach because something is in
+     the way is a farmer stuck forever, and there is nothing to reach across
+     the pond anyway: every plot, gate and animal is east of the path spine.
+     The solid props below are held against both, which is a different
+     judgement for a different reason — see keepOutOfSolids. */
   function keepOutOfPond(x, z, out) {
     const u = (x - POND.x) / POND.rx;
     const v = (z - POND.z) / POND.rz;
@@ -2479,12 +2752,203 @@ function startScene(bridge) {
     out.z = POND.z + (push ? v * push : 0) * POND.rz;
   }
 
+  /* How much room she takes up, for the purpose of not being inside things.
+     Not half her bounding box, which is 0.86 across and mostly arm: her
+     body is about half a metre through the shoulders, so the walls are held
+     a quarter of a unit off her centre line. Too generous a figure reads as
+     an invisible fence standing off the real one; too mean lets her nose
+     through a wall before she stops. */
+  const BODY_RADIUS = 0.25;
+
+  // A tenth of a millimetre, so a farmer stopped against a wall is strictly
+  // outside it rather than exactly on it. See where it is applied.
+  const FACE_EPSILON = 1e-4;
+
+  /* The same trick keepOutOfPond plays, generalised to the solid props: put
+     her back on the surface she ran into rather than refusing the step, so a
+     wall slides her along itself instead of stopping her dead. A box is
+     resolved against the face she came in through, which leaves the part of
+     her movement that runs *along* the wall untouched; a trunk is the
+     pond's own radial push, which does the same thing for a round thing.
+     Everything in SOLIDS is convex, so pressing into one rounds a corner or
+     the trunk rather than wedging — there is no concave pocket to catch in.
+
+     This assumes a step shorter than the things it is walking into, and that
+     assumption has to be *made* true rather than hoped for: advanceFarmer
+     credits the real elapsed time to a starved frame on purpose (see the
+     visibility handler), so one stalled frame can ask for a step several
+     units long. moveWithCollision below is what makes it true, by cutting
+     any step into pieces no longer than MAX_SUBSTEP before it gets here.
+     Every caller goes through it.
+
+     That was learned the hard way, twice, both times from the tests rather
+     than from reading the code. A first version resolved a box by pushing
+     the destination out through whichever face was nearest — the textbook
+     answer, correct for short steps — and on four contending workers a long
+     step landed past the middle of the barn, found the far wall nearer, and
+     put her down outside the *back* of it. A second version tried to fix
+     that with a swept test against the whole step, which held for boxes but
+     broke trunks: a farmer already standing on a trunk's rim has the
+     nearest point of her next step at its own start, so every frame threw
+     the entire step away and she stood against the tree for good. Both are
+     gone; the fix for both is that steps are now small by construction.
+
+     Applied to stepToward as well as to steering, which is where this parts
+     company with the pond. The pond could be left out of the queue's path
+     because nothing the queue walks to is anywhere near the water; the same
+     is true of the buildings and the orchard — every plot, gate and animal
+     sits inside the yard or the pen, and no solid comes within a unit of
+     either (there is a test that holds this to be true, because it is the
+     assumption that makes the queue safe). But the user-visible promise is
+     that she does not walk through walls, and a promise that lapses whenever
+     she is on an errand is not one. */
+  function keepOutOfSolids(x, z, out, fromX = x, fromZ = z) {
+    out.x = x;
+    out.z = z;
+
+    for (const b of SOLIDS.boxes) {
+      const minX = b.minX - BODY_RADIUS;
+      const maxX = b.maxX + BODY_RADIUS;
+      const minZ = b.minZ - BODY_RADIUS;
+      const maxZ = b.maxZ + BODY_RADIUS;
+
+      const dx = out.x - fromX;
+      const dz = out.z - fromZ;
+
+      /* The slab method, one axis at a time: the step enters the box at the
+         latest of the two axes' entry fractions and leaves at the earliest
+         of their exit fractions. Entering after leaving means it missed.
+         An axis with no movement is a pass or a miss outright, depending on
+         whether the start is already between that axis's two faces. */
+      let enter = 0;
+      let exit = 1;
+      let hitAxis = null;
+      let missed = false;
+
+      for (const [d, from, lo, hi, axis] of [
+        [dx, fromX, minX, maxX, 'x'],
+        [dz, fromZ, minZ, maxZ, 'z'],
+      ]) {
+        if (Math.abs(d) < 1e-9) {
+          if (from <= lo || from >= hi) missed = true;
+          continue;
+        }
+        const t1 = (lo - from) / d;
+        const t2 = (hi - from) / d;
+        const near = Math.min(t1, t2);
+        const far = Math.max(t1, t2);
+        /* Not `>`. Standing exactly on a face — which is precisely where
+           this function put her on the previous frame — makes that axis's
+           entry fraction exactly zero, and a strict comparison against an
+           enter that also starts at zero then leaves hitAxis unset. The
+           step is treated as having begun inside the box, the fallback
+           below reaches for the nearest face, and a step long enough to
+           pass the building's midline finds that the nearest face is the
+           far one: she is pushed out through the back wall of the barn.
+           Observed, not theorised — the wall tests failed this way on four
+           contending workers, where a stalled frame asks for a step several
+           units long, and never on a quiet machine, where it cannot. */
+        if (near >= enter) { enter = near; hitAxis = axis; }
+        if (far < exit) exit = far;
+      }
+      if (missed || enter > exit || enter > 1) continue;
+
+      /* hitAxis is null when she began the step already inside the box —
+         which should not happen, but a resized building or a restored save
+         could put her there, and a collider that shrugged would leave her
+         walled in. Falling back to the nearest face is exactly the old
+         behaviour, which is the right answer for that one case. */
+      if (hitAxis === null) {
+        const least = Math.min(out.x - minX, maxX - out.x, out.z - minZ, maxZ - out.z);
+        if (least === out.x - minX) out.x = minX;
+        else if (least === maxX - out.x) out.x = maxX;
+        else if (least === out.z - minZ) out.z = minZ;
+        else out.z = maxZ;
+        continue;
+      }
+      /* Against the face she arrived at, a hair clear of it rather than
+         exactly on it; the other axis keeps everything it asked for, which
+         is the component of the step that runs along the wall. The hair is
+         belt and braces with the `>=` above: a position strictly outside
+         the box gives the next frame's entry fraction a sign to read, so
+         the knife-edge case cannot come back through some other path. */
+      if (hitAxis === 'x') out.x = dx > 0 ? minX - FACE_EPSILON : maxX + FACE_EPSILON;
+      else out.z = dz > 0 ? minZ - FACE_EPSILON : maxZ + FACE_EPSILON;
+    }
+
+    /* Trunks are the pond's push exactly: where she is trying to end up,
+       moved straight out to the rim. Only the destination is consulted,
+       never the step that got there — a step that ends clear of a trunk is
+       never touched, which is the property that stops a farmer standing on
+       a rim from having her next step cancelled for grazing the tree she is
+       already leaning on. Short steps are what make that safe, and
+       moveWithCollision guarantees them. */
+    for (const p of SOLIDS.posts) {
+      const rim = p.r + BODY_RADIUS;
+      const dx = out.x - p.x;
+      const dz = out.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= rim) continue;
+      // Dead centre has no ray to push along — same divide-by-zero guard,
+      // and the same arbitrary-but-answered direction, as the pond's.
+      if (dist < 1e-6) { out.x = p.x + rim; out.z = p.z; continue; }
+      out.x = p.x + (dx / dist) * rim;
+      out.z = p.z + (dz / dist) * rim;
+    }
+  }
+
+  /* The longest piece of a step any collision test is ever shown. Comfortably
+     under the smallest thing in SOLIDS — the narrowest trunk holds her off
+     at 0.61, so 1.22 through — so nothing can be jumped over, and well
+     above an ordinary frame's 0.07, so in the ordinary case the loop below
+     runs exactly once and costs a divide. */
+  const MAX_SUBSTEP = 0.25;
+
+  /* Walks her from where she is to where she wants to be, in pieces short
+     enough for the resolvers above to be right, applying them to each piece
+     in turn. Every move she makes goes through here — the stick, the keys
+     and the job queue alike.
+
+     `avoidPond` is the one difference between them. The queue is held to the
+     solid props but not to the water, for the reason keepOutOfPond records:
+     nothing it walks to is anywhere near the pond, and it is better for a
+     queue to walk a wet line than to be given a target it might not reach.
+
+     Each piece aims at the next point on the *original* straight line rather
+     than re-aiming from wherever the last piece was deflected to. That is
+     what makes a wall slide rather than a wall deflect: she keeps being
+     pushed back against the same face while the along-the-wall part of her
+     movement accumulates, which is the behaviour a player expects from
+     walking into the side of a barn. */
+  const midStep = { x: 0, z: 0 };
+  function moveWithCollision(fromX, fromZ, toX, toZ, out, avoidPond) {
+    const dx = toX - fromX;
+    const dz = toZ - fromZ;
+    const pieces = Math.max(1, Math.ceil(Math.hypot(dx, dz) / MAX_SUBSTEP));
+    let atX = fromX;
+    let atZ = fromZ;
+    for (let i = 1; i <= pieces; i += 1) {
+      const nx = fromX + (dx * i) / pieces;
+      const nz = fromZ + (dz * i) / pieces;
+      if (avoidPond) {
+        keepOutOfPond(nx, nz, midStep);
+        keepOutOfSolids(midStep.x, midStep.z, out, atX, atZ);
+      } else {
+        keepOutOfSolids(nx, nz, out, atX, atZ);
+      }
+      atX = out.x;
+      atZ = out.z;
+    }
+  }
+
   function steer(dt) {
     const mag = Math.min(1, Math.hypot(drive.x, drive.z));
     const step = WALK_SPEED * mag * dt;
-    const x = Math.max(ROAM.minX, Math.min(ROAM.maxX, at.x + (drive.x / mag) * step));
-    const z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, at.z + (drive.z / mag) * step));
-    keepOutOfPond(x, z, at);
+    const fromX = at.x;
+    const fromZ = at.z;
+    const x = Math.max(ROAM.minX, Math.min(ROAM.maxX, fromX + (drive.x / mag) * step));
+    const z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, fromZ + (drive.z / mag) * step));
+    moveWithCollision(fromX, fromZ, x, z, at, true);
     facing = Math.atan2(drive.x, drive.z);
   }
 
@@ -3012,6 +3476,38 @@ function startScene(bridge) {
        every machine, which is what makes it something a test can hold to a
        ceiling. `calls` is zero when the farm is not on screen, because a
        frame that is not drawn is not charged for — see frame(). */
+    /* The farm's solid footprints, measured off the models that were
+       actually placed — see SOLIDS. A test can ask whether a point is
+       inside one without having to know which building it is, and can
+       check the assumption the job queue rests on: that nothing solid
+       stands within reach of a plot, a gate or an animal. `solidsReady`
+       is the props having landed, since an empty SOLIDS would let every
+       one of those questions answer "no" for the wrong reason. */
+    solids: () => ({
+      boxes: SOLIDS.boxes.map((b) => ({ ...b })),
+      posts: SOLIDS.posts.map((p) => ({ ...p })),
+    }),
+    solidsReady: () => dressed.then(() => SOLIDS.boxes.length + SOLIDS.posts.length),
+    /* Where every hand-placed prop was asked to stand. The farm just grew
+       around these numbers and several of them moved; a test that walks the
+       list can hold what no single assertion can — that nothing ended up in
+       the pond, or outside the ground it is standing on. */
+    props: () => PROPS.map(({ id, x, z }) => ({ id, x, z })),
+    /* The walkable rectangle, so a test can say how big the farm is without
+       driving her to each wall and timing it. */
+    roam: () => ({ ...ROAM }),
+    /* How tall the farmer is standing, measured off her own model rather
+       than read back out of the table that set it — the ratio between this
+       and a building is the whole point of the scale pass. Null until she
+       has loaded. */
+    farmerHeight: () => (body
+      ? new THREE.Box3().setFromObject(body.object).getSize(new THREE.Vector3()).y
+      : null),
+    blocked: (x, z) => {
+      const out = { x: 0, z: 0 };
+      keepOutOfSolids(x, z, out);
+      return out.x !== x || out.z !== z;
+    },
     drawCost: () => ({
       calls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,

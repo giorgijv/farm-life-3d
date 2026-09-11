@@ -31,13 +31,21 @@ modelled too, and change shape as they grow rather than just colour. There is
 a pond whose water actually moves, an orchard that turns to autumn colour and
 back, grass that disappears under winter, and rain that builds in across the
 three days before a hurricane lands, greying the sky as it comes. A car sits
-parked on a short pull-in by the market stall, the way the stall itself is
+parked on a two-lane pull-in by the market stall, the way the stall itself is
 set dressing rather than somewhere she walks — the Market tab still sells
 from a flat 2D counter, same as ever. The sun
 tracks the same clock the 2D sky strip reads, carrying the yard from daylight
 through a warm dusk into a moonlit night. The camera follows her and is yours
 to move — drag to orbit, pinch to zoom, two fingers to pan, clamped so it
 can't go underground or flip upside down.
+
+It is a farm at human scale. The farmhouse stands more than three times her
+height and the barn nearly four, the orchard is grown trees rather than
+saplings, and the ground is about twenty-five metres square — big enough
+that the buildings standing on it can be building-sized. She cannot walk
+through any of them: the two buildings, the stall, the car and every orchard
+trunk stop her and slide her along themselves. The canopies do not, so
+standing under an apple tree is still allowed.
 
 None of that is required to play. The whole game is still reachable from the
 keyboard alone, and from a screen reader — see [Accessibility](#accessibility).
@@ -292,11 +300,17 @@ pixels: that the pond's water is moving rather than painted, which crop model
 a plot is actually showing, where a roaming animal really is, that the season
 turns the orchard and hides the grass, that rain thickens as a hurricane
 nears, and that a keyboard-only player can plant and harvest without touching
-the plot grid at all. There is also a **draw budget** — the worst state the
-game can reach must stay inside a stated ceiling of draw calls and triangles,
-and a farm behind another tab must draw nothing whatever, which is the
-difference between a phone spending its battery on a scene nobody is looking
-at and not.
+the plot grid at all. **Scale and collision** are tested the same way, as
+numbers rather than as screenshots: that the farmhouse really is several
+times the farmer's measured height, that the orchard's trunks stop her while
+its canopies do not, that nothing is left standing in the pond, that driving
+her at a wall puts her against it rather than inside or beyond it, and that
+no wall stands anywhere a queued job could send her — which is the
+assumption the walk-to-work queue rests on. There is also a **draw budget** —
+the worst state the game can reach must stay inside a stated ceiling of draw
+calls and triangles, and a farm behind another tab must draw nothing
+whatever, which is the difference between a phone spending its battery on a
+scene nobody is looking at and not.
 
 `tests/mobile.spec.js` runs the game at phone sizes — 360px, 393px and
 landscape — checking that nothing scrolls sideways, that no control falls below

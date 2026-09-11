@@ -4239,15 +4239,25 @@ test.describe('driving her yourself', () => {
     await sceneReady(page);
 
     await drive(page, -1, -1);
-    await page.waitForTimeout(3500);
+    await page.waitForTimeout(6000);
     await drive(page, 0, 0);
 
     /* The flat ground the farm sits on, which step 7 widened to take in the
-       orchard and the dooryard. Past it are hills with nothing on them, and
-       she has no business up there. */
+       orchard and the dooryard and the scale pass widened again. Past it are
+       hills with nothing on them, and she has no business up there.
+
+       Read off ROAM rather than written out as -11.6 and -14.7: this test
+       is about the wall existing, not about where this week's farm puts it,
+       and the two numbers it used to carry went stale the moment the ground
+       changed size. The hold is longer than it was for the same reason —
+       the far corner is half as far again as it used to be. */
     const corner = await at(page);
-    expect(corner.x).toBeGreaterThan(-7.5);
-    expect(corner.z).toBeGreaterThan(-8.7);
+    const roam = await page.evaluate(() => window.Farm3DScene.roam());
+    expect(corner.x).toBeGreaterThanOrEqual(roam.minX - 0.01);
+    expect(corner.z).toBeGreaterThanOrEqual(roam.minZ - 0.01);
+    // And she really did go looking for the corner, rather than stopping early.
+    expect(corner.x).toBeLessThan(-4);
+    expect(corner.z).toBeLessThan(-4);
   });
 
   test('the farm she can walk is bigger than the field she works', async ({ page }) => {
@@ -4271,9 +4281,16 @@ test.describe('driving her yourself', () => {
       await drive(page, 0, 0);
     };
 
-    await drivePast(0, -1, () => window.Farm3DScene.farmerAt().z < -6, 'the orchard');
-    await drivePast(0, 1, () => window.Farm3DScene.farmerAt().z > 5, 'the dooryard');
-    await drivePast(-1, 0, () => window.Farm3DScene.farmerAt().x < -5, 'the farmhouse');
+    /* The marks moved out with the ground. They were -6, 5 and -5, which
+       the enlarged farm clears in the first second or two — a test that
+       still passes but has stopped asking anything. These are set past
+       where the old bounds could have reached at all, so the farm shrinking
+       back fails here rather than only in a screenshot. The last leg runs
+       west along the dooryard, south of the farmhouse, which is the one
+       line west that no wall stands on. */
+    await drivePast(0, -1, () => window.Farm3DScene.farmerAt().z < -9, 'the orchard');
+    await drivePast(0, 1, () => window.Farm3DScene.farmerAt().z > 7, 'the dooryard');
+    await drivePast(-1, 0, () => window.Farm3DScene.farmerAt().x < -9, 'the farmhouse');
   });
 
   test('taking the stick drops the round she was walking', async ({ page }) => {
@@ -4557,6 +4574,13 @@ test.describe('seasons and weather', () => {
   const setDay = (page, day) => page.evaluate((d) => { state.day = d; }, day);
 
   test('the calendar turns the season, and the season turns the orchard', async ({ page }) => {
+    /* Five seasons checked in one test, each waiting on a frame of its own,
+       behind a scene that now dresses sixty-odd props and scatters the
+       foliage only once they have landed — so the fixed setup cost before
+       the first assertion went up. It fits in 30s on a quiet machine and
+       overran it on four contending workers; the work is legitimate, so the
+       budget is what gives rather than the test. */
+    test.slow();
     await load(page, banked());
     await sceneReady(page);
     await page.waitForFunction(() => window.Farm3DScene.orchardReady());
@@ -4657,15 +4681,34 @@ test.describe('what the scene costs to draw', () => {
      but what the scene asks the driver for is its own doing and means the
      same thing everywhere. That is what these assert.
 
-     The ceilings are set from measurement, not taste. At the settings real
-     hardware gets (PEN_CAP 6, FOLIAGE_SCALE 1, RAIN_COUNT 500) the worst
-     case the game can reach measured 216 calls and 79,116 triangles; on the
-     software path CI actually runs, 168 and 44,992. The ceilings sit above
-     the higher of the two with room to spare, so they pass on either path
-     and still catch the kind of regression worth catching — un-instancing
-     the foliage or the forty-four hand-placed props would blow through the
-     call ceiling immediately, and putting back the always-drawn crop
-     instances step 14 removed would put ~30,000 triangles back. */
+     The ceilings are set from measurement, not taste. Re-measured after the
+     scale pass grew the ground, the terrain mesh and the foliage counts,
+     three states of the worst case the game can reach:
+
+       software path, which is the one CI runs     174 calls,  48,426 tris
+       full density (PEN_CAP 6, FOLIAGE_SCALE 1,
+         RAIN_COUNT 500), post-processing off      223 calls,  57,530 tris
+       the same, with bloom and SSAO on            479 calls, 121,381 tris
+
+     The first two were 168/44,992 and 216/79,116 before the enlargement; the
+     ceilings still clear them both with room to spare, so they are left
+     where they are. What they do not cover, and never did, is the third
+     row: SSAO gets its occlusion by rendering the scene a second time, so
+     any tier with it switched on costs about twice the scene by
+     construction. The earlier note here read as though 260/100,000 covered
+     "real hardware" generally, and it does not — it covers the density
+     dimension, which is the one a regression would come from. The
+     post-processing dimension has its own governor in the frame budget,
+     which steps the tier down when frames get slow, and there is no way to
+     reach the FULL tier from CI anyway: this box has no GPU, so the tier is
+     chosen as PLAIN before a frame is drawn. (The FULL figure above was
+     taken by forcing both switches locally, not from a run that ships.)
+
+     What the ceilings do still catch is the kind of regression worth
+     catching — un-instancing the foliage or the sixty-odd hand-placed props
+     would blow through the call ceiling immediately, and putting back the
+     always-drawn crop instances step 14 removed would put ~30,000 triangles
+     back. */
   const CALL_CEILING = 260;
   const TRIANGLE_CEILING = 100_000;
 
@@ -4740,6 +4783,237 @@ test.describe('what the scene costs to draw', () => {
     await page.locator('button[data-tab="farm"]').click();
     await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls))
       .toBeGreaterThan(0);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* How big everything is, and what she cannot walk through              */
+/* ------------------------------------------------------------------ */
+
+/* The farm was rebuilt to a believable scale — the ground about two and a
+   half times the area it was, the buildings roughly two and a half times
+   the height — and the same pass gave the props that deserve it a footprint
+   she collides with. Both halves are the kind of thing that reads fine in a
+   screenshot on the day and silently rots afterwards, when somebody nudges
+   a number, so they are held here as numbers rather than left to the eye.
+
+   Everything below waits on solidsReady() rather than a delay: the
+   footprints are measured off the models as they land, so before the props
+   have arrived "is anything in the way" answers no for the wrong reason. */
+test.describe('the size of the place', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const solids = (page) => page.evaluate(() => window.Farm3DScene.solids());
+
+  test('the buildings are buildings, not models of buildings', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    // She loads separately from the props, so her own height is its own wait.
+    const her = await page.waitForFunction(() => window.Farm3DScene.farmerHeight())
+      .then((h) => h.jsonValue());
+    expect(her).toBeGreaterThan(1.2);
+
+    const { boxes } = await solids(page);
+    const named = (part) => boxes.find((b) => b.id.includes(part));
+
+    /* The complaint this pass answers, as a number: at 2.3 units the
+       farmhouse stood 1.6 times the farmer, so she read as a giant beside
+       her own front door. A person against a house is nearer a third of
+       its height, and a barn is taller than the house it serves. */
+    const house = named('building-type-a');
+    const barn = named('building-type-b');
+    expect(house, 'the farmhouse is placed').toBeTruthy();
+    expect(barn, 'the barn is placed').toBeTruthy();
+
+    const height = (b) => b.maxY - b.minY;
+    expect(height(house) / her).toBeGreaterThan(2.8);
+    expect(height(barn)).toBeGreaterThan(height(house));
+
+    /* And the stall, which had the opposite problem: at its authored 1.24
+       it was shorter than she is, so the awning she stands under sat below
+       her head. */
+    expect(height(named('stall-green'))).toBeGreaterThan(her * 1.4);
+  });
+
+  test('the orchard is grown trees, and she can stand under them', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    const her = await page.waitForFunction(() => window.Farm3DScene.farmerHeight())
+      .then((h) => h.jsonValue());
+    const { posts } = await solids(page);
+    expect(posts.length).toBeGreaterThanOrEqual(8);
+
+    for (const t of posts) {
+      // Twice her height is a sapling; a tree she picks from is three times.
+      expect(t.height / her, `${t.id} at (${t.x}, ${t.z})`).toBeGreaterThan(2.7);
+      /* The trunk stops her and the canopy does not — the whole reason a
+         tree is a post here and not a box. A collider anywhere near the
+         canopy's own width would turn the orchard into a maze. */
+      expect(t.r, `${t.id} trunk`).toBeLessThan(0.7);
+      expect(t.r, `${t.id} trunk`).toBeGreaterThan(0.2);
+    }
+  });
+
+  test('the ground she can walk on is the whole farm', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    const roam = await page.evaluate(() => window.Farm3DScene.roam());
+    /* It was 14.6 by 15.6 before the enlargement. This is the floor the
+       rescaled buildings need to fit in at all, not a target — the point of
+       asserting it is that nobody shrinks the ground back without noticing
+       that the farmhouse no longer has room to be farmhouse-sized. */
+    expect(roam.maxX - roam.minX).toBeGreaterThan(22);
+    expect(roam.maxZ - roam.minZ).toBeGreaterThan(22);
+  });
+
+  test('nothing is standing in the pond, or off the edge of the farm', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    const bad = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const roam = s.roam();
+      const drowned = [];
+      const adrift = [];
+      for (const p of s.props()) {
+        if (s.inPond(p.x, p.z)) drowned.push(`${p.id} at (${p.x}, ${p.z})`);
+        /* A margin either way, because a building is placed by its middle
+           and is meant to sit with its back against the farm's edge — it is
+           the ones out in the hills that this is looking for. */
+        if (p.x < roam.minX - 4 || p.x > roam.maxX + 4
+          || p.z < roam.minZ - 4 || p.z > roam.maxZ + 4) {
+          adrift.push(`${p.id} at (${p.x}, ${p.z})`);
+        }
+      }
+      return { drowned, adrift };
+    });
+
+    // The pond grew from 2.7 units across to 4.3 and swallowed six props
+    // where they stood; they were moved to the new bank, and this is what
+    // says so rather than a screenshot taken on the day.
+    expect(bad.drowned).toEqual([]);
+    expect(bad.adrift).toEqual([]);
+  });
+});
+
+test.describe('walls she cannot walk through', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+
+  /* Drives for a fixed spell and stops, all inside the page. Not a
+     waitForFunction on "has she stopped moving": she is *supposed* to slide
+     along a wall rather than stop against it, so there is no moment of
+     stillness to wait for. Long enough to cross the farm twice at
+     WALK_SPEED, so wherever she ends up is where the world would not let
+     her go any further. */
+  const shove = (page, x, z, ms = 9000) => page.evaluate(async ([dx, dz, t]) => {
+    const s = window.Farm3DScene;
+    s.drive(dx, dz);
+    await new Promise((r) => setTimeout(r, t));
+    s.drive(0, 0);
+    await new Promise((r) => requestAnimationFrame(r));
+    const at = s.farmerAt();
+    return { at, inside: s.blocked(at.x, at.z) };
+  }, [x, z, ms]);
+
+  test('walking west stops her at the farmhouse wall, not inside it', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+
+    const { boxes } = await page.evaluate(() => window.Farm3DScene.solids());
+    const house = boxes.find((b) => b.id.includes('building-type-a'));
+
+    const end = await shove(page, -1, 0);
+    expect(end.inside).toBe(false);
+    /* She spawns level with the house, so driving due west walks her into
+       its east face and nothing else. She should be stopped just outside
+       it — a quarter of a unit, which is what the farmer's body is taken to
+       be — rather than a metre short of it or a metre into it. */
+    expect(end.at.x).toBeGreaterThan(house.maxX);
+    expect(end.at.x - house.maxX).toBeLessThan(0.4);
+  });
+
+  test('walking east stops her at the barn wall', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+
+    const { boxes } = await page.evaluate(() => window.Farm3DScene.solids());
+    const barn = boxes.find((b) => b.id.includes('building-type-b'));
+
+    const end = await shove(page, 1, 0);
+    expect(end.inside).toBe(false);
+    expect(end.at.x).toBeLessThan(barn.minX);
+    expect(barn.minX - end.at.x).toBeLessThan(0.4);
+  });
+
+  test('she comes out of the orchard rather than sticking to a trunk', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+
+    /* Driven straight at the nearest trunk on purpose. A collider that
+       merely refused the step would leave her pinned against it for the
+       whole nine seconds; the push is radial, so she rounds it and carries
+       on, and the proof is that she reaches the far end of the orchard. */
+    const end = await shove(page, -0.28, -1);
+    expect(end.inside).toBe(false);
+    const roam = await page.evaluate(() => window.Farm3DScene.roam());
+    expect(end.at.z).toBeLessThan(roam.minZ + 0.5);
+  });
+
+  test('no wall stands where a job could send her', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* The assumption the walk-to-work queue rests on, checked rather than
+       asserted in a comment: the queue walks a straight line and finishes
+       when it has covered the distance, so a solid standing on a plot, in
+       the pen, or on the ground between them would be a farmer who arrives
+       somewhere she is not. Every solid is out past those two rooms, and
+       this is what keeps it that way. */
+    const blocked = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const bad = [];
+      for (let x = -3.4; x <= 6.5; x += 0.1) {
+        for (let z = -3.4; z <= 3.4; z += 0.1) {
+          if (s.blocked(x, z)) bad.push([+x.toFixed(1), +z.toFixed(1)]);
+        }
+      }
+      return bad;
+    });
+    expect(blocked).toEqual([]);
+  });
+
+  test('an errand from the far side of the orchard still finishes', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave({ coins: 500, selectedSeed: 'wheat', unlockedPlots: PLOT_COUNT }));
+    await ready(page);
+
+    // Out to the orchard's far corner first, past two rows of trunks.
+    await shove(page, -0.3, -1, 7000);
+    const from = await page.evaluate(() => window.Farm3DScene.farmerAt());
+    expect(from.z).toBeLessThan(-8);
+
+    await tapPlot(page.locator('#plotsGrid > *').nth(5));
+    /* The whole point: collision applies to the queue's walk too, so this
+       is the case where a naive collider strands her. She has to come back
+       through the orchard, round whatever is in the way, and arrive. */
+    await expect.poll(
+      () => page.evaluate(() => window.Farm3DScene.pendingActions()),
+      { timeout: 30_000 },
+    ).toBe(0);
+
+    const to = await page.evaluate(() => window.Farm3DScene.farmerAt());
+    expect(to.z).toBeGreaterThan(-3);
   });
 });
 

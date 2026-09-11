@@ -1480,6 +1480,203 @@ Checked against §22's instrument rather than assumed trivial: 90 calls and
 
 ---
 
+## 27. The scale pass — a bigger farm, honest sizes, and walls that stop her
+
+Asked for, after ship, in one sentence with three demands in it: enlarge the
+playing ground, make the farmer and the environment adequate relative to
+each other ("now the farmer is much larger than the house"), and stop her
+walking through house walls and trees.
+
+**The complaint was right, and the measurement is worse than it sounds.**
+The farmer is scaled to 1.45 units. The farmhouse was placed at `h: 2.3` and
+the barn at `h: 2.5` — 1.6 and 1.7 times her. She was not literally larger
+than the house, but she stood two-thirds the height of her own front door,
+which is what the eye reports as "larger". Measured, not eyeballed: every
+figure in this section came from loading the model through `assets.js` in a
+real page and reading its `Box3`.
+
+**The cause was recorded in this document before the symptom was.** §14 and
+the `PROPS` comment both explain that buildings had to be sized by *width*,
+because "a 1.3 × 0.83 model asked to stand 3 units tall comes out 4.7 wide,
+and put the barn through the pen". That constraint was real. What it was
+actually measuring, though, was that the farm was too small — 15.2 by 16.2
+units — not that the buildings were too big. So the ground had to grow
+before the scale could be fixed, which is why one request had three parts.
+
+### What changed size
+
+| | was | now | against a 1.45 farmer |
+|---|---|---|---|
+| flat farm | 15.2 × 16.2 | 25.3 × 25.5 | 2.6× the area |
+| farmhouse | 2.30 tall | 4.80 (7.5 × 6.0 footprint) | 3.3× |
+| barn | 2.50 | 5.60 (9.0 × 5.6) | 3.9× |
+| orchard trees | 2.6–3.1 | 4.2–5.0 | 2.9–3.4× |
+| orchard pines | 3.2–3.4 | 5.8–6.2 | 4.0–4.3× |
+| hillside fringe | 2.1–3.6 | 3.6–6.6 | — |
+| market stall | 1.24 (authored) | 2.50 | 1.7× |
+| pond | 2.7 × 2.3 | 4.3 × 3.9 | — |
+| survival props | 0.25–0.46 (authored) | 0.5–1.7 | — |
+| pen | 2.1 × 4.4 | 3.0 × 5.8 | — |
+| camera | 3.9 up, 9.2 back | 4.8 up, 14.0 back | — |
+
+Two of those were not in the request and are here because the same ruler
+condemned them. The **market stall** at its authored 1.24 was shorter than
+the farmer, so she could not stand under her own awning. The **pond**, at
+two and a half metres across, was a puddle beside a seven-metre house — the
+last thing in the dooryard still at doll's-house scale. Enlarging it meant
+moving six dooryard props that were standing where the water now is, which
+is what the "nothing is standing in the pond" test exists to keep true. The
+`sedan` and the Cube Pets animals were checked against the same ruler and
+left alone: a 1.3-unit car roof just under a 1.45-unit farmer's head is
+correct, and the chicken at 0.4 is a chicken.
+
+The **road** was widened from one lane to two at the same time, for a reason
+that only became visible once everything else was right: the tiles are a
+metre square and the sedan is 1.5 across, so §26's single-lane strip was
+narrower than the car standing on it. With a real road under it the car's
+rotation stopped being a judgement call — it faces along the lane, which is
+what §26's broadside compromise was reaching for when there was no lane to
+face along.
+
+**Things that had to move with the ground**, each because it was derived
+from a number that changed: the terrain mesh (`TERRAIN_HALF` 30 → 46, and
+`TERRAIN_SEGMENTS` 48 → 72 so the vertex spacing stayed near 1.25 rather
+than stretching the same grid over half again the distance), the fog (16/34
+→ 30/64, which had begun *inside* the farm), the camera's far plane (100 →
+200) and the sky dome (80 → 130, which the terrain had grown past), the
+orbit controls' `maxDistance` (14 → 26), the foliage counts (scaled by area,
+or the grass would have thinned to two-fifths of what §14 tuned), and the
+paths.
+
+**One thing that had to stop moving with it.** Rain was scattered over the
+whole farm; at 25 units across, against a default shot holding about ten of
+them, most of the drops were being paid for behind the barn. The rain box is
+now drawn around the camera's own subject instead — same count over less
+ground, which is also why the rain did not thin out when everything else
+grew.
+
+**A hillside pine grew in front of the lens.** Not a rule that existed
+before, because it did not need to: the camera used to sit 1.6 units past
+the southern fence, barely into the terrain's transition band, where the
+ground has not risen enough for the hillside scatter's own height test to
+admit a tree. Pulling the camera back to five units out put it in the middle
+of that band, and the first render after the enlargement had a pine a unit
+in front of the camera hiding half the farm. Fixed by excluding a disc of
+the orbit controls' own `minDistance` around wherever `camera.position`
+actually is — read off the camera rather than recomputed from `CAM_BACK`, so
+it tracks the shot rather than what the file last said about it.
+
+**The farmhouse was not rotated, and that was checked rather than assumed.**
+Standing next to it, the east face reads as a blank gable in a screenshot,
+and the obvious conclusion is that the door faces the wrong way. Rendering
+the model at all four quarter-turns, and then the shipped rotation from due
+east, showed the door and both windows already facing the field: what looks
+blank is the raking camera angle plus the farmer standing in front of the
+door. Nothing changed.
+
+### Collision
+
+`BUILDING_CLEARINGS` — two hand-written circles that kept grass out of the
+buildings — is gone. Its replacement is `SOLIDS`, built by measuring each
+prop's `Box3` *as it lands in the scene*, and used for both jobs: the grass
+exclusion and the farmer's collision. A hand-written footprint is a second
+copy of a number that is already in the model file, and the old circles
+(r = 1.7 and 1.9) were exactly the kind of copy that goes quietly wrong —
+they were already too small for buildings a third of the present size.
+
+Two shapes, because two questions are being asked. A building, a stall or a
+car is a **box**: its footprint is its bounding box, and walking into one
+should feel like a wall. A tree is a **post** — the trunk stops her, the
+canopy does not, because a farmer who cannot stand under her own apple tree
+is a farmer in a maze. The trunk radius is 0.085 × the tree's height, which
+is measured: sampling each kit species' geometry below knee height gives
+0.086 of model height for `tree_default` and 0.069 for the pine.
+
+Because `SOLIDS` is filled by the props arriving, the foliage scatter now
+waits on them. That ordering is the price of having one source of truth
+instead of two, and it is cheap: measured at 2.7s to the footprints and 3.7s
+to the last grass tuft, against 2.5s for the scene itself.
+
+**Collision applies to the job queue's walk as well as to the stick**, which
+is where this parts company with §17's pond. The pond is deliberately left
+out of the queue's path, because a queue given a target it cannot reach is a
+farmer stuck forever. The same argument would apply here — but "she does not
+walk through walls" is a promise to the player, and one that lapses whenever
+she is on an errand is not a promise. What makes it safe is that nothing
+solid stands in the yard, in the pen, or on the ground between them, and
+there is now a test that sweeps that whole rectangle and holds it.
+
+**Two collider bugs, both found by the tests and neither by reading the
+code.** They are worth recording because they share a root that is not
+obvious.
+
+`advanceFarmer` credits the real elapsed time to a starved frame on purpose
+(§16). On four contending software-rendered workers that means a single
+frame can ask for a step several units long — and every textbook collision
+resolver quietly assumes steps shorter than the things they hit.
+
+1. *Ejected out the back of the barn.* The first resolver pushed the
+   destination out through whichever face was nearest. A long step that
+   landed past the middle of the building found the far face nearer, and put
+   her down outside the back wall. Reported by the test as "expected < 7.39,
+   received 13.26" — which is `barn.maxX + BODY_RADIUS` to the centimetre.
+2. *Pinned to a tree for good.* The fix for (1) was a swept test against the
+   whole step. It held for boxes and broke trunks: a farmer already standing
+   on a trunk's rim has the nearest point of her next step at its own start,
+   so every frame discarded the entire step. She stood at (−4.02, −6.79),
+   0.648 units from a trunk with a 0.65 rim, for twenty-five seconds. This is
+   the exact failure §17 refused to risk on the queue, arrived at from the
+   other direction.
+
+The fix for both is that steps are now short by construction:
+`moveWithCollision` cuts any step into pieces of at most 0.25 units — under
+the narrowest trunk's 0.61 rim, over a normal frame's 0.07, so the loop runs
+once in the ordinary case — and every move she makes goes through it. The
+box resolver keeps its swept test, which is strictly more correct than
+nearest-face; the trunk resolver went back to the pond's plain radial push,
+which cannot stall.
+
+### What this cost, measured
+
+§22's instrument, re-run on the worst case the game can reach:
+
+| | before | after |
+|---|---|---|
+| software path (what CI runs) | 168 calls, 44,992 tris | 174 calls, 48,426 tris |
+| full density, no post-processing | 216 calls, 79,116 tris | 223 calls, 57,530 tris |
+
+Both still clear the 260-call, 100,000-triangle ceiling with room to spare,
+so the ceiling is unchanged. While re-measuring, a claim in that test's own
+comment turned out to be wrong and has been corrected: it read as though the
+ceiling covered "real hardware" generally, and it does not. With bloom and
+SSAO on, the same worst case measures **479 calls and 121,381 triangles** —
+over the ceiling — because SSAO gets its occlusion by rendering the scene a
+second time, so any tier with it on costs about twice the scene by
+construction. The ceiling covers the density dimension, which is where a
+regression would come from; the post-processing dimension has its own
+governor in §22's frame budget, and CI cannot reach that tier at all because
+this box has no GPU. (The 479 figure was taken by forcing both switches
+locally, not from a run that ships.)
+
+### Known gaps, still
+
+- The barn is still `city-suburban/building-type-b` — a second suburban
+  block, not a barn. Making it four times the size has, if anything, made
+  that read more clearly. The mirror has no barn and no silo in any kit
+  (§14), and that is unchanged.
+- The hillside fringe still keeps its summer green through autumn (§21).
+  There are 48 of those trees now rather than 26, so the scope cut is
+  proportionally larger than it was.
+- `tree_detailed`'s canopy starts low enough that the measured "below knee
+  height" radius (0.377 of a 1.33-unit model) is canopy, not trunk. It gets
+  the same 0.085 × height figure as the others, deliberately: brushing past
+  low branches should not stop a farmer.
+- Frame rate on a real phone is still unmeasured here, for the reason §22
+  gives — this box has no GPU. What is measured is what the scene asks the
+  driver for, which is the part that means the same thing on every machine.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1694,6 +1891,35 @@ Everything above was checked before it was written:
   and ruled out before the one that actually exists was. The car's rotation
   is a screenshot decision, not a guess written down as if it were one: six
   candidates rendered, compared, and the losing five discarded.
+- §27's scale complaint was measured before anything was changed in response
+  to it, by loading each model through `assets.js` in a real page and reading
+  its `Box3` — which is how "the farmer is much larger than the house" turned
+  into "the farmhouse is 1.6 times her, and the constraint that made it so is
+  written down three sections up".
+- The trunk radius the collider uses is sampled from each tree's own geometry
+  rather than picked to look right: the vertices below knee height were walked
+  and their maximum distance from the centre line taken.
+- The farmhouse's orientation was *not* changed, and that is a checked result
+  rather than an oversight. All four quarter-turns were rendered side by side,
+  and then the shipped one from due east, which showed the door already facing
+  the field — what reads as a blank wall in the follow-camera shot is the
+  raking angle plus the farmer standing in front of the door.
+- Both §27 collider bugs were reproduced and instrumented before being fixed:
+  the ejection through the barn's back wall was read off the failing
+  assertion's own numbers, and the farmer pinned to a trunk was reproduced
+  four times in a row locally with her position sampled every 250ms, which is
+  what showed her stationary to the centimetre rather than merely slow.
+- The three §27 draw-cost figures are three separate measured runs, not one
+  measurement and two extrapolations. The full-density and full-quality rows
+  were taken by forcing `rendererIsSoftware()` and the frame budget's
+  step-down off in a local copy — triangle and call counts do not depend on
+  the rasteriser, only on what is submitted, which is what makes a software
+  box a valid place to measure them.
+- The new driving failures that appeared alongside §27's work were checked
+  against the untouched tree at the same contention (4 workers, 3 repeats)
+  before being attributed: the baseline fails the same two tests with the
+  same "nothing came into reach" error at the same rate, so they are the
+  pre-existing flakiness recorded above and not this pass's doing.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.
