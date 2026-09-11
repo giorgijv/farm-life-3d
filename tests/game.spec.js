@@ -1175,12 +1175,35 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(0) }));
     await sceneReady(page);
 
-    await tapPlot(page.locator('#plotsGrid > *').first());
+    /* The tap and the three questions about it, in a single page turn.
+       Not fussiness: this test's whole claim is that *nothing has happened
+       yet*, and the window in which that is true is the length of her walk
+       to plot 0 — measured at about 1.1 seconds, and the same 1.1 seconds
+       before the farm was enlarged as after. Asked as three separate round
+       trips from Node, as this was written, the answers can arrive after
+       she has already got there and picked the crop. On a loaded CI runner
+       they did, twice in one run: once reporting the harvested inventory,
+       once the emptied plot. Dispatching the click from inside the page and
+       reading in the same synchronous turn closes the window altogether,
+       because the walk cannot advance until the next animation frame. The
+       event is the same MouseEvent tapPlot sends; this test just has to
+       send it from somewhere it can read the answer without yielding. */
+    const justTapped = await page.evaluate((key) => {
+      document.querySelector('#plotsGrid > *')
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const live = window.Farm3DBridge.getState();
+      const saved = JSON.parse(localStorage.getItem(key) ?? 'null');
+      return {
+        pending: window.Farm3DScene.pendingActions(),
+        wheat: live.inventory.wheat,
+        saved: saved?.plots?.[0]?.crop ?? null,
+      };
+    }, SAVE_KEY);
 
     // The tap has been taken on — and nothing whatever has happened yet.
-    expect(await pending(page)).toBe(1);
-    expect((await inventory(page)).wheat).toBe(0);
-    expect((await readSave(page)).plots[0].crop).toBe('wheat');
+    expect(justTapped.pending).toBe(1);
+    expect(justTapped.wheat).toBe(0);
+    expect(justTapped.saved).toBe('wheat');
 
     await worked(page);
     expect((await inventory(page)).wheat).toBe(3);

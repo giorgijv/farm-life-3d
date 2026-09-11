@@ -1658,6 +1658,30 @@ governor in §22's frame budget, and CI cannot reach that tier at all because
 this box has no GPU. (The 479 figure was taken by forcing both switches
 locally, not from a run that ships.)
 
+### One more race, found by CI and not by this box
+
+The first push of this work went red on a test nothing here had touched:
+"the crop is picked when she arrives, not when the plot is tapped", failing
+on both the attempt and the retry, once reporting the harvested inventory
+and once the emptied plot. Both are the same thing — she had already
+finished the walk before the assertion ran.
+
+**Checked before being attributed, the same way §25's flakes were.** The
+window in which "nothing has happened yet" is true is the length of her walk
+to plot 0, and that was measured on both trees, ten runs each: 1.0–1.2
+seconds before the enlargement and 1.0–1.2 seconds after. (The frame *count*
+dropped from nine to seven, because each frame now carries slightly more
+work — but the wall-clock is identical, which is exactly what crediting real
+elapsed time to a starved frame means.) So the race is not this pass's
+doing. It is a test that asked three separate questions over three Node
+round trips inside a 1.1-second window, and a loaded CI runner is entirely
+capable of taking longer than that.
+
+Fixed at the root rather than padded: the click is now dispatched from
+inside the page and all three answers read in the same synchronous turn, so
+the window is not narrowed but closed — the walk cannot advance until the
+next animation frame.
+
 ### Known gaps, still
 
 - The barn is still `city-suburban/building-type-b` — a second suburban
