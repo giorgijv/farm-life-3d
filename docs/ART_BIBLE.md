@@ -2291,6 +2291,99 @@ cheaper suite, not a third raise.
   In practice at these roughness values the sun and the hemisphere light
   carry it, which is what the screenshots show.
 
+## 31. The blank playing field
+
+Reported as: "every now and then the game play ground gets blank and cannot do
+with the game anything", with a screenshot.
+
+### What the screenshot already said
+
+The scene box was a plain blue-to-green vertical gradient. That gradient is not
+a rendering of anything — it is `.farm-scene`'s own CSS `background`, which
+exists to fill the box before the first frame lands. Sitting on top of it, fully
+drawn, were the drive stick and the Harvest button, because those are DOM
+siblings of the canvas rather than pixels in it. The tab bar, the seed row and
+a "a wolf took one of your chickens" toast were all working.
+
+So: the page was alive, the DOM was alive, the game logic was alive, and the
+canvas was drawing nothing. That is one specific failure, not a general hang.
+
+The other half of the screenshot was the browser saying so out loud. Across the
+top, Microsoft Edge on Android: *"Originalinhalt anzeigen? Um Speicherplatz zu
+sparen, hat Microsoft Edge einige Inhalte entfernt."* — the browser had removed
+page content to save storage.
+
+### Reproduced, not inferred
+
+`WEBGL_lose_context` is the real event, not a stand-in for it. Losing the
+context on a healthy farm:
+
+| | draw calls | farmer z |
+|---|---|---|
+| before | 154 | 2.44 |
+| after `loseContext()` | **0** | walks to −1.41 |
+
+Draw calls to zero and stay there; the canvas screenshot is the user's
+screenshot, gradient, stick, Harvest button and all. And **she still walks** —
+the frame loop keeps running, the clock keeps turning, wolves keep taking
+chickens. The game was never hung. It was invisible.
+
+That is what "cannot do anything with the game" means from the player's side:
+the farm is being played, and they cannot see it.
+
+### What three.js already does, and the two things it cannot
+
+The renderer is not passive here. It listens for `webglcontextlost`, calls
+`preventDefault()` — which is the call that permits a restore at all — stops
+rendering, and on `webglcontextrestored` rebuilds every buffer and texture.
+That last part works completely: losing and restoring the context returns
+**123 calls and 74,284 triangles, identical either side**.
+
+What a renderer cannot do is the two things that actually left the player
+stuck:
+
+1. **Say anything.** A lost context is silent. `console.log` is not a player.
+2. **Cope with a restore that never arrives.** `preventDefault()` permits a
+   restore; it does not compel one. A phone that dropped the context because
+   it was short of memory is under no obligation to hand it back, and Edge
+   discarding page content is exactly that situation. The only way out was a
+   reload nobody had been told to perform.
+
+### The fix
+
+A panel over the scene box — not the page, because the market, the animals and
+the awards are all still working and taking the whole screen would be a bigger
+claim than the truth.
+
+- On `webglcontextlost`: stop the per-frame sync work (three.js's `render()` is
+  already a no-op, so this is about not animating water and wind for a surface
+  that cannot show them, on a device that just said it is short of resources),
+  and say that the view paused and is coming back. No button yet — on a desktop
+  the restore is usually immediate and a button would be a flash of alarm.
+- She keeps walking, for the same reason she keeps walking on the Market tab: a
+  job taken before the outage has to finish or the tap that started it is lost.
+- On `webglcontextrestored`: clear the panel, clear `lastDrawAt` so the outage
+  is not charged to the frame budget as one catastrophically slow frame, and
+  ask for a fresh shadow map. Automatic — the player does nothing.
+- After six seconds with no restore: the message changes and a **Reload the
+  farm** button appears. The save is committed by hand first rather than
+  trusting the `pagehide` handler a reload also fires — it costs one write, and
+  this is the one recovery path in the game, reached on a device that has
+  already demonstrated it is low on resources.
+
+### The bug in the fix, caught by looking rather than asking
+
+The first build of the panel shipped a worse bug than the one it explained: the
+farm came back and **the panel stayed up over it, permanently**.
+
+An author `display: flex` beats the user agent's `[hidden] { display: none }`
+regardless of specificity, so the panel ignored its own `hidden` attribute. The
+DOM said what you would want to hear the whole time — `el.hidden === true` —
+and the screen showed an overlay welded across a working farm. Screenshotting
+the restore is what found it; reading the property back never would have. The
+rule is now `.scene-lost[hidden] { display: none; }` and the test asks the
+layout (`toBeVisible`) rather than the attribute.
+
 ---
 
 ## Verified, not assumed
@@ -2622,6 +2715,36 @@ Everything above was checked before it was written:
   sampled pixels said otherwise — 37 against grass at 27 on the *pre-change*
   build. It is a contrast illusion in a dark frame and it is pre-existing, so
   nothing was changed for it.
+
+- §31 was diagnosed from the reporter's screenshot before any code was read:
+  the blank area is `.farm-scene`'s CSS gradient exactly, and the controls
+  still drawn on top of it are DOM siblings of the canvas rather than pixels
+  in it. The browser's own notice in the same screenshot — Edge saying it had
+  removed page content to save storage — named the cause.
+- The reproduction is the real event via `WEBGL_lose_context`, not a
+  simulation of the theory: draw calls 154 to 0, the canvas screenshot
+  matching the reporter's, and the farmer still walking from z 2.44 to −1.41
+  while nothing was drawn. That last number is what proved the game was
+  invisible rather than hung.
+- That three.js recovers completely on restore was measured, not assumed:
+  123 draw calls and 74,284 triangles on both sides of a lose/restore cycle.
+  The claim in §31 that the two remaining gaps are "saying anything" and "a
+  restore that never comes" rests on that — the renderer's own half is fine.
+- One early suspicion was dropped after measuring: the pond looked black in
+  the first restored screenshot, which read as damage. Sampling the same
+  pixel with the day phase pinned gave (19, 51, 70) before and (19, 49, 67)
+  after. The first screenshot was simply taken at a later hour.
+- The `[hidden]` bug in §31 was found by screenshotting the restore. Three
+  separate readings of `el.hidden` said `true` while the panel was on screen,
+  so no amount of asking the DOM would have caught it. The test that guards
+  it now asks the layout.
+- Three versions of the restore test's "is the scene loaded yet" helper are
+  recorded in that test's own comment rather than quietly replaced. Two of
+  them watched the draw-call count go quiet and both returned early — 119,
+  then 121, for a scene that settles at 123 — because a pause between two
+  models arriving looks exactly like the end of loading. The helper now
+  awaits the scene's three readiness promises, and the comparison is an
+  inequality pointing the way real damage would move it.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

@@ -2364,6 +2364,16 @@ window.Farm3DBridge = {
   /* The same clock the 2D sky reads, so the sun over the 3D yard is never
      telling a different time of day than the strip above the UI. */
   daySkyState,
+  /* Write the save out now. The scene calls this on exactly one path: the
+     player tapping "Reload the farm" after the browser dropped the WebGL
+     context and failed to give it back. A reload fires pagehide, which
+     already saves — this is here so that the one recovery route in the game
+     does not depend on that being true, on the day it stops being true, on a
+     phone that is by then demonstrably low on resources. */
+  commitSave() {
+    state.lastSeenAt = Date.now();
+    saveState();
+  },
   /* Step 6's proximity loop: the scene says what is in reach and asks what it
      would mean, the interface offers it, and Space or the button runs it. */
   animalIntent,

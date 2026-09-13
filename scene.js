@@ -4500,6 +4500,94 @@ ${lit}`;
     if (!document.hidden) lastStepAt = 0;
   });
 
+  /* -------------------------------------------------------------- */
+  /* When the browser takes the canvas away                            */
+  /* -------------------------------------------------------------- */
+
+  /* A phone short of memory can drop a page's WebGL context at any moment,
+     and some of them never give it back. This is not a hypothetical: the
+     report that prompted this arrived as a screenshot of Microsoft Edge on
+     Android saying it had "removed some content to save storage space", over
+     a farm that had become a plain blue-to-green gradient.
+
+     That gradient is .farm-scene's own CSS background. Once the context is
+     gone the canvas has no drawing buffer at all and composites as fully
+     transparent whatever its alpha setting, so the backdrop shows straight
+     through it — and the drive stick and the Harvest button, being DOM
+     siblings rather than pixels, sit on top of it looking perfectly
+     operable. Reproduced exactly with WEBGL_lose_context: draw calls go 154
+     to 0 and stay there.
+
+     three.js already does its part. It listens for the same event, calls
+     preventDefault (which is what permits a restore at all), stops
+     rendering, and on webglcontextrestored rebuilds every buffer and
+     texture — verified by losing and restoring the context and finding the
+     frame afterwards identical to the frame before, 154 calls and 88,894
+     triangles either side. What it cannot do is the two things that actually
+     left the player stuck: say anything, and cope with a restore that never
+     arrives.
+
+     So the game keeps running the whole time — she walks, the clock turns, a
+     wolf takes a chicken — and the player watches a blank rectangle. The
+     only way out was a reload nobody had been told to perform. */
+  let contextLost = false;
+  let restoreDeadline = null;
+  const sceneLost = document.getElementById('sceneLost');
+  const sceneLostText = document.getElementById('sceneLostText');
+  const sceneLostBtn = document.getElementById('sceneLostBtn');
+
+  /* How long to let the browser try before handing the player the reload
+     button. Long enough not to flash it at a loss the browser was always
+     going to undo in a moment — on a desktop that recovery is usually
+     immediate — and short enough that nobody sits looking at a dead farm
+     wondering whether it is their turn to do something. */
+  const RESTORE_GRACE_MS = 6000;
+
+  function showSceneLost(message, offerReload) {
+    if (!sceneLost) return;
+    if (sceneLostText) sceneLostText.textContent = message;
+    if (sceneLostBtn) sceneLostBtn.hidden = !offerReload;
+    sceneLost.hidden = false;
+  }
+
+  function hideSceneLost() {
+    if (sceneLost) sceneLost.hidden = true;
+    if (sceneLostBtn) sceneLostBtn.hidden = true;
+  }
+
+  if (sceneLostBtn) {
+    sceneLostBtn.addEventListener('click', () => {
+      /* Committed by hand before going, rather than trusting the pagehide
+         handler a reload also fires. It costs one write and it is the
+         difference between a recovery and a recovery that eats the last
+         few minutes of play, on the one path in this game whose whole
+         reason for existing is that something already went wrong. */
+      bridge.commitSave?.();
+      window.location.reload();
+    });
+  }
+
+  canvas.addEventListener('webglcontextlost', () => {
+    contextLost = true;
+    restoreDeadline = performance.now() + RESTORE_GRACE_MS;
+    showSceneLost('The farm view paused while your browser freed up memory. Trying to bring it back…', false);
+  });
+
+  canvas.addEventListener('webglcontextrestored', () => {
+    contextLost = false;
+    restoreDeadline = null;
+    hideSceneLost();
+    /* Both of these are per-frame flags that the frame which would have set
+       them never reached, because it returned early while the context was
+       gone. Clearing lastDrawAt also keeps the interval that spans the
+       outage from being charged to the frame budget as one catastrophically
+       slow frame, which would step the quality tier down for a stall that
+       was not the scene's doing — the same reason the hidden-tab path
+       zeroes it. */
+    lastDrawAt = 0;
+    if (shadowsAfforded) renderer.shadowMap.needsUpdate = true;
+  });
+
   function frame(now) {
     requestAnimationFrame(frame);
 
@@ -4510,6 +4598,28 @@ ${lit}`;
     const dt = lastStepAt ? (now - lastStepAt) / 1000 : 0;
     lastStepAt = now;
     advanceFarmer(dt);
+
+    /* Nothing drawn while the context is gone, and none of the per-frame
+       sync work that only exists to feed a draw. three.js's render() is
+       already a no-op here, so this is not about correctness — it is about
+       not spending a phone's battery animating water and wind for a surface
+       that cannot display them, on a device that just told us it is short of
+       resources.
+
+       She keeps walking, though, for the same reason she keeps walking on
+       the Market tab: a job taken before the outage has to finish, or the
+       tap that started it is quietly lost. */
+    if (contextLost) {
+      lastDrawAt = 0;
+      renderer.info.reset();
+      // The browser has had its grace period and is not going to give the
+      // context back on its own. Hand the player the one control that works.
+      if (restoreDeadline !== null && now >= restoreDeadline) {
+        restoreDeadline = null;
+        showSceneLost('Your browser could not restore the farm view. Reloading will bring it back — your farm is saved.', true);
+      }
+      return;
+    }
 
     /* Backgrounded tab, or a different in-game tab open: nothing to draw, so
        skip the GPU work entirely rather than render an invisible scene.

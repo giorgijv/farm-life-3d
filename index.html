@@ -97,6 +97,18 @@
         <div class="drive-stick" id="driveStick" aria-hidden="true">
           <div class="drive-knob" id="driveKnob"></div>
         </div>
+        <!-- Shown when the browser takes the canvas's WebGL context away,
+             which phones do under memory pressure and which some of them
+             never undo. Without it the scene box simply goes blank — the
+             farm gone, the stick and the prompt still sitting on top of a
+             plain gradient — with nothing to say what happened or what to do
+             about it. role="status" so a screen reader is told too; it is the
+             one thing on this tab that a sighted player learns from a blank
+             rectangle and a blind one would not learn at all. -->
+        <div class="scene-lost" id="sceneLost" role="status" aria-live="polite" hidden>
+          <p class="scene-lost-text" id="sceneLostText"></p>
+          <button class="scene-lost-btn" id="sceneLostBtn" type="button" hidden>Reload the farm</button>
+        </div>
       </div>
       <div class="night-veil"></div>
     </section>

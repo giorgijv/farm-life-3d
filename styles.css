@@ -3323,3 +3323,67 @@ body {
 @media (hover: hover) {
   .action-prompt:hover { filter: brightness(1.08); }
 }
+
+/* The "the browser took the canvas away" panel. Covers the scene box rather
+   than the page: the rest of the game — the market, the animals, the awards —
+   is all still working while the 3D view is gone, and taking the whole screen
+   for something that only stops one tab would be a bigger claim than the
+   truth. z-index above the stick and the prompt, which are the two things
+   that otherwise sit on the blank gradient looking operable and are not. */
+/* Author `display` beats the user agent's `[hidden] { display: none }` no
+   matter how unspecific the author rule is, so a panel styled `display: flex`
+   ignores its own hidden attribute. The first build of this shipped exactly
+   that: the farm came back behind an overlay that stayed up forever, which is
+   a worse bug than the blank screen it was written to explain. Caught by
+   screenshotting the restore rather than by reading `el.hidden` back, which
+   said `true` the whole time. */
+.scene-lost[hidden] {
+  display: none;
+}
+
+.scene-lost {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px;
+  text-align: center;
+  background: rgb(38 30 22 / 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.scene-lost-text {
+  margin: 0;
+  max-width: 26ch;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+}
+
+/* Sized like the other thumb targets on this tab rather than like a link:
+   on a phone this is the one control between the player and a farm they can
+   see again, and it is reached in a mild panic. */
+.scene-lost-btn {
+  min-height: 44px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent, #d98324);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 3px 0 rgb(0 0 0 / 0.25);
+}
+
+.scene-lost-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.25);
+}

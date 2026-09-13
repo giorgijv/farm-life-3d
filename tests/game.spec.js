@@ -5401,6 +5401,140 @@ test.describe('surfaces catch the light', () => {
   });
 });
 
+test.describe('when the browser takes the canvas away', () => {
+  /* A phone short of memory can drop the page's WebGL context, and some
+     browsers never give it back. What the player saw was the scene box going
+     blank — .farm-scene's own CSS gradient showing through a canvas with no
+     drawing buffer left — with the drive stick and the Harvest button still
+     sitting on top of it looking operable, and no way out but a reload nobody
+     had been told to perform.
+
+     WEBGL_lose_context is the real thing rather than a stand-in for it: the
+     same webglcontextlost event, the same dead renderer. */
+  const lose = (page) => page.evaluate(() => {
+    const c = document.querySelector('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    window.__lose = gl.getExtension('WEBGL_lose_context');
+    window.__lose.loseContext();
+  });
+  const panel = (page) => page.evaluate(() => ({
+    shown: !document.getElementById('sceneLost').hidden,
+    reload: !document.getElementById('sceneLostBtn').hidden,
+  }));
+  const calls = (page) => page.evaluate(() => window.Farm3DScene.drawCost().calls);
+
+  /* Everything the scene loads asynchronously, awaited rather than guessed
+     at by watching a number go quiet. Two earlier versions of this helper
+     polled the draw-call count and returned as soon as it repeated — first
+     twice, then five times — and both returned early, because between one
+     model arriving and the next the count sits still for longer than any
+     run of samples you care to require. They reported 119 and then 121 for
+     a scene that settles at 123. */
+  async function loaded(page) {
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+    await page.evaluate(() => window.Farm3DScene.cropModelsReady?.());
+    await page.evaluate(() => window.Farm3DScene.solidsReady?.());
+    await expect.poll(() => calls(page), { timeout: 15_000 }).toBeGreaterThan(0);
+    return page.evaluate(() => window.Farm3DScene.drawCost());
+  }
+
+  test('a lost context is explained rather than left blank', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    expect(await panel(page)).toEqual({ shown: false, reload: false });
+
+    await lose(page);
+
+    // Drawing stops — this is what the player was seeing as a blank box.
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls), { timeout: 10_000 })
+      .toBe(0);
+    // ...and now something says so, without yet offering the reload: the
+    // browser is usually about to hand the context straight back.
+    await expect.poll(() => panel(page), { timeout: 10_000 })
+      .toEqual({ shown: true, reload: false });
+  });
+
+  test('the farm comes back on its own when the browser restores it', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    const healthy = await loaded(page);
+
+    await lose(page);
+    await expect.poll(() => calls(page), { timeout: 10_000 }).toBe(0);
+
+    await page.evaluate(() => window.__lose.restoreContext());
+    await expect.poll(() => calls(page), { timeout: 20_000 }).toBeGreaterThan(0);
+    const after = await loaded(page);
+
+    /* Compared as "no less than", not "exactly equal". three.js rebuilds
+       every buffer and texture on restore and the scene really does come back
+       identical — 123 calls and 74,284 triangles either side, measured
+       directly — but a model still arriving while the baseline is taken can
+       only ever push the later number *up*, which is what made the equality
+       version of this flake at 121 against 123. The failure this exists to
+       catch is a scene that comes back with half its props missing, and that
+       shows up as fewer, so the inequality points the right way. */
+    expect(after.calls).toBeGreaterThanOrEqual(healthy.calls);
+    expect(after.triangles).toBeGreaterThanOrEqual(healthy.triangles);
+    await expect.poll(() => panel(page), { timeout: 10_000 })
+      .toEqual({ shown: false, reload: false });
+  });
+
+  test('the panel really disappears, not just in the DOM', async ({ page }) => {
+    /* Written because the first build of this failed it. An author rule of
+       `display: flex` beats the user agent's `[hidden] { display: none }`, so
+       the panel ignored its own hidden attribute and stayed up over the farm
+       it had just announced the return of — while `el.hidden` read `true` the
+       whole time. Asking the layout, not the property, is the only version of
+       this test that would have caught it. */
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await expect(page.locator('#sceneLost')).toBeHidden();
+
+    await lose(page);
+    await expect(page.locator('#sceneLost')).toBeVisible();
+
+    await page.evaluate(() => window.__lose.restoreContext());
+    await expect(page.locator('#sceneLost')).toBeHidden();
+  });
+
+  test('a context that never comes back offers a way out', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+
+    await lose(page);
+    // Nothing restores it. After the grace period the message changes and the
+    // one control that can help appears.
+    await expect(page.locator('#sceneLostBtn')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('#sceneLostText')).toContainText('your farm is saved');
+  });
+
+  test('the way out does not cost the player their farm', async ({ page }) => {
+    await load(page, makeSave({ coins: 4242 }));
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+
+    /* Spend something after load, so what is being checked is that the reload
+       carries the *current* state rather than the fixture it started from. */
+    await page.evaluate(() => { state.coins = 777; });
+
+    await lose(page);
+    await expect(page.locator('#sceneLostBtn')).toBeVisible({ timeout: 20_000 });
+    await page.locator('#sceneLostBtn').click();
+
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    expect(await page.evaluate(() => state.coins)).toBe(777);
+    // And the farm it reloaded into is drawing again.
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls), { timeout: 15_000 })
+      .toBeGreaterThan(0);
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Smoke                                                               */
 /* ------------------------------------------------------------------ */

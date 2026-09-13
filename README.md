@@ -59,6 +59,11 @@ through any of them: the two buildings, the stall, the car and every orchard
 trunk stop her and slide her along themselves. The canopies do not, so
 standing under an apple tree is still allowed.
 
+If your browser ever takes the 3D view away — phones short on memory do this,
+and some of them never give it back — the farm no longer just goes blank. The
+scene says what happened, comes back on its own the moment the browser lets it,
+and offers a reload if it never does. Your farm is saved either way.
+
 How much of that you see depends on what you are playing on. Shadows and the
 post-processing chain are switched on only where there is a GPU to draw
 them; a machine without one gets the same farm, lit the same way, without
@@ -331,9 +336,12 @@ mapping off inside a render target, that the wind keeps moving and answers a
 hurricane, that the clouds are a function of the save rather than of how long
 the tab has been open and that no sunlight falls on them at midnight, that
 the pond's water really does shallow out instead of ending on a cliff, that
-nothing in the farm is left at the fully matte roughness every kit ships —
-and that shadows stay switched off on a machine with no GPU, which is the
-whole point of gating them. **Scale and collision** are tested
+nothing in the farm is left at the fully matte roughness every kit ships, that
+a browser taking the WebGL context away is explained rather than leaving a
+blank box, that the farm comes back whole when the context is restored, and
+that the reload offered when it never is keeps the player's coins — and that
+shadows stay switched off on a machine with no GPU, which is the whole point
+of gating them. **Scale and collision** are tested
 the same way, as
 numbers rather than as screenshots: that the farmhouse really is several
 times the farmer's measured height, that the orchard's trunks stop her while
