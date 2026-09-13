@@ -5028,6 +5028,90 @@ test.describe('walls she cannot walk through', () => {
     expect(end.at.z).toBeLessThan(roam.minZ + 0.5);
   });
 
+  /* The bug behind "the game gets stuck every now and then", and the
+     invariant that keeps it fixed.
+
+     Each exclusion in this scene is individually correct and convex — the
+     pond pushes her out to its bank, a solid pushes her out to its nearest
+     face — and neither knows the other exists. Where two of them overlap,
+     one resolver's answer is inside the other's, and the point that comes
+     out the end satisfies neither: she stops responding to the stick in one
+     particular spot, with nothing on screen to say why.
+
+     It was not hypothetical. The market stall's collision box and the
+     enlarged pond shared a seam, and a sweep at 4cm found 249 points inside
+     both, in a band at x 1.00-1.32, z 5.46-6.82. The stall has moved; this
+     is what stops it coming back the next time either one does. */
+  test('no exclusion zone overlaps another', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    const clashes = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const roam = s.roam();
+      const inBoth = [];
+      for (let x = roam.minX; x <= roam.maxX; x += 0.05) {
+        for (let z = roam.minZ; z <= roam.maxZ; z += 0.05) {
+          if (s.inPond(x, z) && s.blocked(x, z)) inBoth.push([+x.toFixed(2), +z.toFixed(2)]);
+        }
+      }
+      /* Solids against each other as well. Two overlapping walls are a
+         milder problem than a wall overlapping the water — she is never
+         pushed *into* one, so she cannot end up inside the pocket — but
+         they are still a concave seam, and there is no reason to have one. */
+      const boxes = s.solids().boxes;
+      const pairs = [];
+      const m = 0.25; // the farmer's own half-width, as the collider uses it
+      for (let i = 0; i < boxes.length; i += 1) {
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i];
+          const b = boxes[j];
+          if (a.minX - m < b.maxX + m && a.maxX + m > b.minX - m
+            && a.minZ - m < b.maxZ + m && a.maxZ + m > b.minZ - m) pairs.push(`${a.id} and ${b.id}`);
+        }
+      }
+      return { inBoth: inBoth.slice(0, 8), inBothCount: inBoth.length, pairs };
+    });
+
+    expect(clashes.inBothCount, `points inside both the pond and a solid: ${JSON.stringify(clashes.inBoth)}`).toBe(0);
+    expect(clashes.pairs).toEqual([]);
+  });
+
+  test('there is nowhere she can stand and not get out of', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* The question a stuck player is really asking, swept over every square
+       metre of the farm rather than checked at the two or three places a
+       bug report happens to mention. For each point she could legitimately
+       stand on, at least one of sixteen directions has to lead somewhere
+       she could also stand. A pocket that fails this is a place the game
+       stops. */
+    const trapped = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const roam = s.roam();
+      const invalid = (x, z) => s.blocked(x, z) || s.inPond(x, z);
+      const dirs = [];
+      for (let a = 0; a < 16; a += 1) dirs.push([Math.cos((a * Math.PI) / 8), Math.sin((a * Math.PI) / 8)]);
+
+      const bad = [];
+      for (let x = roam.minX; x <= roam.maxX; x += 0.25) {
+        for (let z = roam.minZ; z <= roam.maxZ; z += 0.25) {
+          if (invalid(x, z)) continue;
+          const wayOut = dirs.some(([dx, dz]) => {
+            const nx = Math.max(roam.minX, Math.min(roam.maxX, x + dx * 0.25));
+            const nz = Math.max(roam.minZ, Math.min(roam.maxZ, z + dz * 0.25));
+            return !invalid(nx, nz) && Math.hypot(nx - x, nz - z) > 0.05;
+          });
+          if (!wayOut) bad.push([+x.toFixed(2), +z.toFixed(2)]);
+        }
+      }
+      return bad.slice(0, 10);
+    });
+
+    expect(trapped).toEqual([]);
+  });
+
   test('no wall stands where a job could send her', async ({ page }) => {
     await load(page, makeSave());
     await ready(page);

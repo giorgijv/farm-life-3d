@@ -57,6 +57,11 @@ them; a machine without one gets the same farm, lit the same way, without
 the parts it cannot afford. Everything else — the lighting, the colours, the
 wind — is the same everywhere.
 
+On a phone the yard gets the screen. The tab row and the top bar each fold to
+a single line, and the scene takes whatever is left rather than sitting in a
+fixed 4:3 box — on a 393x852 phone that took the farm from a quarter of the
+viewport, starting below the fold, to about half of it, starting above.
+
 None of that is required to play. The whole game is still reachable from the
 keyboard alone, and from a screen reader — see [Accessibility](#accessibility).
 
@@ -323,7 +328,10 @@ times the farmer's measured height, that the orchard's trunks stop her while
 its canopies do not, that nothing is left standing in the pond, that driving
 her at a wall puts her against it rather than inside or beyond it, and that
 no wall stands anywhere a queued job could send her — which is the
-assumption the walk-to-work queue rests on. There is also a **draw budget** —
+assumption the walk-to-work queue rests on — that no two exclusion zones
+overlap, since a seam between two of them is exactly where the game gets
+stuck, and that of all the points she can stand on there is not one she
+cannot get out of again. There is also a **draw budget** —
 the worst state the game can reach must stay inside a stated ceiling of draw
 calls and triangles, and a farm behind another tab must draw nothing
 whatever, which is the difference between a phone spending its battery on a

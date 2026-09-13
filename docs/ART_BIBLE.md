@@ -1952,6 +1952,114 @@ too.
 
 ---
 
+## 29. The phone screen, and a place the game got stuck
+
+Two things asked for together, and they turned out to be unrelated: give the
+playing area the phone screen, and find out why the game sometimes stops
+responding.
+
+### The yard was getting a quarter of the phone
+
+Measured at 393x852 before anything changed: the 3D scene came out **325x244
+— 28.6% of the viewport — and started 571px down**, which on a shorter phone
+is below the fold. You had to scroll to see the farm you were playing.
+
+Three things were eating it, and the fix for each is dull:
+
+| | was | now |
+|---|---|---|
+| tab bar | 158px (three rows of two) | 53px (one row of five) |
+| top bar | 107px (two rows) | 70px (one row) |
+| farm scene | 4:3 box, cannot grow | fills what is left |
+
+The tab bar was `flex: 1 1 calc(50% - 7px)` — two per row, so five tabs made
+three rows. Stacking the icon over the label makes each tab a squat square
+that fits five across a 360px screen. The top bar gives up the words "Farm
+Life" and keeps the tractor: the title is the only thing in that row which
+is decoration rather than information, so it is the thing that yields.
+
+**The structural change is that `#farmTab` became a column that fills the
+screen, with the scene taking whatever the rest does not want** — scoped to
+that one tab, because the others are lists that are *meant* to run past the
+bottom and be scrolled. `100dvh` rather than `100vh`: on a phone browser
+`100vh` is measured as if the address bar were hidden, which would have
+sized the farm to a screen that is not all there.
+
+**The footer had to move out of `#app`.** This is the part that would not
+have been found by reading the CSS. With the fill in place the scene still
+would not grow, and the reason was a 158px slab of credits sitting in the
+same flex column: `flex-grow` distributes *free* space, and with the footer
+inside there was none — the content already overflowed. Moving it outside
+`#app`, where a site footer belongs anyway, is what let the yard take the
+room. The scene went from 244px to 414px on the same phone.
+
+| profile | before | after |
+|---|---|---|
+| 393 x 852 | 244px, 28.6% | **414px, 48.6%** |
+| 360 x 640 | 219px, 34.2% | **266px, 41.6%** |
+| 740 x 360 landscape | 166px, 46.1% | unchanged |
+
+Landscape is left alone deliberately. There is genuinely no spare height on
+a phone lying down, and `mobile.spec.js` caps the scene there on purpose so
+it cannot push the tab bar off the screen.
+
+One thing the narrow layout cost, found by measuring rather than by eye: at
+360px the top bar row no longer wraps, so the pressure moved sideways and
+`.stats` came out 322px wide in a 286px slot. The two pills take a size
+smaller below 400px. The help and mute buttons deliberately do not — they
+are thumb targets and the 44px floor is asserted.
+
+### The stuck spot was where two exclusion zones overlapped
+
+"Every now and then" is the hard part of a bug report like this, so the
+answer had to come from a sweep rather than from reproducing it by hand.
+
+Every exclusion in this scene is individually correct and convex. The pond
+pushes her out to its bank; a solid pushes her out to its nearest face.
+**Neither knows the other exists.** Where two of them overlap, one
+resolver's answer lands inside the other's, and the point that comes out the
+end of `moveWithCollision` satisfies neither. The player feels that as the
+game getting stuck, in one particular place, with nothing on screen to
+explain it.
+
+Found by scanning the walkable farm at 4cm and asking which points are
+inside both the pond and a solid: **249 of them, in a band at x 1.00-1.32,
+z 5.46-6.82** — the seam between the enlarged pond's east rim and the market
+stall's collision box. §28 enlarged the pond; §27 placed the stall. Each was
+fine on its own.
+
+Worth noting against my own words: §27's comment claimed "there is no
+concave pocket anywhere in SOLIDS for her to get caught in". That was true
+of SOLIDS and false of the scene, because the pond is not in SOLIDS. A
+convexity argument is only as good as the set it ranges over.
+
+Fixed at both levels:
+
+- **The cause.** The stall moved north-east off the water, and the car south
+  along its own road so the two of them stop overlapping as well. A test now
+  holds that no solid may overlap the pond, and that no two solids may
+  overlap each other — so the next time either the pond or a prop moves,
+  this fails rather than shipping.
+- **The class.** `moveWithCollision` now refuses a step whose resolved
+  position is still inside the water or a wall, keeping her where she was —
+  which is always somewhere she legitimately stood. The farmer who is
+  *already* somewhere invalid is let through, because for her moving is the
+  only way out. The next overlap costs a refused step rather than a stuck
+  farmer.
+
+And the invariant a stuck player actually cares about, swept rather than
+spot-checked: for all **7,526** points she can stand on, at least one of
+sixteen directions leads somewhere she can also stand. Zero fail.
+
+### What was checked and found innocent
+
+The queue was the other obvious suspect and it is not guilty: 40 errands
+tapped from random positions, with random wanders in between, all drained to
+zero. Recorded because "we looked and it was fine" is worth as much as a
+fix when the next report comes in.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -2221,6 +2329,24 @@ Everything above was checked before it was written:
 - The claim that the graphics pass left the direct path's sky alone is a
   pixel comparison against a pre-change screenshot, not an assumption from
   the shape of the change: (210, 222, 227) before, (219, 228, 233) after.
+
+- §29's phone measurements are element bounding boxes read from a real
+  layout at three viewport profiles, before and after, not estimates from
+  the CSS. The footer being what blocked the fill was found the same way —
+  by printing every child of `#app` with its height — after the fill was in
+  place and the scene stubbornly refused to grow.
+- §29's stuck spot was found by sweeping the walkable farm and asking which
+  points are inside two exclusions at once, not by trying to reproduce "every
+  now and then" by hand. The 249 points and their extent are what that sweep
+  printed.
+- The walk-to-work queue was cleared by measurement rather than by argument:
+  40 errands from random positions, none of which failed to drain.
+- One probe here is reported as inconclusive rather than dressed up: an
+  attempt to demonstrate the wedge dynamically, by walking her into the seam
+  on the pre-fix build, hung instead of returning. That is consistent with
+  her being unable to move — the probe's inner wait had no deadline — but it
+  was not instrumented to distinguish "wedged" from "very slow", so it
+  proves nothing on its own. The static sweep is the evidence.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

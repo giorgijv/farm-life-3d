@@ -194,17 +194,22 @@
       <div class="night-veil"></div>
     </section>
 
-    <footer class="site-footer">
-      <span class="footer-line">Farm Life 3D &middot; made by Giorgi Jvarsheishvili</span>
-      <span class="footer-line">
-        Other games by Giorgi Jvarsheishvili:
-        <a href="https://giorgijv.github.io/farm-game/">🚜 Play Farm Life (2D)</a>
-        <a href="https://giorgijv.github.io/juice-sort/">🧃 Play Juice Sort</a>
-        <a href="https://giorgijv.github.io/soviet-racer-giorgi/">🏎️ Play Soviet Racer</a>
-      </span>
-    </footer>
-
   </div>
+
+  <!-- Outside #app on purpose. On a phone #app is sized to fill exactly one
+       screen so the 3D farm can have whatever the chrome does not want, and
+       a 158px slab of credits inside that box would be 158px taken straight
+       off the yard. The footer belongs below the fold, which is where a site
+       footer belongs anyway. -->
+  <footer class="site-footer">
+    <span class="footer-line">Farm Life 3D &middot; made by Giorgi Jvarsheishvili</span>
+    <span class="footer-line">
+      Other games by Giorgi Jvarsheishvili:
+      <a href="https://giorgijv.github.io/farm-game/">🚜 Play Farm Life (2D)</a>
+      <a href="https://giorgijv.github.io/juice-sort/">🧃 Play Juice Sort</a>
+      <a href="https://giorgijv.github.io/soviet-racer-giorgi/">🏎️ Play Soviet Racer</a>
+    </span>
+  </footer>
 
   <!-- The ending: the home you bought, seen from the inside, with fireworks. -->
   <div id="endingOverlay" class="ending hidden" role="dialog" aria-modal="true"

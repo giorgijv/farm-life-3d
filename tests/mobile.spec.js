@@ -110,6 +110,32 @@ test.describe('phone portrait', () => {
     expect(await undersizedControls(page)).toEqual([]);
   });
 
+  /* The yard is the game; on a phone it was getting a quarter of the screen.
+     Measured at 393x852 before this: the 3D scene came out 325x244, which is
+     28.6% of the viewport, and it began 571px down — on a shorter phone,
+     below the fold, so you had to scroll to see the farm you were playing.
+     Three rows of tab buttons, two rows of top bar and a scene locked to a
+     4:3 box did that between them.
+
+     Asserted as a fraction rather than a pixel count so it keeps meaning the
+     same thing on a screen this profile does not describe, and set well
+     under what the layout now achieves (48.6%) so that ordinary retuning
+     does not trip it and a real regression does. */
+  test('the farm gets most of the phone screen, without scrolling to it', async ({ page }) => {
+    await load(page);
+    await page.waitForFunction(() => !!window.Farm3DScene);
+
+    const m = await page.evaluate(() => {
+      const scene = document.getElementById('farmScene').getBoundingClientRect();
+      return { top: scene.top, height: scene.height, vh: window.innerHeight };
+    });
+
+    expect(m.height / m.vh, 'the 3D yard is a fraction of the phone screen').toBeGreaterThan(0.4);
+    // And it starts above the fold: the farm is the first thing you see, not
+    // something you have to go looking for.
+    expect(m.top).toBeLessThan(m.vh * 0.55);
+  });
+
   /* Row 2 of the field, straight up from where she starts, so driving her
      there is a push on the stick rather than a manoeuvre. */
   const RIPE_PLOT = 8;

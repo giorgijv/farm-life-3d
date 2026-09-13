@@ -402,6 +402,10 @@ body {
 .coin-badge {
   position: relative;
   overflow: hidden;
+  /* Same reason .day-badge has it: the top bar is a row that used to wrap,
+     and once it stopped wrapping on phones the pressure moved inside the
+     pill instead — "600" folded under its own money bag. */
+  white-space: nowrap;
   padding: 6px 14px;
   border-radius: 999px;
   font-size: 1.05rem;
@@ -2927,11 +2931,13 @@ body {
 
 .site-footer {
   /* fit-content + auto margins centres the pill without the 50% margin trick,
-     which pushed the layout viewport far past the screen in landscape. */
+     which pushed the layout viewport far past the screen in landscape.
+     It sits outside #app (see index.html), so the side breathing room and
+     the gesture-bar clearance #app used to give it are its own now. */
   display: block;
   width: fit-content;
-  max-width: 100%;
-  margin: 22px auto 0;
+  max-width: calc(100% - 2 * max(16px, env(safe-area-inset-left)));
+  margin: 22px auto calc(28px + env(safe-area-inset-bottom));
   padding: 9px 18px;
   text-align: center;
   font-size: 0.85rem;
@@ -2998,17 +3004,40 @@ body {
 
   .seed-btn .seed-emoji { font-size: 1.35rem; }
 
+  /* One row of five, not three rows of two.
+     Two-up was the old answer and it cost 158px of a 852px phone — more
+     than half of what the 3D farm itself was getting. Stacking the icon
+     over the label turns each tab into a squat square that fits five
+     across a 360px screen with room to spare, and the whole bar into one
+     53px row. Height is still checked against the 44px touch floor by
+     tests/mobile.spec.js, which is what stops this being shrunk further
+     by eye. */
   .tabbar {
-    flex-wrap: wrap;
-    gap: 7px;
+    flex-wrap: nowrap;
+    gap: 6px;
   }
 
   .tab-btn {
-    flex: 1 1 calc(50% - 7px);
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1px;
+    padding: 7px 2px 6px;
+    font-size: 0.62rem;
+    letter-spacing: -0.1px;
+    border-radius: 12px;
   }
 
-  .topbar { padding: 10px 12px; }
-  .stats { gap: 7px; }
+  .tab-btn .tab-icon { font-size: 1.15rem; }
+
+  /* The top bar on one line too, for the same reason. The title is the
+     only thing here that is decoration rather than information, so it is
+     the thing that gives way: the tractor stays as a mark, the coins, the
+     day and the two buttons all keep their full size. */
+  .topbar { padding: 8px 11px; gap: 8px; flex-wrap: nowrap; }
+  .logo { font-size: 0; letter-spacing: 0; }
+  .logo .logo-icon { font-size: 1.5rem; }
+  .stats { gap: 7px; margin-left: auto; }
   .coin-badge, .day-badge { font-size: 0.9rem; padding: 5px 11px; }
   /* One notch smaller again for the day badge alone. Step 13 added a season
      glyph to it and step 16 found the result folding "Day 10" onto two lines
@@ -3105,6 +3134,102 @@ body {
     -webkit-user-select: none;
     -webkit-touch-callout: none;
   }
+}
+
+/* ==================================================================
+   Giving the farm the screen — phones
+   ==================================================================
+
+   On a 393x852 phone the 3D yard measured 325x244: 28.6% of the viewport,
+   starting 571px down, which on a shorter phone put it below the fold
+   entirely. You had to scroll to see the game. Two things did that — the
+   chrome above it (fixed just above: three rows of tabs and two of top
+   bar) and the scene's own fixed 4:3 box, which cannot grow into space
+   that is going spare.
+
+   So on a phone the Farm tab becomes a column that fills the screen and
+   the scene takes whatever the rest of it does not want. Deliberately
+   scoped to #farmTab: the other tabs are lists that are *meant* to run
+   past the bottom of the screen and be scrolled, and stretching them to
+   exactly one screen would be a different bug.
+
+   100dvh rather than 100vh, because on a phone browser 100vh is the tall
+   viewport measured as if the address bar were hidden — using it here
+   would size the farm to a screen that is not all there and push the seed
+   bar under the browser chrome. The 100vh line before it is the fallback
+   for anything that does not know dvh. */
+@media (max-width: 700px) {
+  #app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    /* The 40px was clearance above the footer, which has moved out from
+       under this box — inside a container sized to exactly one screen it
+       was 40px taken off the yard. */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  #farmTab:not(.hidden) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    /* Without this a flex child refuses to shrink below its content, and
+       the whole point here is that the scene gives up height first. */
+    min-height: 0;
+  }
+
+  #farmTab:not(.hidden) .farm-scene {
+    flex: 1 1 auto;
+    min-height: 210px;
+    /* Released from 4:3 so it can be as tall as the screen allows. The
+       camera already adapts: scene.js's ResizeObserver feeds the real box
+       to camera.aspect on every change. */
+    aspect-ratio: auto;
+    margin-bottom: 0;
+  }
+
+  /* Trimmed rather than removed: both are still legible, and between them
+     they hand about 30px back to the yard. */
+  .farmer-strip { padding: 7px 9px; gap: 9px; }
+  .seed-bar { margin-bottom: 10px; }
+}
+
+/* The narrowest phones still in common use. Holding the top bar to one row
+   (above) is what buys the yard its height back, but at 360px the row it has
+   to fit into is 36px narrower than the badges wanted — measured, not
+   guessed: .stats came out 322px wide in a 286px slot. Nothing is dropped,
+   the two pills and the tractor just take a size smaller. The help and mute
+   buttons deliberately do not shrink: they are thumb targets and the 44px
+   floor is asserted by tests/mobile.spec.js. */
+@media (max-width: 400px) {
+  .topbar { gap: 6px; padding: 8px 9px; }
+  .logo .logo-icon { font-size: 1.25rem; }
+  .stats { gap: 5px; }
+  .coin-badge { font-size: 0.8rem; padding: 4px 9px; }
+  .day-badge { font-size: 0.72rem; padding: 4px 7px; }
+}
+
+/* Short phones. The fill above only has space to give away if there is
+   space going spare, and at 360x640 there was none: the farm sat at its
+   210px floor while the chrome above it used every pixel. None of the trims
+   below removes anything — the sky strip, the tab row, the farmer's panel
+   and the seed row are all still there — they are simply sized for a screen
+   that has 640px rather than 850. Together they hand about 70px to the
+   yard, which is a third again of what it had. */
+@media (max-width: 700px) and (max-height: 740px) {
+  :root {
+    --sky-band: 46px;
+    --celestial-size: 30px;
+  }
+
+  .tabbar { margin: 9px 0; }
+  .tab-screen { padding: 12px; }
+  .farmer-strip { padding: 5px 8px; gap: 8px; margin-bottom: 9px; }
+  .farmer-avatar { font-size: 1.5rem; }
+  .seed-bar { margin-bottom: 8px; }
+  .seed-btn { padding: 6px 4px 5px; }
+  .seed-btn .seed-emoji { font-size: 1.2rem; }
 }
 
 /* Short viewports — mostly phones held in landscape. Reclaim the vertical

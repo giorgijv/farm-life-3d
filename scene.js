@@ -1797,8 +1797,15 @@ ${shader.fragmentShader.replace(
 
        At its authored 1.24 it stood shorter than the farmer, who would have
        had to crawl under her own awning; 2.5 puts the counter at her waist
-       and the canopy over her head. */
-    { id: 'fantasy-town/stall-green', x: 2.6, z: 5.2, ry: -0.5, h: 2.5, blocks: 'box' },
+       and the canopy over her head.
+
+       Moved north-east off the water's edge. Its collision box and the
+       enlarged pond used to share a seam — 249 sampled points sat inside
+       both — and two exclusions that overlap are a place the farmer gets
+       stuck, because each one's way out is inside the other. There is now
+       a test that no solid may overlap the pond, which is what stops this
+       coming back the next time the pond or the stall moves. */
+    { id: 'fantasy-town/stall-green', x: 3.25, z: 5.1, ry: -0.5, h: 2.5, blocks: 'box' },
     /* A short pull-in and a car, so the stall reads as somewhere goods
        actually arrive rather than a booth that stands alone in the grass.
        Neither city-suburban nor fantasy-town has a road or a vehicle of its
@@ -1829,7 +1836,7 @@ ${shader.fragmentShader.replace(
     { id: 'city-roads/road-straight', x: 5.2, z: 6.5 },
     { id: 'city-roads/road-straight', x: 4.2, z: 5.5 },
     { id: 'city-roads/road-straight', x: 5.2, z: 5.5 },
-    { id: 'car/sedan', x: 4.2, z: 7.4, blocks: 'box' },
+    { id: 'car/sedan', x: 4.2, z: 8.4, blocks: 'box' },
     { id: 'nature/plant_bush', x: -2.2, z: 4.5 },
     { id: 'nature/plant_bush', x: 1.95, z: 7.8 },
     { id: 'nature/flower_redA', x: -2.6, z: 4.1 },
@@ -3331,6 +3338,20 @@ ${lit}`;
      movement accumulates, which is the behaviour a player expects from
      walking into the side of a barn. */
   const midStep = { x: 0, z: 0 };
+  /* Is this point inside something it should not be? Used only by the
+     safety net below, which is why it answers about the *place* rather than
+     resolving a movement into it. */
+  function insideSolid(x, z) {
+    for (const b of SOLIDS.boxes) {
+      if (x > b.minX - BODY_RADIUS && x < b.maxX + BODY_RADIUS
+        && z > b.minZ - BODY_RADIUS && z < b.maxZ + BODY_RADIUS) return true;
+    }
+    for (const p of SOLIDS.posts) {
+      if (Math.hypot(x - p.x, z - p.z) < p.r + BODY_RADIUS) return true;
+    }
+    return false;
+  }
+
   function moveWithCollision(fromX, fromZ, toX, toZ, out, avoidPond) {
     const dx = toX - fromX;
     const dz = toZ - fromZ;
@@ -3346,6 +3367,35 @@ ${lit}`;
       } else {
         keepOutOfSolids(nx, nz, out, atX, atZ);
       }
+
+      /* The safety net, and the reason it exists is worth stating plainly:
+         each exclusion is individually correct and convex, but they know
+         nothing about each other. Where two of them overlap, one resolver's
+         answer lands inside the other's, and the point that comes out the
+         end of this satisfies neither. The player feels that as the game
+         getting stuck — she stops responding to the stick in one particular
+         spot and there is no way to see why.
+
+         It was not hypothetical. The market stall's footprint and the
+         enlarged pond shared a seam: 249 sampled points sat inside both,
+         in a band at x 1.00-1.32, z 5.46-6.82. The pond pushed her east
+         into the stall, the stall pushed her west into the water. That
+         overlap is gone (the stall moved, and a test now holds the two
+         apart) — this stays because the next one should cost a refused
+         step rather than a stuck farmer.
+
+         Refusing means keeping where she was, which is always somewhere she
+         legitimately stood. The exception is the farmer who is *already*
+         somewhere invalid — a save restored next to a building that has
+         since been resized, say. For her, moving is the only way out, so
+         she is let through. */
+      const trapped = insideSolid(out.x, out.z) || (avoidPond && inPondFootprint(out.x, out.z));
+      if (trapped && !insideSolid(atX, atZ) && !(avoidPond && inPondFootprint(atX, atZ))) {
+        out.x = atX;
+        out.z = atZ;
+        return;
+      }
+
       atX = out.x;
       atZ = out.z;
     }
