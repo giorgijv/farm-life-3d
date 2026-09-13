@@ -2384,6 +2384,46 @@ the restore is what found it; reading the property back never would have. The
 rule is now `.scene-lost[hidden] { display: none; }` and the test asks the
 layout (`toBeVisible`) rather than the attribute.
 
+### The CI failure that followed, which was not this
+
+The push CI'd red on a test this work never touched — `the stick and the
+prompt stay reachable in landscape`, failing on `boundingBox()` returning null
+for a button that was still hidden.
+
+Two things had to be separated before anything was changed. The first was a
+genuine defect this work *had* introduced, found while looking: the frame
+loop's new "context is gone" early return sat above `syncPrompt()`, so
+`reachable()` — which answers live — and the prompt button, which only updates
+on a drawn frame, could contradict each other for as long as an outage
+lasted. That is fixed by keeping `syncPrompt()` running through the outage; it
+writes to a DOM button, and that button is the only thing telling a screen
+reader what is in reach, which no visual panel replaces.
+
+The second was whether that defect was the failure. It was not. Run at
+`--workers=4 --repeat-each=12`:
+
+| | failures |
+|---|---|
+| this commit | 5 of 12 |
+| the commit before it | **8 of 12** |
+
+Worse on the build without any of this in it, so pre-existing, and CI simply
+drew the short straw. Recorded because "the build went red right after my
+change" is the most inviting wrong answer available.
+
+The real cause is the hazard this project has written up twice before.
+`advanceFarmer` credits a starved frame the whole wall-clock time it lasted,
+by design — so a step taken under load is not a small step, it is a long one.
+The test waited for `reachable()` from the test process and then sent a
+separate `drive(0, 0)`, putting a full round-trip between noticing she had
+arrived and telling her to stop, and at four workers she crossed the tile and
+came out the far side inside that gap. The stale `aria-label` on a
+still-hidden button is the fingerprint: she *was* in reach, for a moment.
+
+Fixed by stopping her on the page's own frames, in the same frame the target
+comes into reach, which is the shape `driveOnto` in that file already uses.
+16 of 16 afterwards at the contention that failed 8 of 12.
+
 ---
 
 ## Verified, not assumed
@@ -2738,6 +2778,12 @@ Everything above was checked before it was written:
   separate readings of `el.hidden` said `true` while the panel was on screen,
   so no amount of asking the DOM would have caught it. The test that guards
   it now asks the layout.
+- The CI failure that arrived with §31 was checked against the previous commit
+  before being attributed to anything: 8 failures in 12 there against 5 in 12
+  on the new build, at the same `--workers=4`. Pre-existing, and worse without
+  the change than with it. The separate defect the investigation did turn up —
+  the prompt going unsynced during an outage — was fixed on its own merits
+  rather than being allowed to stand in as the explanation.
 - Three versions of the restore test's "is the scene loaded yet" helper are
   recorded in that test's own comment rather than quietly replaced. Two of
   them watched the draw-call count go quiet and both returned early — 119,

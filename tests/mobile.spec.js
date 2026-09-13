@@ -355,9 +355,48 @@ test.describe('landscape', () => {
     const scene = await page.locator('#farmScene').boundingBox();
     expect(stick.y + stick.height).toBeLessThanOrEqual(scene.y + scene.height + 1);
 
-    await page.evaluate(() => window.Farm3DScene.drive(0, -1));
-    await page.waitForFunction(() => window.Farm3DScene.reachable() !== null, null, { timeout: 15_000 });
-    await page.evaluate(() => window.Farm3DScene.drive(0, 0));
+    /* Driven and stopped inside one evaluate, on the page's own frames,
+       because the two-step version of this walked her straight past the plot.
+
+       advanceFarmer credits a starved frame the real wall-clock time it
+       lasted — deliberately, and for good reasons written up at its own
+       definition — so a step taken under load is not a small step, it is a
+       long one. Waiting for reachable() from the test and then sending a
+       separate drive(0, 0) puts a whole round-trip between noticing she has
+       arrived and telling her to stop, and at --workers=4 she covers the
+       tile and comes out the far side within it. What the run then saw was a
+       button carrying a stale aria-label from the moment she was briefly in
+       reach, still hidden, staying hidden: 8 failures in 12, and the same
+       8 in 12 on the build before this change, which is how it was ruled out
+       as anything the WebGL work had done.
+
+       Stopping her in the same frame the target comes into reach closes the
+       window entirely. This is the shape driveOnto in this file already uses,
+       for the same reason. */
+    await page.evaluate(async () => {
+      const deadline = performance.now() + 14_000;
+      window.Farm3DScene.drive(0, -1);
+      await new Promise((resolve) => {
+        const tick = () => {
+          if (window.Farm3DScene.reachable() !== null || performance.now() > deadline) {
+            window.Farm3DScene.drive(0, 0);
+            resolve();
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+    });
+
+    /* And then wait for the button rather than assuming it followed.
+       reachable() answers live; the button is shown by syncPrompt(), which
+       runs only on a drawn frame, and drawing is paced to 30fps and skipped
+       when the frame budget is starved. boundingBox() on a hidden element is
+       null rather than a failed assertion, which is why the original
+       surfaced as "Cannot read properties of null" rather than as anything
+       about prompts. */
+    await expect(page.locator('#actionPrompt')).toBeVisible({ timeout: 15_000 });
 
     const prompt = await page.locator('#actionPrompt').boundingBox();
     expect(prompt.height).toBeGreaterThanOrEqual(44);

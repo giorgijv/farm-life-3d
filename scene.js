@@ -4612,6 +4612,14 @@ ${lit}`;
     if (contextLost) {
       lastDrawAt = 0;
       renderer.info.reset();
+      /* The one piece of the draw pass that is not drawing. syncPrompt only
+         writes to a DOM button, and that button is the sole way a player
+         using a screen reader is told what is within reach — the visual
+         panel above tells them nothing. Skipping it here would also have
+         left reachable() and the prompt contradicting each other for as long
+         as the outage lasted, which is a disagreement no caller should have
+         to know about. */
+      syncPrompt();
       // The browser has had its grace period and is not going to give the
       // context back on its own. Hand the player the one control that works.
       if (restoreDeadline !== null && now >= restoreDeadline) {
