@@ -1879,6 +1879,62 @@ The software path is unchanged in structure and costs 166 calls and 89,526
 triangles, comfortably inside §22's 260/100,000 ceiling, which is the one
 the test can actually reach.
 
+### The reach tests, and a 33% flake rate older than this pass
+
+The first push of this work went red on three tests that drive the farmer
+until something comes into reach. **Checked before being attributed**, the
+same way §25 and §27's were: 4 workers, 10 repeats, the identical selection
+run against the untouched tree and against this one. **10 failed and 20
+passed on both.** The graphics pass does cost about 5% on the software path
+(a frame interval of 174ms against 166ms, split evenly between the ground
+grain and the wind), and it moved that rate not at all.
+
+Two false starts on the way to the measurement, both worth recording
+because both produced a confident wrong number:
+
+- An A/B that "proved" the ground grain cost 128ms a frame. The patch had
+  assigned `false` to `onBeforeCompile`, so the terrain stopped rendering
+  altogether — the largest mesh on screen vanishing is not a saving. A
+  result three times better than the baseline is a broken experiment, not a
+  discovery.
+- A "baseline" comparison run against a tree that was already clean at
+  HEAD, so `git stash` had nothing to stash and the current code was
+  compared with itself.
+
+**The real cause, instrumented rather than reasoned about.** Under four
+contending pages the frame interval sits near 328ms. She walks at
+wall-clock speed, so that is 1.38 units between two consecutive reads of
+`reachable()`, against plot rows 1.16 apart. Every captured failure had her
+stopped at `z = -14.7` — `ROAM.minZ`, the far wall of the farm — having
+walked past all sixteen plots without one sample landing near any of them.
+
+She spawns 0.76 units from plot 12 and `REACH` is 0.95, so for these tests
+the honest answer to "drive until something is in reach" was that something
+already was. The helper now checks before it touches the stick: 20/30
+became 30/30.
+
+**The mobile tapping test needed more, and its first fix was wrong in an
+instructive way.** That test walks her onto one *particular* tile, so
+checking first does not help. Bounding each push by milliseconds looks like
+the answer and is not: `advanceFarmer` credits a starved frame with the
+real time that elapsed and reads the stick at frame time, so a 1.5-second
+stall straddling a held stick carries her six units however brief the push
+was meant to be. That version oscillated and left her *south* of where she
+started, which is exactly what a time-bounded push looks like when time is
+not what bounds it.
+
+What does bound it is distance, checked inside the page where it can be
+acted on without a round trip: each push releases the drive the moment she
+has covered its allowance. Corrections also push the stick *gently* — the
+knob's offset sets her speed against a 44px radius, so a 9px nudge walks
+her at a fifth of full pace and a stall during one moves her a fifth as
+far. 0/8 became 8/8 at the contention that had failed CI twice.
+
+The same test is now `test.slow()`. It plays the whole loop by touch on a
+software rasteriser and measures 37-41 seconds; the 30-second default was
+the wrong number, not the test, and the original had been timing out there
+too.
+
 ### Known gaps, still
 
 - The barn is still a suburban house (§14, §27). No lighting fixes that.

@@ -115,6 +115,14 @@ test.describe('phone portrait', () => {
   const RIPE_PLOT = 8;
 
   test('the whole loop is playable by tapping', async ({ page }) => {
+    /* The longest test in the suite by some way: it plays the entire loop
+       through the touch interface — walk onto a tile, harvest it, open the
+       Animals tab, buy a cow, feed it, wait for it to produce — on a phone
+       viewport, on a software rasteriser, at whatever frame rate four
+       contending workers leave it. It overran the default 30s budget on CI
+       both before and after the walk helper below was rewritten, which is
+       the sign that the budget is the wrong number rather than the test. */
+    test.slow();
     await load(page, makeSave({
       coins: 900,
       plots: Array.from({ length: PLOT_COUNT }, (_, i) => (
@@ -135,40 +143,92 @@ test.describe('phone portrait', () => {
     const box = await page.locator('#driveStick').boundingBox();
     const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-    /* Push, wait for the plot to come into reach, let go — and, since letting
-       go is itself a round trip from Node back into the page, tolerate
-       landing a beat late. Reachable becoming true in the page and the stick
-       actually releasing are two different events with a gap between them;
-       under real contention a single requestAnimationFrame tick can land in
-       that gap and, now that walking credits whatever real time has actually
-       passed rather than a fixed 100ms a tick (see the walk-timing fix), that
-       one tick can be enough to carry her past the plot before the release
-       takes effect. A real thumb overshoots the same way and corrects with a
-       second, smaller tap back — so this does too, rather than trusting the
-       first push to land exactly. */
-    async function driveOnto(initialDy, plot) {
-      let dy = initialDy;
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        await page.mouse.move(centre.x, centre.y);
-        await page.mouse.down();
-        await page.mouse.move(centre.x, centre.y + dy);
-        await page.waitForFunction(
-          (p) => window.Farm3DScene.reachable()?.plot === p,
-          plot,
-          { timeout: 15_000 },
-        ).finally(() => page.mouse.up());
-        if (await page.evaluate((p) => window.Farm3DScene.reachable()?.plot === p, plot)) return;
-        // Overshot moving this way — every retry after the first corrects a
-        // small, fixed amount back the way we came, never further past.
-        // Reversing this by shrinking-and-flipping was tried first and could
-        // send her back past the plot the other way; a fixed small nudge in
-        // one direction only converges.
-        dy = -Math.sign(dy) * 12;
-      }
-      throw new Error(`driveOnto: never settled on plot ${plot}`);
+    /* Walks her onto one particular tile with the stick, in pushes that
+       are bounded by *distance* and released from inside the page.
+
+       Two earlier versions failed, and the second failure is the
+       instructive one. The original pushed once and waited up to fifteen
+       seconds for the tile to come into reach — a sampling problem the
+       game always wins, since she walks at wall-clock speed and
+       `reachable()` can only be read once a frame. Instrumented under four
+       contending pages the frame interval sits near 328ms, which is 1.38
+       units a step against a window onto plot 8 that is 1.49 units wide;
+       every captured failure had her against the far wall at z = -14.7,
+       having walked past all sixteen plots without one sample landing near
+       the one it wanted.
+
+       The obvious fix — push for a measured number of milliseconds — does
+       not work either, and it is worth recording why, because it looks
+       like it should. advanceFarmer credits a starved frame with the real
+       time that elapsed, and it reads the stick at frame time: so if a
+       1.5-second stall happens to straddle a held stick, she covers six
+       units no matter how brief the push was meant to be. That version
+       oscillated and left her *south* of where she started, which is what
+       a bounded-time push looks like when time is not what bounds it.
+
+       What does bound it is distance, checked in the page where it can be
+       acted on without a round trip: each push releases the drive the
+       moment she has covered its allowance, or the moment the tile comes
+       into reach. Corrections also push the stick gently rather than
+       hard — the knob's offset sets her speed (RADIUS is 44px in
+       scene.js), so a 9px nudge walks her at a fifth of full pace and a
+       stall during one moves her a fifth as far.
+
+       It is still a thumb on the stick, which is what this test is for:
+       every push here is a real pointer press on the real control. */
+    async function pushStick(dy, allowance, plot) {
+      await page.mouse.move(centre.x, centre.y);
+      await page.mouse.down();
+      await page.mouse.move(centre.x, centre.y + dy);
+      await page.evaluate(([travel, p]) => new Promise((resolve) => {
+        const s = window.Farm3DScene;
+        const from = s.farmerAt();
+        const deadline = performance.now() + 8000;
+        const tick = () => {
+          const her = s.farmerAt();
+          const gone = Math.hypot(her.x - from.x, her.z - from.z);
+          const there = s.reachable()?.plot === p;
+          if (there || gone >= travel || performance.now() > deadline) {
+            // Released here rather than by lifting the mouse, because
+            // lifting it is a round trip from Node and she keeps walking
+            // across it. The pointer is still down; with no further
+            // pointermove the stick will not set it again.
+            s.drive(0, 0);
+            return resolve();
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }), [allowance, plot]);
+      await page.mouse.up();
     }
 
-    await driveOnto(-40, RIPE_PLOT); // push north, up the field
+    async function driveOnto(plot) {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const state = await page.evaluate((p) => ({
+          onIt: window.Farm3DScene.reachable()?.plot === p,
+          her: window.Farm3DScene.farmerAt(),
+          tile: window.Farm3DScene.plotAt(p),
+        }), plot);
+        if (state.onIt) return;
+
+        const gap = state.tile.z - state.her.z;
+        // Up the screen is north, which is z decreasing — hence the sign.
+        const far = Math.abs(gap) > 0.8;
+        await pushStick(
+          Math.sign(gap) * (far ? 40 : 9),
+          far ? Math.abs(gap) - 0.3 : 0.35,
+          plot,
+        );
+      }
+      const where = await page.evaluate(() => window.Farm3DScene.farmerAt());
+      throw new Error(
+        `driveOnto: never settled on plot ${plot} — `
+        + `left at (${where.x.toFixed(2)}, ${where.z.toFixed(2)})`,
+      );
+    }
+
+    await driveOnto(RIPE_PLOT); // up the field, however many nudges it takes
 
     // Harvest by tap: 5 + 3 = 8 wheat.
     await page.locator('#actionPrompt').tap();

@@ -4214,7 +4214,36 @@ test.describe('driving her yourself', () => {
      why a Node-side waitForFunction followed by a separate drive(0, 0) is
      not safe here. `want` is 'into' or 'out-of'; both directions of this
      wait share the same race, so they share the same fix. */
+  /* A third fix, on top of the two above, and the one that finally makes
+     this deterministic rather than merely likelier.
+
+     Both earlier versions started by pushing the stick, then watched for
+     the answer. That is a sampling problem the game will always win: she
+     walks at wall-clock speed and `reachable()` can only be read once a
+     frame, so the distance between two consecutive samples is whatever the
+     frame took. Instrumented under four contending pages, the EMA sits
+     around 328ms, which is 1.38 units a step against plot rows 1.16 apart
+     — she can cross the whole field between two looks. Every failure
+     captured showed her stopped at z = -14.7, which is ROAM.minZ: the far
+     wall of the farm, having walked past all sixteen plots without a single
+     sample landing near one.
+
+     The stick is therefore only touched when it is actually needed. She
+     spawns 0.76 units from plot 12 and REACH is 0.95, so for every test
+     that walks her onto the field from her starting mark the honest answer
+     to "drive until something is in reach" is that something already is —
+     and the old helper would push off, overshoot, and fail on a machine
+     slow enough. Checking before driving costs one frame and removes the
+     race from those cases entirely.
+
+     Where she really does have to move, the deadline now carries the
+     diagnosis with it rather than just the disappointment. */
   async function driveUntilReach(page, x, z, want) {
+    const already = await page.evaluate(
+      (wantInto) => (window.Farm3DScene.reachable() !== null) === wantInto,
+      want === 'into',
+    );
+    if (already) return;
     await drive(page, x, z);
     await page.evaluate((wantInto) => new Promise((resolve, reject) => {
       const deadline = performance.now() + 15_000;
@@ -4225,7 +4254,13 @@ test.describe('driving her yourself', () => {
           return resolve();
         }
         if (performance.now() > deadline) {
-          return reject(new Error(wantInto ? 'nothing came into reach' : 'never left reach'));
+          window.Farm3DScene.drive(0, 0);
+          const here = window.Farm3DScene.farmerAt();
+          return reject(new Error(
+            `${wantInto ? 'nothing came into reach' : 'never left reach'} — `
+            + `stopped at (${here.x.toFixed(2)}, ${here.z.toFixed(2)}), `
+            + `frame interval ${window.Farm3DScene.frameIntervalMs().toFixed(0)}ms`,
+          ));
         }
         requestAnimationFrame(tick);
       };

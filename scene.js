@@ -3933,6 +3933,12 @@ ${lit}`;
       // section for the bug that made that necessary.
       skySelfToneMapped: sky.material.toneMapped === false,
     }),
+    /* Where a plot actually sits in the world. The same question
+       `animalAt` answers for a cow, and it exists for the same reason: a
+       test that has to walk her onto a particular tile needs to know where
+       that tile is, and guessing it from GRID and TILE in the test file
+       would be a second copy of the layout to get wrong. */
+    plotAt: (index) => tileWorldPos(index),
     /* The wind, read off the uniforms every windified material shares
        rather than re-derived from the formula. A test can watch the phase
        advance and watch the strength answer a hurricane. */
