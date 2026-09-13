@@ -2246,6 +2246,33 @@ you can see, so they run five octaves of fbm where there is a GPU and three
 where there is not, on the same `rendererIsSoftware()` gate that already
 decides shadows, foliage density and rain.
 
+### The CI budget, which this pass ran out
+
+The first push of this work came back **cancelled, not failed** — twenty
+minutes into a job with `timeout-minutes: 20`, with nothing having failed.
+
+That is worth recording as a finding rather than as a footnote, because the
+five tests added here are not really the cause. The previous run, at 290
+tests, took **nineteen minutes of the twenty**. The margin was about a
+minute, which is another way of saying the next test added to this suite —
+anywhere, testing anything — was going to cancel the run. These five were
+simply the ones that arrived.
+
+Both halves of the fix are in this commit:
+
+- The most expensive of the new tests did two full page loads to compare two
+  saves. It now does one, setting `state.day` in the page and reading the
+  uniform back on the next drawn frame, which asks exactly the same question
+  — six minutes of drift cannot come from a wall clock because a variable was
+  assigned. Locally that took it from 11s to 6s.
+- `timeout-minutes` goes to 30. Not to buy back the minute that ran out — to
+  restore a margin, so the next person to add a test is not paying for this.
+
+A cancelled run reads as a red build and says nothing at all about the code,
+which is the least useful thing a CI signal can do. The number to watch from
+here is the run's own duration: if it climbs toward thirty, the answer is a
+cheaper suite, not a third raise.
+
 ### What this pass did not do
 
 - **The distant hills are still a flat mauve band.** That band is correct
@@ -2585,6 +2612,11 @@ Everything above was checked before it was written:
   The finish table written from that dump was then checked by a test that
   enumerates the live scene instead of reading the table back — which found a
   material the hand-written table had missed.
+- The CI timeout above was diagnosed from the workflow file and the two runs'
+  timestamps, not assumed from "CI went red": the conclusion was `cancelled`
+  rather than `failure`, the cancel landed exactly on the `timeout-minutes`
+  boundary, and the previous run's own 19 minutes is what showed the budget
+  was already spent before this pass touched it.
 - One measurement in this pass was thrown out after being made: the pond was
   twice judged by eye to be glowing at night and at dusk, and twice the
   sampled pixels said otherwise — 37 against grass at 27 on the *pre-change*

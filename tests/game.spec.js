@@ -5296,28 +5296,35 @@ test.describe('the sky has weather in it', () => {
        the same farm on the same morning drew a different sky depending on how
        long the tab had been open.
 
-       Asked as a difference between two saves rather than as two loads of the
-       same one. Loading the same save twice and expecting the same number
-       looks like the direct test and is the weaker one — it has to carry a
-       tolerance for the seconds the game ticks through while the page boots,
-       and a wall-clock implementation loaded twice in quick succession would
-       slip through the same tolerance. Four days apart is a difference only a
-       save-driven clock can produce: on a wall clock these two loads are
-       seconds apart and would answer nearly the same. */
-    const at = async (day) => {
-      await load(page, makeSave({ day, dayElapsedMs: 30_000 }));
-      await ready(page);
-      await expect.poll(() => page.evaluate(() => window.Farm3DScene.sky().time), { timeout: 10_000 })
-        .toBeGreaterThan(0);
-      return (await sky(page)).time;
-    };
-    const early = await at(4);
-    const later = await at(8);
+       Asked as a difference between two calendar dates rather than as two
+       loads of the same save. Loading the same save twice and expecting the
+       same number looks like the more direct test and is the weaker one: it
+       has to carry a tolerance for the seconds the game ticks through while
+       the page boots, and a wall-clock implementation loaded twice in quick
+       succession would slip straight through that tolerance. Four days apart
+       is a gap only a save-driven clock can produce — no wall clock moves by
+       six minutes because `state.day` was assigned.
 
-    // Four days at ninety seconds each, give or take the boot the two loads
-    // do not share.
-    expect(later - early).toBeGreaterThan(4 * 90 - 15);
-    expect(later - early).toBeLessThan(4 * 90 + 15);
+       Both readings come from one page, which is the other reason to ask it
+       this way: a second load is the most expensive thing a test in this file
+       can do, and the whole suite runs on a software rasteriser in CI. */
+    await load(page, makeSave({ day: 4, dayElapsedMs: 30_000 }));
+    await ready(page);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.sky().time), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    const early = (await sky(page)).time;
+
+    const later = await page.evaluate(async () => {
+      state.day = 8;
+      // Two frames: the uniform is only rewritten on a drawn one.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return window.Farm3DScene.sky().time;
+    });
+
+    // Four days at ninety seconds each, give or take the clock ticking on
+    // between the two readings.
+    expect(later - early).toBeGreaterThan(4 * 90 - 10);
+    expect(later - early).toBeLessThan(4 * 90 + 10);
   });
 
   test('no sun falls on the clouds at midnight', async ({ page }) => {

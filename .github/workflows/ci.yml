@@ -11,13 +11,24 @@ jobs:
     name: Playwright tests
     runs-on: ubuntu-latest
     # Ten was the budget when this was a 2D farm with a small canvas behind
-    # it. The suite has grown from 232 tests to 250 and every one of them now
+    # it. The suite has grown from 232 tests to 295 and every one of them now
     # boots a scene with terrain, an atmospheric sky, a rigged character and
-    # thirty-five props: step 7's run reached test 229 of 250 with nothing
-    # failing and was cancelled mid-stride at 10.3 minutes. Twenty leaves room
-    # for that and for the one retry a flaky test is allowed, without being so
-    # loose that a real hang sits here for half an hour.
-    timeout-minutes: 20
+    # thirty-five props.
+    #
+    # Twenty was set when the suite was 250 tests, and by 290 it was using
+    # nineteen minutes of it — a margin of about one minute, which is to say
+    # the next test added anywhere in the suite was going to cancel the run
+    # whatever it tested. It duly did: the run that added five was cancelled
+    # mid-stride at the 20-minute mark with nothing failing. A cancelled run
+    # reads as a red build and says nothing about the code, which is the worst
+    # thing a CI signal can do.
+    #
+    # Thirty restores a real margin rather than buying back the one minute
+    # that just ran out. It is still well short of the point where a genuine
+    # hang would sit here unnoticed, and the run's own duration is the thing
+    # to watch: if it climbs toward this again, the answer is to make the
+    # suite cheaper, not to raise this a third time.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
