@@ -2058,6 +2058,212 @@ tapped from random positions, with random wanders in between, all drained to
 zero. Recorded because "we looked and it was fine" is worth as much as a
 fix when the next report comes in.
 
+## 30. A second graphics pass — the sky, the water's edge, the ground, the finish
+
+§28 lit the farm. This pass is about what §28's own screenshots still showed
+once the lighting stopped being the thing you noticed, and it started by
+writing that list down honestly rather than by picking something to improve:
+
+1. **The top quarter of every frame was a featureless pale wash.** Sky.js was
+   drawing a physically-derived gradient and nothing else. Biggest gap by
+   area, by a wide margin.
+2. **The pond was a cyan disc with a cut edge.** Not a pond — a shape of
+   paint dropped on the grass.
+3. **The ground was one flat green.** There was already a two-octave grain on
+   it, and it had not helped.
+4. The distant hills are a flat mauve band.
+5. Shadows are soft and low-resolution.
+6. Everything is perfectly matte.
+
+Items 1, 2, 3 and 6 are done. Items 4 and 5 are not — see the gap list at the
+end of this section for why each was left.
+
+### 1. Clouds, and the projection that was wrong for this game
+
+Clouds are fbm noise injected into Sky.js's fragment shader through the same
+`onBeforeCompile` hook that already carries §28's private tone map, and mixed
+in **after** it, in display space, for the reason §28 records: Sky.js emits
+unclamped radiance, so a cloud painted at 1.0 into a sky sitting at 9.0 comes
+out as a dark smudge.
+
+The interesting part is the projection, because the obvious one is wrong here
+in a way that does not show up in a screenshot taken by the person who wrote
+it. The textbook way to put clouds on a slab is `dir.xz / dir.y`. It diverges
+at the horizon: a ray a hair above level lands kilometres out, so the low band
+of sky smears one noise cell across the screen or, once clamped, goes flat.
+
+**That band is the only sky this game frames.** The camera sits near head
+height looking level; the top of the frame is about six degrees up. The first
+implementation was invisible in the game and looked correct the moment the
+camera was orbited skyward — which is exactly the screenshot that got taken.
+
+Softening the divisor to `dir.xz / (dir.y + 0.22)` bends the slab into a dome.
+It is bounded — at the horizon the divisor is still 0.22, so the coordinate
+tops out near 4.5 instead of running away — which leaves resolvable structure
+in the few degrees above the treeline and compresses it toward the horizon the
+way distance does.
+
+The rest falls out of signals that already existed. Cover is the hurricane
+forecast that already dims the sun and thickens the rain, so the sky fills in
+over the three warning days. The tint runs off the sun's own colour, so the
+clouds go gold at dusk — but only 45% of the way there, because taking that
+colour neat gave a midday sky full of peach.
+
+**Night was the one real bug, and it took two corrections to measure.** The
+first tuning put the midnight sky at 142/255 against a cloudless baseline of
+35: a bank of cloud blazing over a farm lit by nothing.
+
+- Comparing one pixel between two renders is comparing two different parts of
+  the sky, because the clouds drift. The figures here are the 99th percentile
+  of the whole sky band.
+- The number that matters is **post-bloom**. The same shader measures 72 with
+  no post-processing and 113 through the FULL tier's bloom pass, because a
+  wide soft bright region is precisely what bloom is built to find. Tuned
+  against what the player sees; the software path therefore comes out a
+  little darker still, which is the right way round for a path that has no
+  shadows either.
+
+Midnight now reads 103 against that 35 — a moonlit overcast, not a lit one.
+
+One thing this did **not** establish, and worth saying because the obvious
+reading of the numbers is wrong: removing the sun floor measured *brighter*
+than leaving it in — 113 against 91. The 99th percentile still tracks which
+cloud masses happen to be in frame, so that pair is noise, not a result. The
+floor is gone on the argument, not on a measurement: no sun falls on a
+midnight cloud, and two independent moonlight terms is a thing that cannot be
+tuned, because lowering either one leaves the other holding the brightness
+up.
+
+**The drift moved off the wall clock.** It ran on `performance.now()`, which
+meant the same farm on the same morning drew a different sky depending on how
+long the tab had been open, and made one screenshot of the sky impossible to
+compare with another. It now runs on `state.day + phase` — neither half works
+alone, because `dayElapsedMs` saws back to its remainder every rollover and
+`state.day` only moves in whole steps. Summed, they climb smoothly. The sky is
+a function of the save.
+
+### 2. The pond, and the difference between radius and depth
+
+The shoreline stopped dead on a hard line because **the shader was keyed to
+radial position and a shoreline is made of depth**.
+
+The pond's floor was flat at `FLOOR_Y` all the way out to a steep inner face.
+Counted on the surface's own vertices through the bank profile, that put **86%
+of the water at full depth** — the same 86% by area — and left the entire run
+from full depth to nothing in the **outer 7% of the radius**. About ten
+centimetres. A handful of pixels. Nothing that narrow survives being drawn.
+
+So the fix is a change of shape, not of shader. The floor is now a dish —
+deepest in the middle, shelving up to the foot of the face — which is how
+ponds are actually dug, so this is the geometry being made right rather than
+bent to suit a shader. **A quarter of the surface now stands in the shallow
+end**, and a test asserts that fraction so the shape cannot quietly go flat
+again.
+
+On top of that shape:
+
+| | before | after |
+|---|---|---|
+| colour | `mix(deep, shallow, shore²)` | keyed to depth, so the gradient crowds into the last hand's width |
+| opacity | 0.97 → 0.80 at the rim | fades to zero over the shallows; the water dissolves into wet mud |
+| bank mud | a 0.09-wide band outside the water | 0.16 wide, and mostly seen *through* water now |
+| ripples | three straight wave trains | domain-warped, so crests curve |
+| ripple amplitude | uniform across the pond | patches of breeze; calm in the shallows, where there is no fetch |
+
+Two notes on the ripples. The straight trains read as soft diagonal bars
+however many were added — straight crests stay straight — so the plane is bent
+before they are sampled. The gradient is then the *un-warped* one: doing it
+properly costs a 2x2 Jacobian per pixel for at most a quarter of the slope, on
+a surface whose whole job is to shimmer. That is a deliberate approximation,
+not an oversight. And a pond ruffled identically edge to edge was half of why
+it read as painted — the eye catches the uniformity long before it catches the
+ripples.
+
+### 3. The ground, and why two octaves of grain never fixed it
+
+The existing grain scales all three channels by the same number, so a uniform
+green comes out a **noisier uniform green**. At arm's length a brightness
+grain is texture; what a field reads by from across the farm is patches —
+dried in the sun, lush in a hollow — and those are hue differences, metres
+wide.
+
+A third octave, thirty times broader than the other two and the only one that
+touches hue, pulls one end of a low-frequency field toward straw and the other
+toward a cooler green, leaving the middle as whatever the terrain was already
+painted. Both act on the vertex colours rather than replacing them, so a worn
+path crossed by a patch still reads as a worn path.
+
+The pond bank now shares the terrain's compile hook. It is painted by the same
+function and butted straight against the terrain sheet, and without this it
+was the one patch of ground in the farm with no grain and no patchwork — which
+the new octave would only have made more obvious.
+
+### 6. Nothing could catch the light
+
+This one was a measurement, not an impression. Dumping the
+`pbrMetallicRoughness` of every material in every `.glb` the game loads:
+
+```
+_defaultMat  r=1  colormap  r=undefined   grass  r=1   woodBark  r=1
+colorRed     r=1  texture-a r=undefined   stone  r=1   leafsGreen r=1
+```
+
+**Every material ships roughness 1**, stated on the untextured ones and
+omitted — which glTF defines as 1 — on the seventeen textured files that
+carry the buildings, animals, vehicles and the farmer. Roughness 1 at
+metalness 0 is a Lambertian surface: no specular response at all. "Everything
+in the farm is matte" was not taste. Nothing in the farm was *able* to catch
+the light, and no amount of relighting was going to change that.
+
+`overrideKitFinish(name, roughness)` mirrors §28's `overrideKitColor` — the
+same name-keyed, once-per-parse route, registered by the scene because this is
+art direction rather than a defect being repaired. Values run 0.55 (painted
+metal) to 0.94 (bark); dirt stays at 1, because dirt genuinely is matte. They
+are deliberately timid: at metalness 0 the Fresnel reflectance at normal
+incidence is 0.04, so nothing in this range turns the farm to plastic. And the
+only specular light in the scene is the sun — three.js's hemisphere light
+contributes irradiance and nothing else — so the sheen follows the time of day
+for free, as the pond's glint already did.
+
+The test for this enumerates the scene rather than reading the table back, and
+that is not pedantry: it immediately found `_defaultMat` missing from a table
+written by hand from the asset dump.
+
+### Cost
+
+| | calls | triangles |
+|---|---|---|
+| FULL tier, before | 498 | 355,811 |
+| FULL tier, after | 498 | 357,347 |
+
+No new draw calls: the clouds and the ground patchwork are fragment work
+inside shaders that were already compiled, and the finish table changes
+uniforms. The 1,536 extra triangles are the pond's four extra rings, which
+are what keep the new shoreline a gradient rather than a staircase.
+
+The clouds are the one thing here whose cost scales with how much of the frame
+you can see, so they run five octaves of fbm where there is a GPU and three
+where there is not, on the same `rendererIsSoftware()` gate that already
+decides shadows, foliage density and rain.
+
+### What this pass did not do
+
+- **The distant hills are still a flat mauve band.** That band is correct
+  atmospheric perspective — it is the fog colour, reached because everything
+  at that distance is fully fogged. Making it graded means changing the fog
+  range, which is load-bearing for how the whole farm sits in its landscape,
+  and is a bigger change than it looks. Left deliberately, not missed.
+- **Shadows are still soft.** A view-following or distance-scaled shadow
+  frustum would sharpen them, and it is the right fix. It is also a change to
+  the one subsystem §28 measured as the most expensive thing in the frame,
+  on a project whose CI runs on a software rasteriser — so it wants its own
+  pass with its own before-and-after numbers, not a corner of this one.
+- **No environment map**, for the reasons §28 already recorded. The new
+  finish table makes that omission slightly more visible in principle: a
+  glossier surface has more to reflect and still nothing to reflect it from.
+  In practice at these roughness values the sun and the hemisphere light
+  carry it, which is what the screenshots show.
+
 ---
 
 ## Verified, not assumed
@@ -2347,6 +2553,43 @@ Everything above was checked before it was written:
   her being unable to move — the probe's inner wait had no deadline — but it
   was not instrumented to distinguish "wedged" from "very slow", so it
   proves nothing on its own. The static sweep is the evidence.
+
+- §30's list of what was still wrong was written from the previous pass's own
+  screenshots before anything was changed in response to it, and two of its
+  six items are recorded above as deliberately not done rather than quietly
+  dropped.
+- §30's first cloud implementation was invisible in the game and looked
+  correct in the screenshot taken to check it, because that screenshot had
+  the camera orbited skyward. The default camera's top-of-frame elevation was
+  then worked out from CAM_HEIGHT, CAM_BACK, CAM_LOOK_Y and the fov — about
+  six degrees — which is what identified the projection as the fault rather
+  than the tuning.
+- The night-cloud brightness figures are the 99th percentile of the whole sky
+  band, not one pixel, because the clouds drift and one pixel compared across
+  two renders is comparing two different parts of the sky. That the first
+  comparisons were per-pixel is why they came out incoherent — brightness
+  appearing to *rise* when the shader's dark end was lowered.
+- Bloom was identified as the amplifier by rendering the identical shader on
+  the un-post-processed software path: 72 there against 113 through the FULL
+  tier. The night tuning is against the post-bloom number, which is the one a
+  player sees.
+- §30's "86% of the pond is at full depth" is counted on the water surface's
+  own vertices through the bank profile, and agrees with the area figure the
+  radii give independently. It is in this list because the first draft of that
+  sentence said 96% across the last 4% of the radius, which was eyeballed off
+  a ring count rather than computed — the real numbers are 86% and 7%. The
+  shallow fraction after the reshape is asserted by a test, so the shape
+  cannot go flat again without something failing.
+- The claim that every kit material is matte is the `pbrMetallicRoughness` of
+  every material in every `.glb` the game loads, dumped from the glTF JSON.
+  The finish table written from that dump was then checked by a test that
+  enumerates the live scene instead of reading the table back — which found a
+  material the hand-written table had missed.
+- One measurement in this pass was thrown out after being made: the pond was
+  twice judged by eye to be glowing at night and at dusk, and twice the
+  sampled pixels said otherwise — 37 against grass at 27 on the *pre-change*
+  build. It is a contrast illusion in a dark frame and it is pre-existing, so
+  nothing was changed for it.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

@@ -5287,6 +5287,113 @@ test.describe('wind', () => {
   });
 });
 
+test.describe('the sky has weather in it', () => {
+  const ready = (page) => page.waitForFunction(() => !!window.Farm3DScene);
+  const sky = (page) => page.evaluate(() => window.Farm3DScene.sky());
+
+  test('the clouds are a function of the save, not of the wall clock', async ({ page }) => {
+    /* The bug this is nailed against: the drift ran on performance.now(), so
+       the same farm on the same morning drew a different sky depending on how
+       long the tab had been open.
+
+       Asked as a difference between two saves rather than as two loads of the
+       same one. Loading the same save twice and expecting the same number
+       looks like the direct test and is the weaker one — it has to carry a
+       tolerance for the seconds the game ticks through while the page boots,
+       and a wall-clock implementation loaded twice in quick succession would
+       slip through the same tolerance. Four days apart is a difference only a
+       save-driven clock can produce: on a wall clock these two loads are
+       seconds apart and would answer nearly the same. */
+    const at = async (day) => {
+      await load(page, makeSave({ day, dayElapsedMs: 30_000 }));
+      await ready(page);
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.sky().time), { timeout: 10_000 })
+        .toBeGreaterThan(0);
+      return (await sky(page)).time;
+    };
+    const early = await at(4);
+    const later = await at(8);
+
+    // Four days at ninety seconds each, give or take the boot the two loads
+    // do not share.
+    expect(later - early).toBeGreaterThan(4 * 90 - 15);
+    expect(later - early).toBeLessThan(4 * 90 + 15);
+  });
+
+  test('no sun falls on the clouds at midnight', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const light = () => page.evaluate(() => window.Farm3DScene.sky().light);
+    await expect.poll(light, { timeout: 10_000 }).toBeGreaterThan(0.8);
+
+    /* Half a day in is midnight — nightFactor is (1 - cos(2*pi*phase))/2,
+       which peaks at phase 0.5. A cloud still catching sunlight over a farm
+       lit by nothing was this feature's first real bug, and it is the kind
+       that only shows up in a screenshot nobody takes. */
+    await page.evaluate(() => { state.dayElapsedMs = 45_000; });
+    await expect.poll(light, { timeout: 10_000 }).toBeLessThan(0.02);
+  });
+
+  test('the sky fills in before a hurricane', async ({ page }) => {
+    await load(page, makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS] }));
+    await ready(page);
+    const cover = () => page.evaluate(() => window.Farm3DScene.sky().cover);
+    await expect.poll(cover, { timeout: 10_000 }).toBeGreaterThan(0);
+    const fair = await cover();
+
+    // The same day-56 forecast the wind and the rain both already read.
+    await page.evaluate(() => { state.day = 56; });
+    await expect.poll(cover, { timeout: 10_000 }).toBeGreaterThan(fair);
+  });
+});
+
+test.describe('the pond has a shallow end', () => {
+  test('the water shallows out instead of stopping at a cliff', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    const profile = await page.evaluate(() => window.Farm3DScene.pondProfile());
+
+    // A dish, not a tank: full depth in the middle, nothing at the rim.
+    expect(profile.max).toBeGreaterThan(0.95);
+    expect(profile.min).toBeCloseTo(0, 2);
+
+    /* The number that actually matters, and the one the first version
+       failed. With a flat floor and a steep inner face, 96% of the surface
+       stood in full-depth water and the whole shoreline — every bit of
+       paling, every bit of the opacity fade — had to happen in the last 4%
+       of the radius, which is about seven centimetres. Nothing that narrow
+       survives being drawn: it came out as a hard cut line. A quarter of the
+       surface in the shallow end is what gives the shoreline room to be
+       one. */
+    expect(profile.shallowFraction).toBeGreaterThan(0.2);
+  });
+});
+
+test.describe('surfaces catch the light', () => {
+  test('nothing is left perfectly matte', async ({ page }) => {
+    await load(page, makeSave());
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+    const { roughness } = await page.evaluate(() => window.Farm3DScene.materialFacts());
+
+    /* Every kit in the game ships roughness 1 — stated on the Nature Kit's
+       materials, and omitted (which glTF defines as 1) on the textured ones.
+       At metalness 0 that is a Lambertian surface: no specular response at
+       all, which is why the farm read as felt however well it was lit. The
+       finish table in scene.js is what walks them back off the stop, and
+       this is the test that notices when a newly added prop's material is
+       not in it. `dirt` is exempt, because dirt genuinely is matte. */
+    const matte = Object.entries(roughness)
+      .filter(([name, r]) => r >= 1 && !name.startsWith('dirt'))
+      .map(([name]) => name);
+    expect(matte).toEqual([]);
+
+    // And the table reaches the farmer, who is loaded down a different path
+    // in assets.js and returns before the name-keyed passes the rest use.
+    expect(roughness['texture-a'] ?? roughness['texture-e']).toBeLessThan(1);
+  });
+});
+
 /* ------------------------------------------------------------------ */
 /* Smoke                                                               */
 /* ------------------------------------------------------------------ */

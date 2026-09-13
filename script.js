@@ -3366,7 +3366,18 @@ function daySkyState() {
   const q = (phase + 0.25) % 1;
   const isNight = q > 0.5;
   const arc = isNight ? (q - 0.5) / 0.5 : q / 0.5;
-  return { phase, nightFactor, arc, isNight };
+  /* A continuous clock in days, for anything that needs one. Neither half
+     is it on its own: dayElapsedMs is reset to its remainder at every
+     rollover, so rawPhase saws back to 0 each morning, and state.day only
+     moves in whole steps. Summed they climb smoothly and never go backwards,
+     because state.day increments at exactly the moment phase wraps.
+
+     The sky dome's clouds drift on this. They used to drift on
+     performance.now(), which meant the sky looked different on every reload
+     at the same in-game hour and made one screenshot of it impossible to
+     compare against another. Tied to the save instead, the same day at the
+     same hour is the same sky. */
+  return { phase, nightFactor, arc, isNight, days: state.day + phase };
 }
 
 function updateDayNightVisuals() {

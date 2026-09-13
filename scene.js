@@ -39,7 +39,7 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
-import { loadModel, loadMeshes, preload, overrideKitColor } from './assets.js';
+import { loadModel, loadMeshes, preload, overrideKitColor, overrideKitFinish } from './assets.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -414,7 +414,7 @@ function startScene(bridge) {
   }
 
   function syncSky(now) {
-    const { phase, nightFactor } = bridge.daySkyState();
+    const { phase, nightFactor, days } = bridge.daySkyState();
     skyNight = nightFactor;
     const cloud = cloudFactor(now, bridge.stormProximity());
 
@@ -498,6 +498,40 @@ function startScene(bridge) {
       Math.cos(elevRad) * Math.cos(angle),
     ).normalize();
     sky.material.uniforms.sunPosition.value.copy(skySunDir);
+
+    /* The dome's own clouds, on the same signals everything else in this
+       function already runs on — nothing new had to be invented to tell the
+       sky about the weather or the hour.
+
+       Drift is in days, scaled by the ninety seconds one of them lasts, so
+       the rate is unchanged from when this ran on a wall clock: a little
+       under one cloud width per in-game day, which reads as a weather system
+       moving through rather than a texture scrolling. That it runs on the
+       game's clock at all is the point — `now` used to drive it, so the same
+       farm on the same morning drew a different sky depending on how long the
+       tab had been open. On this, reload at the same hour of the same day and
+       you get the same sky back.
+
+       Cover is the hurricane forecast that already dims the sun above, and
+       the floor under it is fair weather: the shader reads this as how low a
+       bar a patch of noise has to clear to be cloud, and a sky with none in
+       it at all reads as a missing texture rather than as a clear day. */
+    skyUniforms.farmCloudTime.value = days * 90;
+    skyUniforms.farmCloudCover.value = 0.45 + (1 - cloud) * 1.1;
+    /* Curved rather than linear, so the clouds keep some of the sun's warmth
+       through the whole of dusk and lose it late. A straight ramp took them
+       to a quarter brightness while the horizon was still orange, which had
+       the sky's two halves disagreeing about what time it was.
+
+       No floor under it, deliberately: this is how much *sun* is on the
+       clouds, and at midnight the honest answer is none. What keeps them
+       visible then is the moonlight at the other end of the mix the shader
+       does with this, which is the one place that decision belongs. An
+       earlier version floored this as well and so had two moonlights, which
+       is a thing that cannot be tuned — lowering either one leaves the other
+       holding the brightness up. */
+    skyUniforms.farmCloudLight.value = (1 - nightFactor) ** 0.65;
+    skyUniforms.farmCloudSun.value.copy(sun.color);
   }
 
   /* -------------------------------------------------------------- */
@@ -1072,6 +1106,45 @@ function startScene(bridge) {
      module body runs to completion before any callback does, so the
      override is always in place by the time the first file is parsed. */
   overrideKitColor('grass', GRASS_BLADE);
+
+  /* Surface finish, registered here for the same reason and with the same
+     "before anything is parsed" guarantee as the colour above.
+
+     Dumping the pbrMetallicRoughness of every material in every .glb the
+     game loads turned up the same number in all of them: roughness 1 where
+     it is stated, and omitted — which glTF defines as 1 — on the seventeen
+     textured files. Roughness 1 at metalness 0 is Lambertian. Nothing in the
+     farm had a specular response to lose, which is why the yard looked like
+     felt however well it was lit, and why nine steps of lighting work never
+     shifted it.
+
+     These are deliberately timid. 0.55 on painted metal is still a duller
+     finish than real paint; the point is that a barrel and a bark trunk stop
+     being the same material. Left at 1: dirt, which genuinely is.
+
+     `_defaultMat` is the exporter's unnamed default and carries a handful of
+     small props. It is in the list because the test that checks this one
+     found it missing — which is the whole reason that test asks the question
+     by enumerating the scene rather than by reading this list back. */
+  overrideKitFinish('_defaultMat', 0.85);  // the exporter's unnamed default
+  overrideKitFinish('colormap', 0.80);     // buildings, animals, vehicles
+  overrideKitFinish('texture-a', 0.85);    // the farmer's cloth and skin
+  overrideKitFinish('texture-e', 0.85);
+  overrideKitFinish('grass', 0.86);
+  overrideKitFinish('leafsGreen', 0.84);
+  overrideKitFinish('leafsDark', 0.84);
+  overrideKitFinish('leafsFall', 0.84);
+  overrideKitFinish('corn', 0.82);
+  overrideKitFinish('stone', 0.78);
+  overrideKitFinish('wood', 0.70);         // sawn and planed
+  overrideKitFinish('woodDark', 0.70);
+  overrideKitFinish('woodBirch', 0.80);
+  overrideKitFinish('woodBark', 0.94);     // bark is nearly as rough as dirt
+  overrideKitFinish('woodBarkDark', 0.94);
+  overrideKitFinish('woodInner', 0.88);
+  overrideKitFinish('colorRed', 0.55);     // painted
+  overrideKitFinish('colorYellow', 0.55);
+
   const terrainColorTmp = new THREE.Color();
 
   /* Step 13's three seasonal tints, blended into the same grass-and-dirt
@@ -1212,6 +1285,30 @@ ${shader.fragmentShader.replace(
         float grain = farmGrainNoise( farmGroundPos.xz * 2.6 ) * 0.62
                     + farmGrainNoise( farmGroundPos.xz * 9.0 ) * 0.38;
         diffuseColor.rgb *= 0.90 + grain * 0.20;
+
+        /* A third octave, thirty times broader than the other two, and the
+           only one of the three that touches hue.
+
+           The two above are worth keeping and were never going to fix what
+           they kept being blamed for: they scale all three channels by the
+           same number, so a uniform green comes out a noisier uniform green.
+           Every screenshot still showed the yard as one flat colour, because
+           at arm's length a brightness grain is texture, and what a field
+           reads by from across the farm is patches — where it has dried in
+           the sun, where it has stayed lush in a hollow. Those are hue
+           differences, and they are metres wide, not centimetres.
+
+           So: one low-frequency field, with its two ends pulled in opposite
+           directions — up toward straw, down toward a cooler deeper green —
+           leaving the middle of the range as whatever colour the terrain was
+           already painted. Both act on the vertex colours rather than
+           replacing them, which is what keeps the worn paths reading as worn
+           paths where a patch crosses one. */
+        float broad = farmGrainNoise( farmGroundPos.xz * 0.10 + vec2( 11.0, 4.0 ) );
+        diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 1.10, 1.04, 0.79 ),
+          smoothstep( 0.52, 0.86, broad ) * 0.60 );
+        diffuseColor.rgb *= mix( vec3( 1.0 ), vec3( 0.88, 0.99, 0.87 ),
+          smoothstep( 0.46, 0.14, broad ) * 0.50 );
       }`,
   )}`;
   };
@@ -1356,7 +1453,13 @@ ${shader.fragmentShader.replace(
      terrain: at 1.28 units between terrain vertices, a pond even this size
      would have had three of them to be carved out of. */
   const POND = { x: -0.65, z: 6.3, rx: 1.95, rz: 1.75 };
-  const POND_RINGS = 14;
+  /* Eighteen rings, up from fourteen. The shoreline work below reads the
+     bank profile through these vertices, and the profile's interesting part
+     is now the outer quarter — where the dish shelves up and the surface
+     thins out. Four more rings is under four hundred triangles across both
+     the water and the bank, which is nothing next to the foliage, and it is
+     what keeps the fade a gradient rather than a staircase. */
+  const POND_RINGS = 18;
   const POND_SEGMENTS = 48;
 
   /* An embanked pond — a ring of earth thrown up around a shallow pool —
@@ -1383,12 +1486,29 @@ ${shader.fragmentShader.replace(
      depression at this angle mostly shows you the grass on its far side.
      Farms do build them this way — a stock pond banked out of its own spoil —
      so it is not a compromise anyone has to be told about. */
-  const FLOOR_Y = -0.075; // the pool bottom, a hair above the terrain sheet
+  const FLOOR_Y = -0.075; // the deepest point, a hair above the terrain sheet
+  /* The rim of the pool floor, where it hands over to the bank's inner face.
+     The floor used to be flat at FLOOR_Y all the way out to here, and that
+     flatness is what made the pond read as a disc of paint. With the bottom
+     level and the face steep, 86% of the surface stood in water at full
+     depth and the whole run from full depth to nothing happened across the
+     outer 7% of the radius — about ten centimetres, a handful of pixels.
+     There was no shallow end for the colour to pale through or for the
+     surface to thin out over, so every one of them stopped dead on the same
+     hard line.
+
+     Shelving the floor up to here instead gives the outer quarter of the
+     pond genuinely shallow water, which is where all of the shoreline work
+     below actually happens. Ponds are dug this way regardless — a dish, not
+     a tank — so this is the shape being made right rather than bent for the
+     shader. It sits below WATER_Y by three centimetres, so the floor never
+     breaks the surface. */
+  const SHELF_Y = 0.055;
   const CREST_Y = 0.16;   // the top of the bank
   const SKIRT_Y = -0.072; // where the bank's outer slope meets the grass
 
   // Positions along the radius, 0 at the middle and 1 at the outer foot of
-  // the bank: flat pool floor, then up the inner face, then down the skirt.
+  // the bank: dished pool floor, then up the inner face, then down the skirt.
   const POOL_T = 0.7;
   const CREST_T = 0.86;
   /* Where the water meets the bank. Stating it as a position on the profile
@@ -1409,9 +1529,12 @@ ${shader.fragmentShader.replace(
   }
 
   function bankY(t) {
-    if (t <= POOL_T) return FLOOR_Y;
+    // The dish: a flat deep middle out to 0.15, then shelving up to the foot
+    // of the face. Every height below is measured off the end of the one
+    // above it, so the three pieces meet without a step at any joint.
+    if (t <= POOL_T) return FLOOR_Y + (SHELF_Y - FLOOR_Y) * THREE.MathUtils.smoothstep(t, 0.15, POOL_T);
     if (t <= CREST_T) {
-      return FLOOR_Y + (CREST_Y - FLOOR_Y) * THREE.MathUtils.smoothstep(t, POOL_T, CREST_T);
+      return SHELF_Y + (CREST_Y - SHELF_Y) * THREE.MathUtils.smoothstep(t, POOL_T, CREST_T);
     }
     return CREST_Y + (SKIRT_Y - CREST_Y) * THREE.MathUtils.smoothstep(t, CREST_T, 1);
   }
@@ -1466,7 +1589,16 @@ ${shader.fragmentShader.replace(
     return { position, ts, index };
   }
 
-  const POND_MUD = new THREE.Color(0x6a5334);
+  const POND_MUD = new THREE.Color(0x7d6749);
+  /* How far past the waterline the bank stays muddy, as a distance along the
+     radial profile. Widened from the 0.09 it was first built with once the
+     water above it learned to fade out at the edge: with an opaque disc
+     sitting on top, all this band could ever be was a thin brown line drawn
+     outside the water, and a thin line is what it looked like. Now the
+     surface thins to nothing over the shallows, most of the damp ring is seen
+     *through* water rather than beside it, and it has to be wide enough to
+     still read as a bank once the water has taken the inner half of it. */
+  const WET_MARGIN = 0.16;
 
   // The bank's own vertices' shore-distance, 0 at the waterline to 1 at the
   // outer edge — kept alongside the mesh so applySeasonToPondBank can redo
@@ -1494,8 +1626,8 @@ ${shader.fragmentShader.replace(
     const colors = new Float32Array(ts.length * 3);
     for (let i = 0; i < ts.length; i += 1) {
       terrainVertexColor(terrainColorTmp, position[i * 3], position[i * 3 + 2], 1);
-      const dry = THREE.MathUtils.smoothstep(ts[i], WATER_T, WATER_T + 0.09);
-      terrainColorTmp.lerp(POND_MUD, 1 - dry);
+      const dry = THREE.MathUtils.smoothstep(ts[i], WATER_T, WATER_T + WET_MARGIN);
+      terrainColorTmp.lerp(POND_MUD, (1 - dry) * 0.88);
       colors[i * 3] = terrainColorTmp.r;
       colors[i * 3 + 1] = terrainColorTmp.g;
       colors[i * 3 + 2] = terrainColorTmp.b;
@@ -1504,10 +1636,17 @@ ${shader.fragmentShader.replace(
     return geo;
   }
 
-  const pondBank = new THREE.Mesh(
-    buildPondBank(),
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
-  );
+  /* The bank borrows the terrain's compile hook rather than declaring its own
+     material outright. It is painted by terrainVertexColor and butted
+     straight up against the terrain sheet, so without this it was the one
+     patch of ground in the farm with no grain and no patchwork on it — a
+     smooth ring sitting inside a field that has both, which the broad octave
+     above would only have made more obvious. Two materials producing
+     identical shader source share a compiled program, so this costs nothing
+     beyond the material object. */
+  const pondBankMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+  pondBankMaterial.onBeforeCompile = terrainMaterial.onBeforeCompile;
+  const pondBank = new THREE.Mesh(buildPondBank(), pondBankMaterial);
   scene.add(catches(pondBank));
 
   // Same idea as applySeasonToTerrain, and the same reason it exists: the
@@ -1518,8 +1657,8 @@ ${shader.fragmentShader.replace(
     const colorAttr = geo.getAttribute('color');
     for (let i = 0; i < pondBankTs.length; i += 1) {
       terrainVertexColor(terrainColorTmp, posAttr.getX(i), posAttr.getZ(i), 1, season);
-      const dry = THREE.MathUtils.smoothstep(pondBankTs[i], WATER_T, WATER_T + 0.09);
-      terrainColorTmp.lerp(POND_MUD, 1 - dry);
+      const dry = THREE.MathUtils.smoothstep(pondBankTs[i], WATER_T, WATER_T + WET_MARGIN);
+      terrainColorTmp.lerp(POND_MUD, (1 - dry) * 0.88);
       colorAttr.setXYZ(i, terrainColorTmp.r, terrainColorTmp.g, terrainColorTmp.b);
     }
     colorAttr.needsUpdate = true;
@@ -1529,9 +1668,30 @@ ${shader.fragmentShader.replace(
     const { position, ts, index } = radialDisc(WATER_T, () => WATER_Y);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
-    // 0 in the middle, 1 where it meets the bank. The shader reads it as "how
-    // shallow" — no depth-buffer trick needed for a pond whose floor is known.
+    /* 0 in the middle, 1 where it meets the bank. This used to be what the
+       shader read as "how shallow", and the `depth` attribute below is what
+       took that job off it; all it still does is trim the outermost sliver,
+       where the water disc and the bank's inner face are the same surface
+       and would otherwise fight over the depth buffer. */
     geo.setAttribute('shore', new THREE.Float32BufferAttribute(ts.map((t) => t / WATER_T), 1));
+    /* How much water is actually standing over this vertex, as a fraction of
+       the deepest part: the surface's height minus the bank profile's,
+       evaluated at the same t the vertex was placed at.
+
+       This is the number the first version of this shader was missing, and
+       missing it is why the pond had a cut-out edge. `shore` is a radial
+       position, and radial position is not depth. The bank's inner face
+       climbs through the outer thirteenth of the disc, so the last stretch
+       of water is a few centimetres deep while `shore` is still reporting a
+       leisurely slide from 0.93 to 1 — nothing in that number says "you can
+       see the bottom here". Keyed to depth instead, the surface thins out
+       exactly where the ground comes up to meet it, which is what a
+       shoreline is. */
+    const deepest = WATER_Y - FLOOR_Y;
+    geo.setAttribute('depth', new THREE.Float32BufferAttribute(
+      ts.map((t) => THREE.MathUtils.clamp((WATER_Y - bankY(t)) / deepest, 0, 1)),
+      1,
+    ));
     geo.setIndex(index);
     /* The shader below never reads these — its normals are the ripples',
        computed per pixel. They are here for SSAOPass, which draws the whole
@@ -1555,10 +1715,13 @@ ${shader.fragmentShader.replace(
 
   const WATER_VERT = /* glsl */`
     attribute float shore;
+    attribute float depth;
     varying vec3 vWorld;
     varying float vShore;
+    varying float vDepth;
     void main() {
       vShore = shore;
+      vDepth = depth;
       vec4 world = modelMatrix * vec4(position, 1.0);
       vWorld = world.xyz;
       gl_Position = projectionMatrix * viewMatrix * world;
@@ -1576,6 +1739,7 @@ ${shader.fragmentShader.replace(
 
     varying vec3 vWorld;
     varying float vShore;
+    varying float vDepth;
 
     // Three wavelet directions that share no common angle, so the pattern
     // never lines up into visible stripes the way two crossing sets do — and
@@ -1600,16 +1764,44 @@ ${shader.fragmentShader.replace(
        a_i * k_i * cos(...) * D_i. Differentiating on paper rather than
        sampling a normal map is why there is no texture to load, and why the
        ripples stay exactly as sharp however close the camera gets. */
-    vec3 rippleNormal(vec2 p) {
-      float c1 = 0.065 * cos(17.0 * dot(D1, p) + 2.2 * uTime);
-      float c2 = 0.055 * cos(27.0 * dot(D2, p) - 3.1 * uTime);
-      float c3 = 0.040 * cos(41.0 * dot(D3, p) + 4.4 * uTime);
-      vec2 slope = c1 * D1 + c2 * D2 + c3 * D3;
+    vec3 rippleNormal(vec2 p, float gust) {
+      /* Three straight wave trains crossing still read as stripes at this
+         screen size — the render showed the pond ruled in soft diagonal
+         bars, because straight crests stay straight however many of them
+         you add. Bending the plane they live on before sampling them is
+         what curves the crests, and the two sines here are an octave apart
+         from the waves themselves so the bend is a long lazy one rather
+         than more ripple.
+
+         The gradient below is the un-warped one. Differentiating through
+         the warp properly costs a 2x2 Jacobian per pixel for a correction
+         of at most a quarter of the slope, on a surface whose whole job is
+         to shimmer — so this is deliberately the approximation, not an
+         oversight. It is the warped field's shading, not the warped
+         field's exact normal. */
+      p += vec2( sin( p.y * 3.1 + uTime * 0.40 ), sin( p.x * 2.7 - uTime * 0.33 ) ) * 0.13;
+      float c1 = 0.052 * cos(23.0 * dot(D1, p) + 2.2 * uTime);
+      float c2 = 0.044 * cos(34.0 * dot(D2, p) - 3.1 * uTime);
+      float c3 = 0.033 * cos(49.0 * dot(D3, p) + 4.4 * uTime);
+      vec2 slope = ( c1 * D1 + c2 * D2 + c3 * D3 ) * gust;
       return normalize(vec3(-slope.x, 1.0, -slope.y));
     }
 
     void main() {
-      vec3 n = rippleNormal(vWorld.xz);
+      /* Patches of breeze drifting across the pond, so some of it is ruffled
+         and some of it is glass. A pond ruffled edge to edge by exactly the
+         same amount is the other half of why the first version read as a
+         painted disc: real water is never uniformly disturbed, and the eye
+         reads the uniformity long before it reads the ripples. The slowest
+         moving thing in this shader by an order of magnitude — it should
+         look like weather, not like a pattern scrolling. */
+      float gust = 0.55 + 0.75 * (
+        0.5 + 0.5 * sin( vWorld.x * 1.15 + vWorld.z * 0.7 + uTime * 0.29 )
+      );
+      // Calm in the shallows, where there is no fetch for wind to work on.
+      gust *= mix( 0.45, 1.0, smoothstep( 0.0, 0.45, vDepth ) );
+
+      vec3 n = rippleNormal(vWorld.xz, gust);
       vec3 viewDir = normalize(cameraPosition - vWorld);
 
       /* Schlick's cheap Fresnel, without even the F0 term: at a glancing
@@ -1619,11 +1811,18 @@ ${shader.fragmentShader.replace(
          that this number is different at the near lip than the far one. */
       float fres = pow(1.0 - max(dot(viewDir, n), 0.0), 2.0);
 
-      vec3 body = mix(uDeep, uShallow, vShore * vShore);
+      /* Coloured by how much water is between the eye and the mud, not by
+         how far out the vertex is. Two things fall out of that for free: the
+         gradient crowds into the last hand's width the way a real bank's
+         does instead of spreading evenly across the whole disc, and the
+         bulges and pinches in the pond's outline get a shallow margin that
+         follows them, because the bank profile is what both are built from. */
+      float shallowness = 1.0 - smoothstep( 0.02, 0.36, vDepth );
+      vec3 body = mix(uDeep, uShallow, shallowness * shallowness);
       // The ripples shade the body as well as bending the reflection, so the
       // surface still has texture in the middle of the pond where the view is
       // steep and the Fresnel term is nearly nothing.
-      body *= 0.86 + 0.28 * max(dot(n, RIPPLE_LIGHT), 0.0);
+      body *= 0.90 + 0.20 * max(dot(n, RIPPLE_LIGHT), 0.0);
       /* Nothing else in this shader knows the sun has gone down. Every other
          material in the scene is lit, so it darkens on its own as the
          hemisphere light and the sun fade; a hand-written one keeps whatever
@@ -1655,9 +1854,21 @@ ${shader.fragmentShader.replace(
       float spec = pow(max(dot(n, halfDir), 0.0), 24.0) * (1.0 - uNight);
       col += uSunColor * spec * 0.9;
 
-      // Clearer at the bank, where the mud below is close enough to see
-      // through to, and near-opaque over the deep middle.
-      gl_FragColor = vec4(col, mix(0.97, 0.8, vShore));
+      /* The shoreline, and the single change that stopped this looking like
+         a disc of paint dropped on the grass. Opacity is depth: thin water
+         lets the mud through and water a centimetre deep is not there at
+         all, so the surface dissolves into the wet bank over the last few
+         centimetres rather than ending on a cut line. The bank underneath is
+         painted mud for a wider margin than the water covers, which is what
+         the fade reveals — a damp ring, not a gap.
+
+         vShore still trims the very outermost vertices: the water disc and
+         the bank's inner face are the same surface at that radius, and two
+         coincident surfaces at a glancing angle fight over the depth buffer.
+         Fading the last two percent to nothing settles it without a
+         polygonOffset. */
+      float edge = smoothstep( 0.0, 0.30, vDepth ) * smoothstep( 1.0, 0.98, vShore );
+      gl_FragColor = vec4(col, edge * mix(0.96, 0.74, shallowness));
     }
   `;
 
@@ -2474,16 +2685,61 @@ ${shader.fragmentShader.replace(
      prepends on the direct path, cannot collide with it. toneMapped goes
      off for the same reason: this material has now done the job once and
      three.js must not do it again. */
+  /* Clouds, in the sky's own shader.
+
+     Until this, the 3D dome was the one part of the frame with nothing in
+     it: a clean Preetham gradient across the top quarter of the picture,
+     under a 2D sky strip that has had drifting clouds since the first
+     version. That is the largest single area of the screen and it was the
+     emptiest.
+
+     Projected, not marched and not modelled. The view direction is already
+     in scope here, so bending it onto a shell overhead (see farmClouds for
+     which bend, and why the obvious one is wrong for this camera) gives
+     coordinates that fbm turns into a cloudscape with the right perspective
+     for free — the shell crowds toward the horizon exactly as real cover
+     does. Two fbm samples, the second offset toward the sun, give the
+     shading: where the cloud is thicker in the sun's direction than it is
+     here, here is underneath it. That is not a physical model of
+     scattering, but it is the thing scattering looks like, and it costs one
+     extra noise lookup rather than a march.
+
+     Mixed in *after* the tone map, in display space, which is the whole
+     reason the tone mapping moved into this shader. Sky.js outputs
+     unclamped radiance: a cloud painted at 1.0 into a sky sitting at 9.0
+     would have come out as a dark smudge.
+
+     Cover is driven by the same hurricane forecast that dims the sun and
+     thickens the rain, so the sky fills in over the three days before a
+     storm and clears after it. Nothing new had to be invented to tell it
+     about the weather. */
   const SKY_EXPOSURE = renderer.toneMappingExposure;
+  const skyUniforms = {
+    farmSkyExposure: { value: SKY_EXPOSURE },
+    farmCloudTime: { value: 0 },
+    farmCloudCover: { value: 0 },
+    farmCloudLight: { value: 1 },
+    farmCloudSun: { value: new THREE.Color(0xfff3d6) },
+  };
+  /* Five octaves of fbm where there is a GPU, three where there is not.
+     The sky is a quarter of the frame, so this is the one shader in the
+     scene whose cost scales with how much of it you can see. */
+  const CLOUD_OCTAVES = shadowsAfforded ? 5 : 3;
   sky.material.toneMapped = false;
   sky.material.onBeforeCompile = (shader) => {
-    shader.uniforms.farmSkyExposure = { value: SKY_EXPOSURE };
+    Object.assign(shader.uniforms, skyUniforms);
     const lit = shader.fragmentShader.replace(
       '#include <tonemapping_fragment>',
-      'gl_FragColor.rgb = farmSkyToneMap( gl_FragColor.rgb );',
+      `gl_FragColor.rgb = farmSkyToneMap( gl_FragColor.rgb );
+        gl_FragColor.rgb = farmClouds( gl_FragColor.rgb, direction, vSunDirection );`,
     );
     shader.fragmentShader = `
+      #define FARM_CLOUD_OCTAVES ${CLOUD_OCTAVES}
       uniform float farmSkyExposure;
+      uniform float farmCloudTime;
+      uniform float farmCloudCover;
+      uniform float farmCloudLight;
+      uniform vec3 farmCloudSun;
       vec3 farmRRTAndODTFit( vec3 v ) {
         vec3 a = v * ( v + 0.0245786 ) - 0.000090537;
         vec3 b = v * ( 0.983729 * v + 0.4329510 ) + 0.238081;
@@ -2505,6 +2761,107 @@ ${shader.fragmentShader.replace(
         color = farmRRTAndODTFit( color );
         color = outputMat * color;
         return clamp( color, 0.0, 1.0 );
+      }
+
+      float farmCloudHash( vec2 p ) {
+        p = fract( p * vec2( 123.34, 456.21 ) );
+        p += dot( p, p + 45.32 );
+        return fract( p.x * p.y );
+      }
+      float farmCloudNoise( vec2 p ) {
+        vec2 i = floor( p );
+        vec2 f = fract( p );
+        f = f * f * ( 3.0 - 2.0 * f );
+        float a = farmCloudHash( i );
+        float b = farmCloudHash( i + vec2( 1.0, 0.0 ) );
+        float c = farmCloudHash( i + vec2( 0.0, 1.0 ) );
+        float d = farmCloudHash( i + vec2( 1.0, 1.0 ) );
+        return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+      }
+      float farmCloudFbm( vec2 p ) {
+        float total = 0.0;
+        float amp = 0.5;
+        for ( int i = 0; i < FARM_CLOUD_OCTAVES; i ++ ) {
+          total += amp * farmCloudNoise( p );
+          p = p * 2.03 + vec2( 17.3, 9.1 );
+          amp *= 0.5;
+        }
+        return total;
+      }
+
+      /* sunDir is passed in rather than read from the varying: this block is
+         prepended to the top of Sky.js's shader, above its own varying
+         declarations, so vSunDirection does not exist yet at this point in
+         the source. It does at the call site, which is inside main(). */
+      vec3 farmClouds( vec3 skyColor, vec3 dir, vec3 sunDir ) {
+        // Below the horizon there is ground, not sky.
+        if ( dir.y <= 0.0 ) return skyColor;
+
+        /* The textbook projection for a cloud slab is dir.xz / dir.y, and
+           it is the wrong one for this game. It diverges at the horizon: a
+           ray a hair above level lands kilometres out, so the low band of
+           sky either smears a single noise cell across the screen or, once
+           clamped, goes flat. That band is the *only* sky the game's own
+           camera frames — it sits near head height looking level, so the
+           top of the frame is barely six degrees up. Clouds on a flat slab
+           were invisible in the view the game is played in and showed up
+           only if you orbited the camera skyward, which was how the first
+           attempt at this passed its own screenshot and failed the game.
+
+           Softening the divisor bends the slab into a dome. It is bounded
+           — at the horizon the divisor is still 0.22, so the coordinate
+           tops out near 4.5 instead of running away — which leaves real,
+           resolvable structure in the few degrees above the treeline and
+           compresses it toward the horizon the way distance does. */
+        vec2 plane = dir.xz / ( dir.y + 0.22 );
+        vec2 drift = vec2( farmCloudTime * 0.010, farmCloudTime * 0.0045 );
+        float shape = farmCloudFbm( plane * 1.60 + drift );
+
+        /* Thicker cover lowers the bar a patch of noise has to clear to be
+           cloud, which is what makes a clear day and an overcast one the
+           same field of noise seen at two thresholds rather than two
+           different skies. */
+        float bar = mix( 0.58, 0.24, farmCloudCover );
+        float amount = smoothstep( bar, bar + 0.16, shape );
+        /* A short fade at the very bottom, only wide enough to hide the
+           join where the dome meets the fogged hills. The dome mapping
+           doesn't need the tall fade the flat slab did — there is no
+           resolution cliff to hide any more — and a tall one here would
+           cost exactly the band the game's camera looks at. */
+        amount *= smoothstep( 0.005, 0.055, dir.y );
+
+        if ( amount <= 0.0 ) return skyColor;
+
+        /* Self-shadowing on the cheap: sample again a little way toward the
+           sun. Where there is more cloud in that direction than here, here
+           is underneath it. */
+        float toward = farmCloudFbm( ( plane + sunDir.xz * 0.17 ) * 1.60 + drift );
+        float lit = clamp( ( shape - toward ) * 2.6 + 0.62, 0.0, 1.0 );
+
+        vec3 body = mix( vec3( 0.46, 0.50, 0.60 ), vec3( 1.06, 1.04, 1.00 ), lit );
+        /* Lit by the same sun colour everything else in the yard is, so the
+           clouds go gold at dusk and slate at night without a second table
+           — but only part of the way there. Taking the sun's colour neat
+           made a midday sky full of peach-coloured cloud, because that
+           colour is a warm cream even at noon. */
+        vec3 sunLit = mix( vec3( 1.0 ), farmCloudSun, 0.45 );
+        /* The unlit end of the ramp is moonlight, and every attempt to pick
+           it by eye came out too bright — the first one put the midnight sky
+           at 142/255 against a cloudless baseline of 35, a bank of cloud
+           blazing over a farm lit by nothing.
+
+           Sampling it needed two things the obvious method got wrong. The
+           clouds drift, so one pixel compared between two renders is
+           comparing two different parts of the sky; the number below is the
+           99th percentile of the whole sky band, which survives that. And
+           the value that matters is post-bloom: the same shader measures 72
+           with no post-processing and 113 through the FULL tier's bloom
+           pass, because a wide soft bright region is exactly what bloom is
+           built to find. Tuned against the number the player sees, so the
+           software path comes out a little darker still — which is the right
+           way round for a path that has no shadows either. */
+        vec3 tinted = body * mix( vec3( 0.018, 0.022, 0.036 ), sunLit, farmCloudLight );
+        return mix( skyColor, clamp( tinted, 0.0, 1.0 ), amount * 0.93 );
       }
 ${lit}`;
   };
@@ -3996,18 +4353,59 @@ ${lit}`;
       phase: windUniforms.farmWindTime.value,
       strength: windUniforms.farmWindStrength.value,
     }),
+    /* The sky dome's clouds, read off the uniforms the shader actually
+       samples rather than re-derived from the formula — the same bargain
+       wind() strikes. `time` is the one worth a test on its own: it is a
+       function of the save now, not of how long the page has been open, and
+       that is what makes a screenshot of the sky comparable to another one.
+       `light` is how much sun is on them, which must reach 0 at midnight; a
+       lit cloud over an unlit farm was the first version's actual bug. */
+    sky: () => ({
+      octaves: CLOUD_OCTAVES,
+      time: skyUniforms.farmCloudTime.value,
+      cover: skyUniforms.farmCloudCover.value,
+      light: skyUniforms.farmCloudLight.value,
+    }),
+    /* The pond's vertical profile, which is what the shoreline is built on.
+       A test can check that the water actually shallows out — that there is
+       a spread of depths across the surface and not one flat slab with a
+       cliff at the rim, which is the shape that made it read as a disc of
+       paint — without knowing anything about the shader that draws it. */
+    pondProfile: () => {
+      const depth = water.geometry.getAttribute('depth');
+      const deep = [];
+      for (let i = 0; i < depth.count; i += 1) deep.push(depth.getX(i));
+      return {
+        deepest: WATER_Y - FLOOR_Y,
+        rings: POND_RINGS,
+        // What fraction of the surface's vertices stand in water less than a
+        // third of full depth: the shallow end, which is what the colour
+        // ramp and the opacity fade both live in.
+        shallowFraction: deep.filter((d) => d < 0.34).length / deep.length,
+        max: Math.max(...deep),
+        min: Math.min(...deep),
+      };
+    },
     /* What a material actually came out as, once assets.js has corrected
        the kit's own mistakes about it. The three things worth holding:
        nothing is accidentally metal, the farmer is lit rather than unlit,
        and the ground cover is the farm's green rather than the kit's mint. */
     materialFacts: () => {
-      const facts = { metallic: [], unlit: [], grass: null };
+      const facts = { metallic: [], unlit: [], grass: null, roughness: {} };
       scene.traverse((obj) => {
         if (!obj.isMesh) return;
         for (const mat of [obj.material ?? []].flat()) {
           if (mat.isMeshBasicMaterial && mat.map) facts.unlit.push(mat.name || obj.name);
           if (mat.metalness === 1 && !mat.metalnessMap) facts.metallic.push(mat.name || obj.name);
           if (mat.name === 'grass' && !facts.grass) facts.grass = `#${mat.color.getHexString()}`;
+          /* Roughness by material name. Every kit ships these at 1, which is
+             a Lambertian surface with no specular response at all, so a test
+             that finds a 1 here has found the finish table failing to reach
+             something — which is how a newly added prop would come out matte
+             in a farm where nothing else is. */
+          if (mat.name && facts.roughness[mat.name] === undefined) {
+            facts.roughness[mat.name] = mat.roughness;
+          }
         }
       });
       // Every one of her materials, not the first one that turns up: the

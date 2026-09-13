@@ -128,6 +128,34 @@ export function overrideKitColor(materialName, hex) {
   paletteOverrides.set(materialName, hex);
 }
 
+/* Surface finish, by the same name-keyed route as the palette and for the
+   same reason — and, like the palette, this is art direction rather than a
+   defect being repaired, so it lives with the scene that wants it.
+
+   What prompted it was a measurement, not an impression. Every untextured
+   material in the Nature Kit ships roughnessFactor 1, and every textured one
+   (`colormap`, which is seventeen files' worth of buildings, animals,
+   vehicles and the farmer herself) omits the factor entirely, which glTF
+   defines as 1. Roughness 1 at metalness 0 is a Lambertian surface: it has
+   no specular response at all. So the note in every review that "everything
+   in the farm is matte" was not a matter of taste — nothing in the farm was
+   capable of catching the light, and no amount of relighting was going to
+   change that.
+
+   The numbers below are all the way at the dull end on purpose. At metalness
+   0 the Fresnel reflectance at normal incidence is 0.04, so even the glossiest
+   entry here is a soft sheen that shows up as the sun moves and disappears at
+   dusk; there is no setting in this range that turns the farm to plastic. And
+   the only specular light in the scene is the sun — three.js's hemisphere
+   light contributes irradiance and nothing else — so this follows the time of
+   day for free, the way the pond's glint already does. */
+const finishOverrides = new Map();
+
+/** Sets a named kit material's roughness for the whole game. */
+export function overrideKitFinish(materialName, roughness) {
+  finishOverrides.set(materialName, roughness);
+}
+
 function conditionMaterials(gltf) {
   gltf.scene.traverse((obj) => {
     if (!obj.isMesh) return;
@@ -147,6 +175,11 @@ function conditionMaterials(gltf) {
           metalness: 0,
         });
         lit.name = mat.name;
+        // This branch builds its own material and returns before the two
+        // name-keyed passes below, so the finish override has to be honoured
+        // here as well or the characters would be the one thing in the farm
+        // it could not reach.
+        if (finishOverrides.has(lit.name)) lit.roughness = finishOverrides.get(lit.name);
         mat.dispose();
         return lit;
       }
@@ -157,6 +190,7 @@ function conditionMaterials(gltf) {
       // After the correction, so an override is read as the colour it looks
       // like rather than as a value that still has to be un-mangled.
       if (paletteOverrides.has(mat.name)) mat.color.setHex(paletteOverrides.get(mat.name));
+      if (finishOverrides.has(mat.name)) mat.roughness = finishOverrides.get(mat.name);
       return mat;
     });
     obj.material = Array.isArray(obj.material) ? fixed : fixed[0];

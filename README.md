@@ -28,9 +28,14 @@ Beside the field is a fenced pen with the herd in it — animated cows,
 chickens, sheep, a dog and a cat, each wandering its own lane, a guardian on
 duty trotting the fence line while a hungry one waits it out. The crops are
 modelled too, and change shape as they grow rather than just colour. There is
-a pond whose water actually moves, an orchard that turns to autumn colour and
-back, grass that disappears under winter, and rain that builds in across the
-three days before a hurricane lands, greying the sky as it comes. A car sits
+a pond that shallows into a muddy bank rather than stopping on a line, with
+its own breeze crossing it in patches, an orchard that turns to autumn colour
+and back, grass that disappears under winter, and rain that builds in across
+the three days before a hurricane lands, greying the sky as it comes. Cloud
+drifts overhead on the same forecast — fair-weather scraps most days, a sky
+filling in over the three before a storm, gold at dusk and a dim overcast at
+midnight — and it drifts on the game's own clock, so the same day at the same
+hour gives you the same sky back. A car sits
 parked on a two-lane pull-in by the market stall, the way the stall itself is
 set dressing rather than somewhere she walks — the Market tab still sells
 from a flat 2D counter, same as ever. The sun
@@ -39,7 +44,10 @@ through a warm dusk into a moonlit night, and on a machine with a GPU it
 casts: the farmhouse lays a long shadow across the field in the afternoon,
 the orchard dapples the ground it stands on, and the farmer has a shadow of
 her own. A steady wind leans the grass and bends the trees, and picks up in
-the days before a hurricane. The camera follows her and is yours
+the days before a hurricane. The ground is grass in patches rather than one
+flat green — dried where the sun has been on it, deeper in the hollows — and
+the surfaces have finishes now: planed timber and painted metal take a soft
+sheen off the low sun that bark and dirt do not. The camera follows her and is yours
 to move — drag to orbit, pinch to zoom, two fingers to pan, clamped so it
 can't go underground or flip upside down.
 
@@ -320,8 +328,12 @@ that nothing in the yard is accidentally made of metal, that the farmer is
 lit rather than unlit, that the ground cover is the farm's own green, that
 the sky tone-maps itself rather than trusting a renderer that switches tone
 mapping off inside a render target, that the wind keeps moving and answers a
-hurricane — and that shadows stay switched off on a machine with no GPU,
-which is the whole point of gating them. **Scale and collision** are tested
+hurricane, that the clouds are a function of the save rather than of how long
+the tab has been open and that no sunlight falls on them at midnight, that
+the pond's water really does shallow out instead of ending on a cliff, that
+nothing in the farm is left at the fully matte roughness every kit ships —
+and that shadows stay switched off on a machine with no GPU, which is the
+whole point of gating them. **Scale and collision** are tested
 the same way, as
 numbers rather than as screenshots: that the farmhouse really is several
 times the farmer's measured height, that the orchard's trunks stop her while
