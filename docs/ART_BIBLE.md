@@ -1701,6 +1701,201 @@ next animation frame.
 
 ---
 
+## 28. Making it look like somewhere — the graphics pass
+
+Asked for, after the scale pass: better graphics, and a more realistic
+farmer and farm.
+
+The largest wins here were not new features. Three of the four were defects
+in data the game had been loading correctly and rendering faithfully for
+twenty-seven sections — the kits describe themselves wrongly, three.js
+believes them, and the result had been reviewed by eye and accepted more
+than once. Reading the glTF JSON took ten minutes and found all three.
+
+### What the files were actually saying
+
+**Every Nature Kit material declares `metallicFactor: 1`**, with no
+metallic-roughness texture and a plain coloured base. That is not a
+description of metal; it is a default nobody overrode. It is also ruinous,
+because a fully metallic surface has no diffuse response whatsoever: with no
+environment map to reflect, every tree, bush, tuft of grass, log and rock in
+the game was lit by one broad specular lobe and nothing else. That is why
+the orchard read as a row of near-black blobs and the grass as dark spikes.
+Rendered side by side at 1 and at 0, the same `leafsGreen` goes from murky
+bottle-green to the sage its base colour actually is.
+
+**Every Nature Kit colour is a pastel of the thing it is called.** glTF
+defines `baseColorFactor` as linear; this kit's numbers are the sRGB values
+written straight into the linear slot. It is diagnosable from the material
+names alone, with no appeal to taste:
+
+| material | as loaded | corrected |
+|---|---|---|
+| `colorRed` | `#f19398` pink | a red |
+| `dirt` | `#f2be9e` peach | a brown |
+| `woodBark` | `#f2be9e` peach | a brown |
+| `stone` | `#ddf2f5` near-white | a grey |
+| `corn` | `#fbdfa8` cream | a corn yellow |
+
+A material called `dirt` that is the colour of a peach is not a stylistic
+choice.
+
+**The characters declare `KHR_materials_unlit`**, so `GLTFLoader` correctly
+gives them a `MeshBasicMaterial`. Correct to the letter of the file, and
+wrong for a game with a day/night cycle: the farmer took no light at all.
+She stayed noon-bright through dusk and midnight, ignored the sun every
+other object answers to, and — once there were shadows — could neither cast
+one nor receive one. She is the thing the player looks at most and she was
+the only thing in the scene not lit by the scene. Rebuilt as a standard
+material carrying the same texture, which is what puts her in the same world
+as her own cows.
+
+All three are corrected once per parse in `assets.js`, before any clone is
+handed out, so every placement and every `InstancedMesh` gets the corrected
+version. They apply on **every** path, including the software rasteriser CI
+runs — which is why the low-end look improved as much as the high-end one.
+
+### Shadows, on the third attempt
+
+§9 and an earlier step both tried shadows and both abandoned them on
+measurement: even one 512px caster with nothing receiving cost an unrelated
+test its timing window under contention. Both measurements were taken on the
+software rasteriser — which is what CI runs, and what nobody plays on.
+
+The scene already answers that question separately for the two kinds of
+machine. `rendererIsSoftware()` gates the post-processing chain, the foliage
+density, the pen's head count and the rain; a shadow map is the same sort of
+cost and now sits behind the same gate. On the software path nothing changes
+at all — the map is never enabled, never rendered, never sampled, and both
+earlier measurements stand untouched. There is a test asserting exactly that.
+
+One 2048 map, `PCFSoftShadowMap`, an orthographic box of half-extent 22 over
+the whole farm — about 2.1cm a texel. Three things had to change with it:
+
+- **The sun had to move out.** It sat 9 units from its target, which is
+  irrelevant to a directional light's shading and fatal to its shadow
+  camera: anything further from the target than the light itself falls
+  behind the near plane and stops casting. That was most of the farm. It is
+  pushed to 60 along the identical direction.
+- **The sun had to come down.** The arc put midday at about 75° — roughly
+  where the real one goes, and fine while nothing cast, since elevation only
+  changed how square-on the light struck each face. With shadows it lays
+  every shadow underneath the thing casting it, so at the hour the player
+  sees the farm most there was nothing to see. Flattened to a peak near 55°
+  and leaned south, behind the default camera's shoulder, so lit faces turn
+  toward the player and shadows run away up the field.
+- **The fill had to come down and the key up.** With no shadow and no
+  occlusion, ambient was the *only* light on every surface the sun did not
+  face, so a wall in sun and a wall in shade differed by very little. The
+  hemisphere drops from 0.85 to 0.58 and the sun rises from 1.15 to 1.75;
+  the night floor is re-derived to land on 0.22, exactly where it was, since
+  turning the ambient down is a daylight decision and at night there is no
+  sun to take over.
+
+### The sky was blown out on two of the three tiers, and had been for ages
+
+`Sky.js` ends its fragment shader with `#include <tonemapping_fragment>`,
+and **three.js compiles that chunk out when rendering into a render target**
+— on the reasoning that a composer chain will tone-map at the end. This
+chain deliberately does not: §10 chose `GammaCorrectionShader` over
+`OutputPass` precisely so ACES is not applied to the whole image.
+
+So on the direct path the sky was tone-mapped and looked right, and on both
+composer tiers Sky.js's unclamped Preetham radiance went into the buffer raw
+and clipped to flat white. The same pixel, measured:
+
+| | before | after |
+|---|---|---|
+| direct path (what CI and every screenshot use) | (210, 222, 227) | (219, 228, 233) |
+| composer path (what a real GPU gets) | **(255, 255, 255)** | (214, 225, 229) |
+
+It had been that way since the composer was added, and survived because the
+direct path is the one every software-rendered screenshot uses. The fix is
+to give the sky three.js's own ACES curve inside its own shader, under
+private names so the renderer's copy cannot collide with it, and turn
+`toneMapped` off so it cannot be applied twice. The two tiers now agree to
+within 5/255, and the direct path is preserved to within 9.
+
+### Wind
+
+The farm was completely still: a photograph of a field. Displacement is
+proportional to each vertex's height above its model's origin, which is what
+makes it read as bending rather than sliding — and it is why the *trunk*
+materials are on the list, because bending only the leaves slides a canopy
+off its own tree. Phase is sampled from world position, through
+`instanceMatrix`, so neighbours lean together and 540 grass tufts do not
+beat in unison. Strength reads the same hurricane forecast the rain does, so
+the air gets restless in the days before a storm.
+
+Verified as motion, not assumed from the code: with the day phase pinned and
+wind strength forced to 0 against 9, **37.4% of the pixels in the orchard
+band change**. The band deliberately excludes the pond, whose shader
+animates on its own clock and would have proved nothing.
+
+### Two smaller things
+
+**Per-instance colour variation on the scatter.** A field where every blade
+is the same colour is the giveaway that a computer put it there. Each
+instance is jittered on the same deterministic rng everything else uses, so
+today's screenshot still matches tomorrow's.
+
+**Ground grain in the fragment shader.** `buildTerrain` mottles vertex
+colours, which is right for the broad patchiness of a field seen from across
+it, but at 1.28 units between vertices it was the only variation there was —
+so closer than about eight metres the ground read as painted card. Two
+octaves of the same value noise, per pixel, modulating brightness by about a
+tenth. Doing it in the mesh instead would take the terrain from 10,368
+triangles to roughly 68,000 for information that only ever changes colour.
+
+### What it costs
+
+Measured on the worst case the game can reach, at full quality with
+post-processing — the tier only a real GPU reaches:
+
+| | calls | triangles |
+|---|---|---|
+| before this pass | 349 | 319,929 |
+| shadows added, naively | 685 | 614,681 |
+| shipped | 515 | 357,945 |
+
+Two findings closed most of that gap, and neither was visible by reading the
+code:
+
+1. **The shadow map was being drawn twice a frame.** Left on `autoUpdate`,
+   three.js rebuilds it at the top of *every* `renderer.render()` call, and
+   on the composer tiers there are several — `RenderPass` renders the scene
+   and `SSAOPass` renders it again for depth and normals. The instrument
+   caught it as an exactly doubled count: 234,768 triangles charged to
+   casters whose geometry adds up to 117,384. Now asked for once a frame by
+   hand.
+2. **Grass was casting shadows.** 540 tufts at 132 triangles and 170 at 224
+   is 109,360 triangles a frame, to draw shadows the size of a thumbnail
+   under blades that are themselves a thumbnail. Grass receives and no
+   longer casts; the hillside fringe — 48 trees, 8,024 triangles between
+   them — still does both, because a missing shadow on a tree that size
+   would be noticed.
+
+The software path is unchanged in structure and costs 166 calls and 89,526
+triangles, comfortably inside §22's 260/100,000 ceiling, which is the one
+the test can actually reach.
+
+### Known gaps, still
+
+- The barn is still a suburban house (§14, §27). No lighting fixes that.
+- Nothing here touches the character models themselves. "More realistic
+  farmer" is answered by lighting her, shadowing her and grounding her, not
+  by replacing a blocky kit character with something from a different visual
+  language — the kits reading as one language is the thing §2 established
+  and every section since has protected.
+- The pond's water is still a custom `ShaderMaterial` and therefore neither
+  casts nor receives shadows. Threading the shadow chunks through it by hand
+  is real work for a surface already doing its own lighting.
+- Frame *rate* on real hardware remains unmeasured here, for §22's reason:
+  this box has no GPU. What is measured is what the scene asks the driver
+  for, which means the same thing on every machine.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -1944,6 +2139,32 @@ Everything above was checked before it was written:
   before being attributed: the baseline fails the same two tests with the
   same "nothing came into reach" error at the same rate, so they are the
   pre-existing flakiness recorded above and not this pass's doing.
+
+- §28's three material defects were each read out of the glTF JSON before
+  anything was changed in response to them — `metallicFactor`, the
+  `baseColorFactor` values against their own material names, and
+  `KHR_materials_unlit` in `extensionsUsed`. The metalness fix was then
+  confirmed by rendering the same models at 1 and at 0 side by side, which
+  is also how the first attempt at that probe was caught being worthless:
+  `Object3D.clone()` shares materials, so all three columns had quietly
+  shown the same state.
+- The sky blowout was isolated by elimination rather than guessed at:
+  bloom off, SSAO off, gamma pass off and the composer bypassed entirely,
+  four runs, sampling the same pixel each time. Only bypassing the composer
+  fixed it, which is what pointed at the render-target rule rather than at
+  any one pass. Both the before and after figures in §28's table are
+  measured pixels, not impressions.
+- §28's wind is verified as actual movement: day phase pinned, wind forced
+  to 0 and then to 9, 37.4% of the pixels in a foliage-only band changed.
+  The band excludes the pond on purpose — its shader animates on its own
+  clock and a whole-frame diff would have "passed" with the wind disabled.
+- §28's three draw-cost rows are three measured runs on the same worst-case
+  save, and the two cost findings behind them (the doubled shadow pass, the
+  grass casting) were each isolated by disabling one thing at a time and
+  re-measuring, not by reasoning about which ought to be expensive.
+- The claim that the graphics pass left the direct path's sky alone is a
+  pixel comparison against a pre-change screenshot, not an assumption from
+  the shape of the change: (210, 222, 227) before, (219, 228, 233) after.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

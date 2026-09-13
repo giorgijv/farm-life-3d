@@ -39,7 +39,7 @@ import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
-import { loadModel, loadMeshes, preload } from './assets.js';
+import { loadModel, loadMeshes, preload, overrideKitColor } from './assets.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -119,17 +119,38 @@ function startScene(bridge) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.5;
 
-  /* Tried again for step 9, and dropped again: even pared all the way down
-     to one low-res (512px) caster — just the farmer — with nothing set to
-     receive her shadow at all, so the map was rendered but never sampled,
-     a stress test pinning this scene against three other Chromium instances
-     (mirroring how loaded CI actually runs) still cost an unrelated test its
-     five-second timing window on the same software-rendered path steps 4-6
-     first hit. Throttling the shadow map to a handful of redraws a second
-     instead of every frame did not rescue it either. Below the cost that's
-     worth paying here, twice now — shadowMap.enabled stays at its default
-     false; the sun still moves and dims correctly for day and night, see
-     syncSky() below, it just doesn't paint anything onto the ground for it. */
+  /* Shadows, on the third attempt, and this time by conceding the argument
+     the first two lost rather than trying to win it again.
+
+     Both earlier attempts asked the same question — can this scene afford a
+     shadow map? — and answered it for the machine that could least afford
+     one. Pared down to a single 512px caster with nothing set to receive it,
+     a stress run against three other Chromium instances still cost an
+     unrelated test its timing window, and throttling the map's redraws did
+     not rescue it. All true, and all measured on the software rasteriser,
+     which is what CI runs and what nobody plays on.
+
+     The scene already knows how to answer that question separately for the
+     two kinds of machine. rendererIsSoftware() gates the whole
+     post-processing chain, the foliage density, the pen's head count and the
+     rain; a shadow map is the same sort of cost and belongs behind the same
+     gate. On hardware it is the single biggest thing this scene was
+     missing — without it every building, tree and animal floats a little,
+     because nothing in the frame says where the ground is relative to
+     anything standing on it. On the software path nothing changes at all:
+     the map is never enabled, never rendered, never sampled, and the two
+     earlier measurements stand untouched.
+
+     PCFSoft rather than PCF or VSM: the edges want to be soft here. One
+     2048 map covers the whole farm (see the shadow camera further down),
+     which at this scene's size works out near two centimetres a texel. */
+  const shadowsAfforded = !rendererIsSoftware();
+  renderer.shadowMap.enabled = shadowsAfforded;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  /* Asked for once a frame from frame() instead, rather than left to
+     rebuild itself at the top of every render call — see there for what
+     that was costing on the composer tiers. */
+  renderer.shadowMap.autoUpdate = false;
 
   const scene = new THREE.Scene();
   // Mutated in place each frame by syncSky() rather than reassigned, so
@@ -158,17 +179,182 @@ function startScene(bridge) {
      depth range costs only precision, of which this scene has plenty. */
   const camera = new THREE.PerspectiveCamera(48, 4 / 3, 0.1, 200);
 
-  const hemi = new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, 0.85);
+  /* The sky's fill, and the reason the scene used to read as flat. With no
+     shadow and no occlusion, ambient light this strong is the *only* light
+     on every surface the sun does not face, so a wall in shade and a wall
+     in sun differed by very little and nothing in the frame had a lit side
+     and a dark side. Now that the sun casts, the fill can come down and let
+     it do the modelling — which is what makes a roof read as a roof rather
+     than as a green shape. Kept high enough that shaded sides are still
+     legible colour rather than black, which is what a blue sky actually
+     does to them. */
+  const HEMI_PEAK = shadowsAfforded ? 0.58 : 0.85;
+  const hemi = new THREE.HemisphereLight(0xdcefff, 0x3d5a2c, HEMI_PEAK);
   scene.add(hemi);
 
   /* The sun: colour, intensity and position all driven from daySkyState()
-     each frame, below, rather than fixed here. No mesh of its own, and (see
-     the renderer, above) nothing it casts is ever drawn — its low angle at
-     dawn and dusk still reads, just as dimmer, warmer light rather than a
-     shadow stretching across the yard. */
-  const sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
+     each frame, below, rather than fixed here. It casts now (see the
+     renderer, above), so its low angle at dawn and dusk reaches the ground
+     as a long shadow across the yard rather than only as warmer light on
+     the faces turned toward it.
+
+     Stronger than it was, by exactly what the hemisphere gave up. The pair
+     is what sets the contrast between a lit face and a shaded one; turning
+     the fill down without turning the key up would just have made a darker
+     scene rather than a better-modelled one. */
+  const SUN_PEAK = shadowsAfforded ? 1.75 : 1.15;
+  const sun = new THREE.DirectionalLight(0xfff3d6, SUN_PEAK);
   scene.add(sun);
   scene.add(sun.target);
+
+  /* How far out the sun is placed. Nothing about the *lighting* cares — a
+     directional light is a direction, and the old radius of nine units gave
+     exactly the same shading as ninety would. The shadow camera does care:
+     it stands where the light stands and looks at the target, so anything
+     further from the target than the light itself falls behind its near
+     plane and stops casting. At nine units that was most of the farm.
+     Sixty puts the whole of it comfortably in front. */
+  const SUN_DISTANCE = 60;
+
+  if (shadowsAfforded) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    /* One orthographic box over the whole farm rather than a frustum that
+       follows her. Half-extent 22 from the camera's own aim point reaches
+       every corner of the ground plus the tallest pine, which at 2048 is
+       about 2.1cm a texel — soft-edged at the farmer's scale, which with
+       PCFSoft is the look wanted anyway, and sharp enough that a fence post
+       still casts a post. The alternative, a tight frustum tracking the
+       farmer, buys crispness underfoot and costs every shadow she is not
+       standing next to; on a farm this size, where the whole point is that
+       the buildings sit in their own light, that is the wrong trade. */
+    const shadowCam = sun.shadow.camera;
+    shadowCam.left = -22;
+    shadowCam.right = 22;
+    shadowCam.top = 22;
+    shadowCam.bottom = -22;
+    shadowCam.near = 5;
+    shadowCam.far = SUN_DISTANCE * 2 + 30;
+    /* Bias against the acne a shallow sun angle produces on the terrain's
+       own large, near-flat triangles; normalBias does most of the work and
+       costs no peter-panning, the small constant bias cleans up the rest. */
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.035;
+  }
+
+  /* Which meshes take part, set at each place something is added to the
+     scene rather than swept up in one pass afterwards — half of what stands
+     in this yard arrives from the network minutes after the scene does, so
+     there is no "afterwards" to sweep.
+
+     Three answers, and the interesting one is the middle. `casts` is
+     everything that stands up: buildings, trees, fences, crops, animals,
+     the farmer. `catches` is the ground and the things that are ground —
+     the terrain, the worn paths, the pond's bank — which receive a shadow
+     but have nothing above them to cast one. Everything standing does both,
+     because a barn should shade its own north wall.
+
+     What is deliberately absent: the water (a custom ShaderMaterial, which
+     would need the shadow chunks threaded through it by hand for a surface
+     that is already doing its own lighting), the rain (500 falling boxes,
+     each of which would cost a shadow nobody would ever identify), the sky
+     dome, and the selection marker, which is UI wearing a mesh. */
+  /* Wind.
+
+     The farm was, until this, completely still: a photograph of a field
+     rather than a field. Nothing costs so little and buys so much life —
+     it is one uniform, a dozen lines of GLSL folded into materials the
+     scene already walks past, and no extra draw call anywhere.
+
+     Displacement is proportional to the vertex's own height above its
+     model's origin, which is what makes it look like bending rather than
+     sliding. A tuft of grass pivots on its roots; a tree's trunk barely
+     moves at the base and carries its canopy over with it, because the
+     canopy's lowest vertices and the trunk's highest ones are at the same
+     local height and therefore move by the same amount — the two meshes
+     stay joined without knowing about each other. That is also why the
+     trunk materials are on the list: bending only the leaves would slide a
+     canopy off its own tree.
+
+     The phase is sampled from world position, so neighbouring plants lean
+     together and distant ones do not, which is what a gust looks like
+     crossing a field. World position has to be reconstructed here rather
+     than read from a varying, because this runs before three.js has
+     computed one — and it must go through instanceMatrix, or all 540 grass
+     tufts would share one phase and beat in unison.
+
+     Strength is driven by the same storm forecast the rain reads, so the
+     air gets restless in the days before a hurricane and drops back
+     afterwards. Nothing else in the scene had to be told about that. */
+  const WIND_MATERIALS = new Set([
+    'grass',           // tufts, bushes, reeds, flower stems, pumpkin leaves
+    'leafsGreen', 'leafsDark', 'leafsFall',
+    'woodBark', 'woodBarkDark', // trunks, so a tree bends instead of shearing
+    'woodInner', '_defaultMat', // wheat and corn, which is the field itself
+  ]);
+  const windUniforms = {
+    farmWindTime: { value: 0 },
+    farmWindStrength: { value: 1 },
+  };
+  const windified = new WeakSet();
+
+  function windify(material) {
+    if (!material || !WIND_MATERIALS.has(material.name) || windified.has(material)) return material;
+    windified.add(material);
+    const previous = material.onBeforeCompile;
+    material.onBeforeCompile = (shader, renderer2) => {
+      if (previous) previous(shader, renderer2);
+      shader.uniforms.farmWindTime = windUniforms.farmWindTime;
+      shader.uniforms.farmWindStrength = windUniforms.farmWindStrength;
+      shader.vertexShader = `
+        uniform float farmWindTime;
+        uniform float farmWindStrength;
+        ${shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `#include <begin_vertex>
+        {
+          #ifdef USE_INSTANCING
+            vec4 farmWorld = modelMatrix * instanceMatrix * vec4( transformed, 1.0 );
+          #else
+            vec4 farmWorld = modelMatrix * vec4( transformed, 1.0 );
+          #endif
+          float farmLean = max( transformed.y, 0.0 ) * 0.05 * farmWindStrength;
+          float farmPhase = farmWindTime + farmWorld.x * 0.45 + farmWorld.z * 0.32;
+          transformed.x += sin( farmPhase ) * farmLean;
+          transformed.z += sin( farmPhase * 0.73 + 1.7 ) * farmLean * 0.55;
+        }`,
+  )}`;
+    };
+    // A material already compiled once has to be told to rebuild its program.
+    material.needsUpdate = true;
+    return material;
+  }
+
+  /* One update a frame for every windified material at once, because they
+     all share these two uniform objects rather than each holding a copy.
+
+     The gust is a slow sine over the steady breeze, so the field breathes
+     instead of vibrating; the storm term is the same forecast syncWeather
+     reads to thicken the rain, which means the air picks up over the three
+     days before a hurricane lands and settles again after it passes. */
+  function syncWind(now) {
+    const gust = 0.85 + 0.35 * Math.sin(now / 5200);
+    windUniforms.farmWindTime.value = (now / 1000) * 1.1;
+    windUniforms.farmWindStrength.value = gust * (1 + bridge.stormProximity() * 2.2);
+  }
+
+  const casts = (object) => {
+    object.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = true;
+      o.receiveShadow = true;
+    });
+    return object;
+  };
+  const catches = (object) => {
+    object.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
+    return object;
+  };
 
   /* -------------------------------------------------------------- */
   /* Sky — the same clock the 2D strip reads, driving colour, light    */
@@ -236,7 +422,15 @@ function startScene(bridge) {
     scene.fog.color.copy(scene.background);
     lerpStops(hemi.color, HEMI_SKY_STOPS, nightFactor);
     lerpStops(hemi.groundColor, HEMI_GROUND_STOPS, nightFactor);
-    hemi.intensity = (0.22 + 0.63 * (1 - nightFactor)) * cloud;
+    /* The day-to-night ramp, re-expressed against HEMI_PEAK so the two
+       cannot drift apart when one is retuned — and with its floor chosen so
+       midnight lands on 0.22, exactly where it sat before the fill was
+       turned down. Turning the ambient down is a *daylight* decision: it is
+       what lets the sun do the modelling now that it casts. At night there
+       is no sun to speak of, so the same cut would only have made the farm
+       harder to see, which is a different thing from making it look like
+       night. */
+    hemi.intensity = HEMI_PEAK * (0.38 + 0.62 * (1 - nightFactor)) * cloud;
 
     /* A single continuous circle driven straight off `phase`, rather than
        the 2D moon/sun icon's day/night-split arc above — that formula
@@ -248,14 +442,43 @@ function startScene(bridge) {
        midnight. Below the ground at midnight is harmless for a light with
        no mesh of its own, and at that point intensity has already faded
        low enough that its exact position doesn't read anyway. The sweep
-       moves the sun east-to-west (or back) through the day; direction is
-       still all a light with no shadow of its own (see the renderer, above)
-       has to say — it changes which faces catch the warm, low-angle light
-       at dawn and dusk, just not a shadow's length or where it falls. */
+       moves the sun east-to-west (or back) through the day, which now
+       changes both which faces catch the warm, low-angle light at dawn and
+       dusk *and* the length and direction of everything's shadow.
+
+       The offset is then pushed out to SUN_DISTANCE, keeping its direction
+       exactly and giving the shadow camera room to stand behind the whole
+       farm.
+
+       The arc used to be (sin * 9, elevation * 8 + 3, 3), putting the
+       midday sun about 75 degrees up. Roughly where the real one goes, and
+       a fine choice while nothing cast: elevation only changed how
+       square-on the light struck each face. It is the wrong choice now. A
+       sun overhead lays every shadow directly under the thing casting it,
+       so at the hour the player sees the farm most there was almost
+       nothing to see — the barn's shadow arriving inside the barn's own
+       footprint. Flattened to a peak near 55 degrees, which is the light
+       most renderings of anything choose, and for the same reason: a
+       shadow with some length to it is what says how tall a thing is.
+
+       Leaned south (+z) rather than north, so the sun sits behind the
+       default camera's shoulder. That keeps lit faces turned toward the
+       player and throws the shadows away up the field, where they describe
+       the ground they cross instead of hiding behind whatever made them.
+
+       The floor under y holds the light just above the horizon overnight
+       rather than letting it sink under the ground and shine back up
+       through it. By then its intensity is a twentieth of noon so the
+       position barely reads — but it is the kind of barely that produces
+       one baffling screenshot a year. */
     const angle = phase * Math.PI * 2;
     const elevation = 1 - 2 * nightFactor;
-    sun.position.set(VIEW_CX + Math.sin(angle) * 9, elevation * 8 + 3, 3);
-    sun.intensity = Math.max(0.05, 1.15 * (1 - nightFactor * 0.94)) * cloud;
+    sun.position
+      .set(Math.sin(angle) * 11, Math.max(elevation * 7 + 2.2, 0.8), 6.5)
+      .normalize()
+      .multiplyScalar(SUN_DISTANCE)
+      .add(sun.target.position);
+    sun.intensity = Math.max(0.05, SUN_PEAK * (1 - nightFactor * 0.94)) * cloud;
     sun.color.copy(sunColorTmp.copy(SUN_STOPS.day).lerp(SUN_STOPS.dusk, Math.min(nightFactor * 2.2, 1)));
 
     /* The sky dome (below) wants a unit direction, not a lit position, so
@@ -304,7 +527,7 @@ function startScene(bridge) {
       rail.position.set(...pos);
       rail.scale.x = scaleX;
       rail.rotation.y = rotY;
-      scene.add(rail);
+      scene.add(casts(rail));
     });
 
     const posts = new THREE.InstancedMesh(postGeo, fenceMat, 4);
@@ -315,7 +538,7 @@ function startScene(bridge) {
       m4.makeTranslation(x, 0.35, z);
       posts.setMatrixAt(i, m4);
     });
-    scene.add(posts);
+    scene.add(casts(posts));
   }
 
   buildFence(0, 0, yardHalf, yardHalf);
@@ -334,7 +557,7 @@ function startScene(bridge) {
     m4.makeTranslation(x, 0, z);
     tileMesh.setMatrixAt(i, m4);
   }
-  scene.add(tileMesh);
+  scene.add(casts(tileMesh));
 
   const LOCKED_TILE = new THREE.Color(0x3d3a34);
   const UNLOCKABLE_TILE = new THREE.Color(0x8a6a3a);
@@ -392,14 +615,14 @@ function startScene(bridge) {
     new THREE.MeshStandardMaterial({ roughness: 0.85 }),
     PLOT_COUNT,
   );
-  scene.add(stalkMesh);
+  scene.add(casts(stalkMesh));
 
   const headMesh = new THREE.InstancedMesh(
     new THREE.IcosahedronGeometry(0.3, 0), // faceted, deliberately low-poly
     new THREE.MeshStandardMaterial({ roughness: 0.55 }),
     PLOT_COUNT,
   );
-  scene.add(headMesh);
+  scene.add(casts(headMesh));
 
   const ROTTEN_STALK = 0x8a8267;
   const ROTTEN_HEAD = 0x6b6250;
@@ -482,9 +705,10 @@ function startScene(bridge) {
     return loadMeshes(id).then(({ meshes }) => {
       cropMeshes[id] = meshes.map(({ geometry, material }) => {
         material.toneMapped = false;
+        windify(material);
         const mesh = new THREE.InstancedMesh(geometry, material, PLOT_COUNT);
         for (let i = 0; i < PLOT_COUNT; i += 1) hideInstance(mesh, i, 0, 0);
-        scene.add(mesh);
+        scene.add(casts(mesh));
         return mesh;
       });
     }).catch((err) => console.warn(`farm: ${id} did not load`, err));
@@ -830,6 +1054,24 @@ function startScene(bridge) {
   const GRASS_A = new THREE.Color(0x6fa04a);
   const GRASS_B = new THREE.Color(0x82ae57); // a second grass tone, mottled in below
   const TERRAIN_DIRT = new THREE.Color(0x8a7256);
+  /* What a blade of the scattered ground cover is painted, as opposed to
+     what the Nature Kit's file says it is. Deliberately a shade lighter and
+     a touch yellower than GRASS_A, which is the relationship a real tuft
+     has to the turf around it: it catches more sky, so it reads brighter,
+     and it is the same plant, so it reads the same hue. Sampled against the
+     terrain rather than chosen in the abstract — see scatterInstanced. */
+  const GRASS_BLADE = 0x87b356;
+  /* Registered before any model is *parsed*, so no placement can miss it —
+     the tufts the scatter puts down, the bushes and reeds placed by hand,
+     the flower stems and the pumpkin's own leaves all share the kit's one
+     `grass` material, and all come out the same green.
+
+     "Before" is a guarantee rather than a hope, and it is worth saying
+     which one: a few models are requested further up this file, but a
+     request is an XHR and conditionMaterials runs in its callback. This
+     module body runs to completion before any callback does, so the
+     override is always in place by the time the first file is parsed. */
+  overrideKitColor('grass', GRASS_BLADE);
   const terrainColorTmp = new THREE.Color();
 
   /* Step 13's three seasonal tints, blended into the same grass-and-dirt
@@ -920,12 +1162,63 @@ function startScene(bridge) {
     return geo;
   }
 
-  const terrain = new THREE.Mesh(
-    buildTerrain(),
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
-  );
+  /* The ground's fine grain, added in the fragment shader rather than in
+     the mesh.
+
+     buildTerrain already mottles the vertex colours, and at 1.28 units
+     between vertices that is the right tool for the broad patchiness of a
+     field seen from across it — but it is the *only* variation there was,
+     so anywhere closer than about eight metres the ground went smooth and
+     read as painted card. Putting the detail in the mesh instead would
+     mean a denser grid: at half a metre between vertices the terrain grows
+     from 10,368 triangles to about 68,000, for information that only ever
+     modulates colour.
+
+     So: two octaves of the same value noise buildTerrain uses, evaluated
+     per pixel against world position, modulating brightness by about a
+     tenth either way. It costs a handful of ALU per ground pixel, no
+     memory, and no triangles, and it is what stops the farm from having a
+     linoleum floor. World position comes through a varying of its own
+     rather than three.js's vWorldPosition, which only exists when
+     something else — shadows, fog, an environment map — has already asked
+     for it, and would therefore vanish on exactly the software path that
+     cannot afford shadows. */
+  const terrainMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+  terrainMaterial.onBeforeCompile = (shader) => {
+    shader.vertexShader = `varying vec3 farmGroundPos;
+${shader.vertexShader.replace(
+    '#include <begin_vertex>',
+    `#include <begin_vertex>
+      farmGroundPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;`,
+  )}`;
+    shader.fragmentShader = `varying vec3 farmGroundPos;
+      float farmGrainHash( vec2 p ) {
+        return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453123 );
+      }
+      float farmGrainNoise( vec2 p ) {
+        vec2 i = floor( p );
+        vec2 f = fract( p );
+        f = f * f * ( 3.0 - 2.0 * f );
+        float a = farmGrainHash( i );
+        float b = farmGrainHash( i + vec2( 1.0, 0.0 ) );
+        float c = farmGrainHash( i + vec2( 0.0, 1.0 ) );
+        float d = farmGrainHash( i + vec2( 1.0, 1.0 ) );
+        return mix( mix( a, b, f.x ), mix( c, d, f.x ), f.y );
+      }
+${shader.fragmentShader.replace(
+    '#include <color_fragment>',
+    `#include <color_fragment>
+      {
+        float grain = farmGrainNoise( farmGroundPos.xz * 2.6 ) * 0.62
+                    + farmGrainNoise( farmGroundPos.xz * 9.0 ) * 0.38;
+        diffuseColor.rgb *= 0.90 + grain * 0.20;
+      }`,
+  )}`;
+  };
+
+  const terrain = new THREE.Mesh(buildTerrain(), terrainMaterial);
   terrain.position.y = -0.08; // the same offset the flat ground used to sit at
-  scene.add(terrain);
+  scene.add(catches(terrain));
 
   /* Repaints the terrain's own vertex colours for a season, in place —
      buildTerrain's geometry, index and normals never change with the
@@ -997,7 +1290,7 @@ function startScene(bridge) {
     buildPaths(),
     new THREE.MeshStandardMaterial({ color: 0x9c8663, roughness: 1 }),
   );
-  scene.add(paths);
+  scene.add(catches(paths));
 
   /* -------------------------------------------------------------- */
   /* The pond                                                          */
@@ -1215,7 +1508,7 @@ function startScene(bridge) {
     buildPondBank(),
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }),
   );
-  scene.add(pondBank);
+  scene.add(catches(pondBank));
 
   // Same idea as applySeasonToTerrain, and the same reason it exists: the
   // geometry buildPondBank built is fine forever, only the paint changes.
@@ -1664,9 +1957,9 @@ function startScene(bridge) {
            tone mapping themselves — see that pass for why only the sky wants
            it. */
         object.traverse((obj) => {
-          for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
+          for (const mat of [obj.material ?? []].flat()) windify(mat).toneMapped = false;
         });
-        scene.add(object);
+        scene.add(casts(object));
         // After scene.add and the position/rotation above, so the box it
         // measures is the one the player will actually walk into.
         addSolid(prop, object);
@@ -1676,7 +1969,7 @@ function startScene(bridge) {
           fall.position.copy(object.position);
           fall.rotation.y = object.rotation.y;
           fall.traverse((obj) => {
-            for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
+            for (const mat of [obj.material ?? []].flat()) windify(mat).toneMapped = false;
           });
           // Asked directly rather than left at the object's own default and
           // waiting for the next syncSeason tick: a tree that finishes
@@ -1685,7 +1978,7 @@ function startScene(bridge) {
           const showFall = bridge.currentSeason() === 'autumn';
           object.visible = !showFall;
           fall.visible = showFall;
-          scene.add(fall);
+          scene.add(casts(fall));
           orchardTrees.push({ base: object, fall });
         }).catch((err) => console.warn(`farm: ${prop.id}_fall did not load`, err));
       }).catch((err) => console.warn(`farm: ${prop.id} did not load`, err))));
@@ -1785,7 +2078,37 @@ function startScene(bridge) {
      regardless of what or where. Async because the model has to be fetched,
      and fire-and-forget for the same reason dressFarm is: nothing here should
      hold up a scene that is otherwise ready to play. */
-  async function scatterInstanced(id, count, { heightRange, seed, bounds, accept }) {
+  /* `shadowing` is a per-species choice, not a global one, and the numbers
+     behind it are worth writing down. A grass tuft is 132 triangles and
+     there are 540 of them; grass_large is 224 and there are 170. Letting
+     them into the shadow map costs 109,360 triangles a frame to draw
+     shadows the size of a thumbnail, under blades that are themselves a
+     thumbnail — the one place in this scene where a shadow genuinely does
+     not read. The hillside fringe is the opposite case: 48 trees, 8,024
+     triangles between them, each one big enough that a missing shadow
+     would be noticed on the slope. So grass receives and does not cast;
+     the trees do both. */
+  /* `tint` and `tintSpread` are what stop a scatter reading as a scatter.
+
+     A field of ground cover in which every blade is the same colour is the
+     giveaway that a computer put it there — real ground cover varies blade
+     to blade, and at 540 of them the eye reads the variation long before it
+     reads any single tuft. `tint` recolours the species for this scatter
+     only, on a clone, so the same model placed by hand elsewhere keeps the
+     colour its file gives it; `tintSpread` then jitters each instance
+     around that on the same deterministic rng everything else here uses, so
+     today's screenshot still matches tomorrow's.
+
+     Grass needs the tint as well as the spread. Corrected to the colour its
+     own file asks for (see assets.js), the Nature Kit's grass is a light
+     mint — a fine colour for a plant, a strange one for the ground of a
+     farm, and it sat on the terrain looking like a different material
+     entirely. This brings it into the same family as the ground it grows
+     out of, which is a decision about this scene rather than a correction
+     to the kit, and is why it lives here and not in assets.js. */
+  async function scatterInstanced(
+    id, count, { heightRange, seed, bounds, accept, shadowing = casts, tint, tintSpread = 0 },
+  ) {
     const n = Math.round(count * FOLIAGE_SCALE);
     if (n <= 0) return [];
     const { meshes, height: authoredHeight } = await loadMeshes(id);
@@ -1803,10 +2126,16 @@ function startScene(bridge) {
     const transforms = points.map((p) => {
       const [lo, hi] = heightRange;
       const h = lo + rng() * (hi - lo);
+      /* Drawn from the same rng stream as the height and the spin, and
+         drawn whether or not this species asked for a spread, so that
+         turning the spread on does not silently re-roll every position
+         that came after it. */
+      const jitter = 1 + (rng() - 0.5) * 2 * tintSpread;
       return {
         position: new THREE.Vector3(p.x, terrainHeight(p.x, p.z) - 0.08, p.z),
         quaternion: new THREE.Quaternion().setFromAxisAngle(Y_UP, rng() * Math.PI * 2),
         scale: h / authoredHeight,
+        shade: new THREE.Color(jitter, jitter, jitter * (1 - (rng() - 0.5) * tintSpread)),
       };
     });
 
@@ -1816,12 +2145,19 @@ function startScene(bridge) {
       // like every other prop loaded after the scene stands — it opts out
       // for itself. See that pass for why only the sky wants ACES.
       material.toneMapped = false;
-      const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
+      /* Cloned only when this scatter actually recolours the species, so
+         the shared material — and every other placement of the same model —
+         is left exactly as the file defined it in every other case. */
+      const instMaterial = windify(tint ? material.clone() : material);
+      if (tint) instMaterial.color.copy(tint);
+      const mesh = new THREE.InstancedMesh(geometry, instMaterial, transforms.length);
       transforms.forEach((t, i) => {
         instMatrix.compose(t.position, t.quaternion, instScale.setScalar(t.scale));
         mesh.setMatrixAt(i, instMatrix);
+        if (tintSpread) mesh.setColorAt(i, t.shade);
       });
       mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       /* The default bounding sphere is the geometry's own — sized for one
          blade of grass at the origin, not the scatter of a few hundred across
          the whole farm. Left alone, that is not a smaller optimisation, it is
@@ -1832,7 +2168,7 @@ function startScene(bridge) {
          on an InstancedMesh knows about every instance's matrix and fixes
          both. */
       mesh.computeBoundingSphere();
-      scene.add(mesh);
+      scene.add(shadowing(mesh));
       instances.push(mesh);
     }
     // Read by the tests, which have no other way to ask a canvas how many
@@ -1916,11 +2252,13 @@ function startScene(bridge) {
   const foliageReady = dressed.then(() => Promise.all([
     scatterInstanced('nature/grass', 540, {
       heightRange: [0.22, 0.34], seed: 1, bounds: FARM_BOUNDS, accept: onFarmGround,
+      shadowing: catches, tintSpread: 0.22,
     }).then((meshes) => grassMeshes.push(...hideIfWinter(meshes)))
       .catch((err) => console.warn('farm: grass did not load', err)),
 
     scatterInstanced('nature/grass_large', 170, {
       heightRange: [0.34, 0.5], seed: 2, bounds: FARM_BOUNDS, accept: onFarmGround,
+      shadowing: catches, tintSpread: 0.22,
     }).then((meshes) => grassMeshes.push(...hideIfWinter(meshes)))
       .catch((err) => console.warn('farm: grass_large did not load', err)),
 
@@ -1930,10 +2268,12 @@ function startScene(bridge) {
        treeline seen across a field should be. */
     scatterInstanced('nature/tree_default', 26, {
       heightRange: [3.6, 5.2], seed: 10, bounds: HILL_BOUNDS, accept: onHillside,
+      tintSpread: 0.16,
     }).catch((err) => console.warn('farm: hillside trees did not load', err)),
 
     scatterInstanced('nature/tree_pineDefaultA', 22, {
       heightRange: [4.4, 6.6], seed: 11, bounds: HILL_BOUNDS, accept: onHillside,
+      tintSpread: 0.16,
     }).catch((err) => console.warn('farm: hillside pines did not load', err)),
   ]));
 
@@ -2098,6 +2438,69 @@ function startScene(bridge) {
   sky.material.uniforms.rayleigh.value = 1.2;
   sky.material.uniforms.mieCoefficient.value = 0.006;
   sky.material.uniforms.mieDirectionalG.value = 0.8;
+
+  /* The sky tone-maps itself now, rather than asking the renderer to do it,
+     and the bug that forced this is a good illustration of why "it looked
+     fine when I checked" is not the same as "it is right".
+
+     Sky.js ends its fragment shader with `#include <tonemapping_fragment>`,
+     and that chunk compiles to nothing unless three.js has defined
+     TONE_MAPPING for the program. three.js defines it only when rendering to
+     the canvas: render into a *render target* and tone mapping is switched
+     off, on the reasoning that a composer chain will do it at the end. This
+     chain deliberately does not — see buildPostProcessing, which picks
+     GammaCorrectionShader over OutputPass precisely so ACES is not applied
+     to the whole image.
+
+     So on the direct path the sky was tone-mapped and looked right, and on
+     both composer tiers it was not tone-mapped at all: Sky.js's unclamped
+     Preetham radiance went into the buffer raw and clipped to flat white.
+     Measured rather than guessed — the same sky pixel reads (208, 220, 226)
+     drawn straight to the canvas and (255, 255, 255) through the composer.
+     It had been so since the composer was added, and survived because the
+     direct path is the one CI and every software-rendered screenshot use.
+
+     Doing it here means the answer stops depending on which tier the
+     machine earned. The curve is three.js's own ACES — the Hill fit it uses
+     for ACESFilmicToneMapping, its 0.6 exposure normalisation included —
+     under private names, so that the renderer's own copy, which it still
+     prepends on the direct path, cannot collide with it. toneMapped goes
+     off for the same reason: this material has now done the job once and
+     three.js must not do it again. */
+  const SKY_EXPOSURE = renderer.toneMappingExposure;
+  sky.material.toneMapped = false;
+  sky.material.onBeforeCompile = (shader) => {
+    shader.uniforms.farmSkyExposure = { value: SKY_EXPOSURE };
+    const lit = shader.fragmentShader.replace(
+      '#include <tonemapping_fragment>',
+      'gl_FragColor.rgb = farmSkyToneMap( gl_FragColor.rgb );',
+    );
+    shader.fragmentShader = `
+      uniform float farmSkyExposure;
+      vec3 farmRRTAndODTFit( vec3 v ) {
+        vec3 a = v * ( v + 0.0245786 ) - 0.000090537;
+        vec3 b = v * ( 0.983729 * v + 0.4329510 ) + 0.238081;
+        return a / b;
+      }
+      vec3 farmSkyToneMap( vec3 color ) {
+        const mat3 inputMat = mat3(
+          vec3( 0.59719, 0.07600, 0.02840 ),
+          vec3( 0.35458, 0.90834, 0.13383 ),
+          vec3( 0.04823, 0.01566, 0.83777 )
+        );
+        const mat3 outputMat = mat3(
+          vec3(  1.60475, -0.10208, -0.00327 ),
+          vec3( -0.53108,  1.10813, -0.07276 ),
+          vec3( -0.07367, -0.00605,  1.07602 )
+        );
+        color *= farmSkyExposure / 0.6;
+        color = inputMat * color;
+        color = farmRRTAndODTFit( color );
+        color = outputMat * color;
+        return clamp( color, 0.0, 1.0 );
+      }
+${lit}`;
+  };
 
   /* What this deliberately doesn't do: generate a PMREM environment map
      from the dome for image-based lighting, the other half of what this
@@ -2277,7 +2680,7 @@ function startScene(bridge) {
       });
 
       object.visible = false;
-      scene.add(object);
+      scene.add(casts(object));
       slot.object = object;
       slot.mixer = mixer;
       slot.actions = actions;
@@ -2559,6 +2962,13 @@ function startScene(bridge) {
       object.traverse((obj) => {
         for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
       });
+      /* Set on the body rather than on the `farmer` group that holds it,
+         because three.js reads these per mesh and a group's flag is not
+         inherited. This is also the half of the fix assets.js started: she
+         was authored unlit, which made her the one thing in the yard that
+         could neither be lit nor shaded. Now she casts her own shadow
+         across the field she is standing in. */
+      casts(object);
       return { object, mixer, actions };
     }).catch((err) => {
       console.warn('farm: the farmer could not be loaded', err);
@@ -3508,6 +3918,59 @@ function startScene(bridge) {
       keepOutOfSolids(x, z, out);
       return out.x !== x || out.z !== z;
     },
+    /* How the scene is actually lit, which is the honest question to ask of
+       a graphics pass. `shadows` says whether this machine earned a shadow
+       map at all — false on every software rasteriser, which is what CI
+       runs — and the rest is the shadow camera's own footprint, so a test
+       can check it still covers the farm after somebody moves a fence. */
+    lighting: () => ({
+      shadows: shadowsAfforded && renderer.shadowMap.enabled,
+      sunPeak: SUN_PEAK,
+      hemiPeak: HEMI_PEAK,
+      shadowExtent: shadowsAfforded ? sun.shadow.camera.right : 0,
+      shadowMapSize: shadowsAfforded ? sun.shadow.mapSize.x : 0,
+      // The sky does its own tone mapping now, on every tier — see the sky
+      // section for the bug that made that necessary.
+      skySelfToneMapped: sky.material.toneMapped === false,
+    }),
+    /* The wind, read off the uniforms every windified material shares
+       rather than re-derived from the formula. A test can watch the phase
+       advance and watch the strength answer a hurricane. */
+    wind: () => ({
+      phase: windUniforms.farmWindTime.value,
+      strength: windUniforms.farmWindStrength.value,
+    }),
+    /* What a material actually came out as, once assets.js has corrected
+       the kit's own mistakes about it. The three things worth holding:
+       nothing is accidentally metal, the farmer is lit rather than unlit,
+       and the ground cover is the farm's green rather than the kit's mint. */
+    materialFacts: () => {
+      const facts = { metallic: [], unlit: [], grass: null };
+      scene.traverse((obj) => {
+        if (!obj.isMesh) return;
+        for (const mat of [obj.material ?? []].flat()) {
+          if (mat.isMeshBasicMaterial && mat.map) facts.unlit.push(mat.name || obj.name);
+          if (mat.metalness === 1 && !mat.metalnessMap) facts.metallic.push(mat.name || obj.name);
+          if (mat.name === 'grass' && !facts.grass) facts.grass = `#${mat.color.getHexString()}`;
+        }
+      });
+      // Every one of her materials, not the first one that turns up: the
+      // characters are six meshes, and a half-converted farmer is exactly
+      // the bug this is here to catch.
+      let farmerMats = 0;
+      let farmerLit = 0;
+      if (body) {
+        body.object.traverse((obj) => {
+          if (!obj.isMesh) return;
+          for (const mat of [obj.material ?? []].flat()) {
+            farmerMats += 1;
+            if (mat.isMeshStandardMaterial) farmerLit += 1;
+          }
+        });
+      }
+      facts.farmerLit = farmerMats > 0 && farmerLit === farmerMats;
+      return facts;
+    },
     drawCost: () => ({
       calls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -3622,6 +4085,7 @@ function startScene(bridge) {
     syncSeason();
     syncSky(now);
     syncWeather(now);
+    syncWind(now);
     syncWater(now); // after syncSky: it reflects the sky that pass just set
     syncPlots(now);
     syncAnimals(now);
@@ -3634,6 +4098,16 @@ function startScene(bridge) {
     // reports is this whole frame across every pass — see renderer.info
     // .autoReset above.
     renderer.info.reset();
+    /* One shadow map per frame, asked for by hand. Left on autoUpdate,
+       three.js rebuilds the map at the start of *every* renderer.render()
+       call — and on the composer tiers there are several a frame, because
+       RenderPass renders the scene and SSAOPass renders it again for depth
+       and normals. The map was being drawn twice a frame for one frame's
+       worth of use, which step 14's instrument caught as an exactly doubled
+       count: 234,768 triangles charged to shadow casters whose geometry
+       adds up to 117,384. Costs nothing when shadows are off, where
+       needsUpdate is never read. */
+    if (shadowsAfforded) renderer.shadowMap.needsUpdate = true;
     if (post && quality !== QUALITY.PLAIN) post.composer.render();
     else renderer.render(scene, camera);
   }

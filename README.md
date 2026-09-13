@@ -35,7 +35,11 @@ parked on a two-lane pull-in by the market stall, the way the stall itself is
 set dressing rather than somewhere she walks — the Market tab still sells
 from a flat 2D counter, same as ever. The sun
 tracks the same clock the 2D sky strip reads, carrying the yard from daylight
-through a warm dusk into a moonlit night. The camera follows her and is yours
+through a warm dusk into a moonlit night, and on a machine with a GPU it
+casts: the farmhouse lays a long shadow across the field in the afternoon,
+the orchard dapples the ground it stands on, and the farmer has a shadow of
+her own. A steady wind leans the grass and bends the trees, and picks up in
+the days before a hurricane. The camera follows her and is yours
 to move — drag to orbit, pinch to zoom, two fingers to pan, clamped so it
 can't go underground or flip upside down.
 
@@ -46,6 +50,12 @@ that the buildings standing on it can be building-sized. She cannot walk
 through any of them: the two buildings, the stall, the car and every orchard
 trunk stop her and slide her along themselves. The canopies do not, so
 standing under an apple tree is still allowed.
+
+How much of that you see depends on what you are playing on. Shadows and the
+post-processing chain are switched on only where there is a GPU to draw
+them; a machine without one gets the same farm, lit the same way, without
+the parts it cannot afford. Everything else — the lighting, the colours, the
+wind — is the same everywhere.
 
 None of that is required to play. The whole game is still reachable from the
 keyboard alone, and from a screen reader — see [Accessibility](#accessibility).
@@ -300,7 +310,14 @@ pixels: that the pond's water is moving rather than painted, which crop model
 a plot is actually showing, where a roaming animal really is, that the season
 turns the orchard and hides the grass, that rain thickens as a hurricane
 nears, and that a keyboard-only player can plant and harvest without touching
-the plot grid at all. **Scale and collision** are tested the same way, as
+the plot grid at all. **How the farm is lit** is held to the same standard:
+that nothing in the yard is accidentally made of metal, that the farmer is
+lit rather than unlit, that the ground cover is the farm's own green, that
+the sky tone-maps itself rather than trusting a renderer that switches tone
+mapping off inside a render target, that the wind keeps moving and answers a
+hurricane — and that shadows stay switched off on a machine with no GPU,
+which is the whole point of gating them. **Scale and collision** are tested
+the same way, as
 numbers rather than as screenshots: that the farmhouse really is several
 times the farmer's measured height, that the orchard's trunks stop her while
 its canopies do not, that nothing is left standing in the pond, that driving

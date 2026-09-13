@@ -5041,6 +5041,134 @@ test.describe('walls she cannot walk through', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* How the farm is lit and what it is made of                           */
+/* ------------------------------------------------------------------ */
+
+/* The graphics pass corrected three defects in the kits' own material
+   data and added a shadow map, a self-tone-mapping sky and wind. Most of
+   that is judged by eye, and the screenshots that judged it are recorded
+   in docs/ART_BIBLE.md. What is held here is the part that is a fact
+   rather than a preference — because every one of these regressed silently
+   once already, which is how they came to be worth finding.
+
+   Note what this suite *cannot* see: CI has no GPU, so rendererIsSoftware()
+   is true here and the shadow map is deliberately never enabled. That is
+   itself worth asserting — the whole point of the gate is that the machine
+   which cannot afford shadows does not get billed for them. */
+test.describe('how the farm is lit', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+  };
+
+  test('shadows are gated on the machine that has to draw them', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    const lighting = await page.evaluate(() => window.Farm3DScene.lighting());
+    /* False here, and that is the assertion. Two earlier attempts at
+       shadows were abandoned on measurements taken on this very path; the
+       third works by never asking it to pay. If this ever reads true in
+       CI, the gate has come off and those measurements are live again. */
+    expect(lighting.shadows).toBe(false);
+    expect(lighting.shadowExtent).toBe(0);
+  });
+
+  test('the sky tone-maps itself rather than trusting the renderer', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* three.js compiles tone mapping out when rendering into a render
+       target, so a sky that relied on renderer.toneMapping was correct on
+       the direct path and blown to flat white on both composer tiers —
+       measured at (208, 220, 226) against (255, 255, 255) on the same
+       pixel. Doing it in the sky's own shader is what makes the two agree,
+       and toneMapped staying false is what stops it happening twice. */
+    const lighting = await page.evaluate(() => window.Farm3DScene.lighting());
+    expect(lighting.skySelfToneMapped).toBe(true);
+  });
+
+  test('nothing in the yard is accidentally made of metal', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* The Nature Kit ships metallicFactor: 1 on every material, with no
+       metalness map and a plain colour — a default nobody overrode. A
+       fully metallic surface has no diffuse response, so every tree, bush
+       and tuft of grass was lit by one broad specular lobe and nothing
+       else, which is why the orchard read as a row of near-black blobs.
+       assets.js corrects it at parse; this is what says it stayed
+       corrected. */
+    const facts = await page.evaluate(() => window.Farm3DScene.materialFacts());
+    expect(facts.metallic).toEqual([]);
+  });
+
+  test('the farmer is lit by the same sun as her own cows', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    // Her body arrives separately from the scene, so it gets its own wait.
+    await page.waitForFunction(() => window.Farm3DScene.materialFacts().farmerLit);
+
+    /* The characters declare KHR_materials_unlit, which GLTFLoader honours
+       by giving them a MeshBasicMaterial. Correct to the letter of the
+       file, and wrong for a game with a day/night cycle: she stayed
+       noon-bright through midnight, ignored the sun everything else
+       answers to, and could neither cast a shadow nor receive one. */
+    const facts = await page.evaluate(() => window.Farm3DScene.materialFacts());
+    expect(facts.farmerLit).toBe(true);
+    expect(facts.unlit).toEqual([]);
+  });
+
+  test('the ground cover is the farm\'s green, not the kit\'s mint', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* One material — `grass` — is shared by the scattered tufts, the
+       bushes, the reeds, both flower stems and the pumpkin's leaves. Left
+       at the colour its file asks for it is a light mint, which is a fine
+       colour for a plant and a strange one for the ground of a farm. The
+       override is registered before anything is parsed, so every one of
+       those placements agrees; this checks it reached them. */
+    const facts = await page.evaluate(() => window.Farm3DScene.materialFacts());
+    expect(facts.grass).toBe('#87b356');
+  });
+});
+
+test.describe('wind', () => {
+  const ready = (page) => page.waitForFunction(() => !!window.Farm3DScene);
+
+  test('the air keeps moving', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* Polled rather than read twice with a sleep between: the phase only
+       advances on a drawn frame, and the draw is paced to 30fps and
+       skipped entirely when the farm is not on screen. */
+    const phase = () => page.evaluate(() => window.Farm3DScene.wind().phase);
+    const first = await phase();
+    await expect.poll(phase, { timeout: 10_000 }).toBeGreaterThan(first);
+  });
+
+  test('the air gets restless before a hurricane', async ({ page }) => {
+    await load(page, makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS] }));
+    await ready(page);
+
+    const strength = () => page.evaluate(() => window.Farm3DScene.wind().strength);
+    // Day 1 is as far from a storm as this calendar gets.
+    await expect.poll(strength, { timeout: 10_000 }).toBeGreaterThan(0);
+    const calm = await strength();
+
+    /* Day 56 is the day a hurricane first comes due against a fresh save —
+       the same forecast syncWeather reads to thicken the rain. Nothing had
+       to tell the wind about hurricanes; it reads the one number they both
+       already depend on. */
+    await page.evaluate(() => { state.day = 56; });
+    await expect.poll(strength, { timeout: 10_000 }).toBeGreaterThan(calm * 1.5);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* Smoke                                                               */
 /* ------------------------------------------------------------------ */
 
