@@ -2424,6 +2424,147 @@ Fixed by stopping her on the page's own frames, in the same frame the target
 comes into reach, which is the shape `driveOnto` in that file already uses.
 16 of 16 afterwards at the contention that failed 8 of 12.
 
+## 32. A person, a road, and somewhere to drive it
+
+Three asks together: make the farmer human rather than Lego, lay a road to the
+market, and let her load the harvest and drive it there like a country drive in
+GTA.
+
+### The farmer had to be built, because no kit has a person in it
+
+The pinned CC0 mirror has exactly two character kits, and both were checked
+rather than assumed.
+
+| kit | what it is |
+|---|---|
+| `blocky-characters` (in use) | a Lego minifigure — slab body, peg arms, cube head, no neck |
+| `mini-characters` | real limbs, hair, faces, **and a ready-made `drive` clip** |
+
+`mini-characters` looked like the answer and is not. It renders with its arms
+fragmented and splayed — **width 1.10 against height 0.78** in its own bind
+pose, before any code here touches it. That was run down properly before it was
+abandoned: the raw glTF has one `JOINTS_0` set, joint indices in range (max 5 of
+7), and weights normalised to 1.0000 on every vertex; `skeleton.pose()` changes
+nothing; playing `static` — the only clip with a track for all seven joints —
+changes nothing. The breakage is authored into the file. It is also a Funko: a
+third of its height is head, which is not much less Lego than what it replaces.
+
+So she is built from primitives in `farmer.js`. That buys the one thing no kit
+here offers: **proportions**.
+
+|  | minifigure | built |
+|---|---|---|
+| head as a fraction of height | ~⅓ | **~⅙** |
+| neck | none | yes |
+| joints that bend | shoulder, hip | shoulder, elbow, wrist, hip, knee, ankle |
+
+Six and a half heads, not the seven and a half a life-drawing class measures.
+The first build used 7.5 and it was wrong in a way only the render showed: at
+the distance this game is played at, an anatomically correct head is a handful
+of pixels and she came out pin-headed — the failure mode at the far end from
+the one being fixed.
+
+Three other things were wrong and found by looking rather than by reasoning:
+
+- **The legs ran through the floor.** The thigh bone hangs 0.35 heads below the
+  pelvis centre and the thigh's *length* was computed from the pelvis, so both
+  boots sat 8.6cm under the field. Found by printing every mesh's world extent,
+  not by looking at the screen — the grass hid it.
+- **The hair was a motorcycle helmet.** A hemisphere of hair comes down to the
+  equator of the skull, which is eye height. Tilting the opening forward lifts
+  the front rim off the brow and drops the back one over the nape in one move;
+  a cap short enough to clear the eyes left a bare patch at the back of her
+  head, which is the view this game is mostly played from.
+- **She had no face.** Two dark chips for eyes, three pixels each at playing
+  distance, and still the difference between a person and a mannequin.
+
+The rig is a plain `Object3D` hierarchy with a ball at each joint rather than a
+`SkinnedMesh`. Nothing here needs vertices to follow bones smoothly, and the
+ball fills the wedge that opens on the inside of a bend — which is how a
+low-poly figure gets away without skinning at all. Clips are built as ordinary
+`AnimationClip`s on the ordinary mixer, so `poseFarmer`'s crossfades, its clip
+speed scaling and its once-through crouch all drove the new figure untouched.
+
+**One test had to be restated rather than satisfied.** The orchard asserted
+`tree.height / farmer > 2.7`, and that threshold was calibrated against the
+1.45-unit farmer. She is 1.6 now, so the same 4.2-unit tree comes out at 2.6.
+Nothing about the orchard changed — the yardstick did, and it moved *toward*
+the truth: a four-metre tree over a person really is about two and a half times
+their height. The ratio is restated against the figure actually standing there,
+with the tree's absolute height asserted alongside it so the pair cannot both
+be met by a mistake.
+
+### The road is one mesh, not a hundred tiles
+
+The kit's road pieces are a metre square. Sixty-odd units of road would have
+been well over a hundred models and a hundred draw calls, laid on a grid that
+cannot bend — a road made of squares turns in right angles, which is a street.
+
+So it is a ribbon generated along a Catmull-Rom spline: **one geometry, one draw
+call, 63.6 units long**, curving as smoothly as it is sampled and rolling over
+the hills it crosses. The markings are drawn in the shader from the ribbon's own
+along-the-road coordinate — a dashed centre line and two solid edges, no second
+mesh and no texture to load.
+
+Two rendering bugs, both found in screenshots and both fixed at the cause:
+
+- **Black patches on the tarmac.** `computeVertexNormals` on a ribbon whose
+  inner edge barely advances through a tight bend produces triangles with
+  flipped winding, whose normals point into the hill. Every point of a road
+  lying on a hillside has a normal that is knowable without reference to any
+  triangle — it is the hill's gradient — so that is what it uses now.
+- **Grass punching up through the road.** The ribbon was laid at
+  `terrainHeight` plus a few centimetres, and that is the height of the
+  *function*, not of the *mesh*: the terrain only samples that function at its
+  own grid vertices 1.28 units apart and draws flat triangles between them, so
+  on every rise the drawn ground sits above the curve. Interpolating bilinearly
+  across the four corners fixed most of it and left smaller patches;
+  `buildTerrain` splits each cell on the anti-diagonal, so the fix is to ask
+  which of the two triangles the point is actually standing on.
+
+### Driving
+
+Handling deliberately unlike a tank. The steering is scaled by speed and falls
+to nothing as the car stops, because a vehicle that turns on the spot is a
+turret with wheels; reverse steers the other way for the reason it does in
+life. Top speed is 12 units a second on tarmac and 5.5 off it, which is what
+keeps the road worth staying on.
+
+| | |
+|---|---|
+| turn radius at full lock, full speed | ~8 units |
+| tightest bend on the route | ~6 units |
+
+Those two numbers are the drive. You cannot take that corner flat out; you lift
+off. The test bot in `game.spec.js` brakes for bends for exactly this reason,
+and the first version of it — which held the throttle down and steered at the
+destination — drove into the hills and wedged against a tree. That was the bot
+being a bad driver, not the car being wrong.
+
+**She is not drawn at the wheel.** A driving pose was written, seated, and
+deleted: the sedan is a solid body with a painted-on windscreen and no cabin,
+so her head came out through the roof and her left arm through the door. The
+car is the thing you are driving, which is what a chase camera behind a vehicle
+shows anyway.
+
+**Nothing about the Market tab changed**, which was the explicit decision: it
+sells at the same prices over the same counter, and the drive is a longer way
+round to the same coins. The two cannot double up because the sale on arrival
+runs the tab's own `sellAll` over the live inventory — the crates in the back
+are a picture of what she set off with, not a second copy of it. A load that
+never arrives costs nothing, and there is a test for that.
+
+The market itself is built entirely from kits already vendored. The obvious
+move was to pull the `mini-market` kit the mirror does have; it would have
+meant a new texture atlas, a new manifest entry and a new set of colour
+corrections to check, to arrive at a row of stalls this game can already build.
+
+### What this cost
+
+No new assets were fetched, and the draw budget is unchanged — the road is one
+mesh and the roadside scenery is instanced, so the worst-case test passes at
+the same ceilings it did before.
+
 ---
 
 ## Verified, not assumed
@@ -2791,6 +2932,46 @@ Everything above was checked before it was written:
   models arriving looks exactly like the end of loading. The helper now
   awaits the scene's three readiness promises, and the comparison is an
   inequality pointing the way real damage would move it.
+
+- §32's claim that no kit in the mirror has a human-proportioned character is
+  a probe of the mirror, not an impression of it: `mini-characters` was found
+  by probing, downloaded, and rejected on measurements — 1.10 wide against
+  0.78 tall in its own bind pose, with the glTF's weights, joint indices and
+  attribute sets all checked as valid first. A dozen other plausible kit names
+  were probed; the ones that exist (`mini-market`, `food`, `castle` and the
+  rest) have no characters in them.
+- The farmer's proportions were fixed against printed world extents rather
+  than against the screen. That is how the boots were found 8.6cm under the
+  field — the grass hid it in every screenshot, and the total height being
+  1.665 instead of 1.6 was the only visible symptom.
+- §32's road bugs were each fixed at the cause rather than papered over: the
+  black patches by deriving normals from the terrain gradient instead of from
+  triangle winding, and the grass-through-tarmac by interpolating on the
+  terrain's actual triangle. Raising the road's clearance would have hidden
+  both and was not done.
+- The drive was measured end to end before it was called working: 63.6 units
+  of road, twelve units a second on tarmac, arriving in about six seconds, and
+  the inventory emptied into coins on arrival.
+- One suspicious number was chased and found innocent: the test fixture's
+  coins read 1100 against a save that says 900. Checked against the previous
+  commit with this work stashed — same 1100, same two achievements unlocking
+  on load. Pre-existing achievement rewards, nothing to do with this pass.
+- The market's collision boxes were spaced by measuring them, after the
+  overlap test rejected a layout placed by eye: `building-type-a`'s footprint
+  is 8 by 9 units, about twice what it was guessed at.
+- Three existing tests had to be restated for §32, and each is recorded rather
+  than quietly widened. The orchard's height ratio was calibrated against a
+  shorter farmer (above). The foliage species list grew because the roadside
+  scatter uses the same instancer, so a new ordering assertion was added with
+  it rather than the list merely being extended. And the check that the farmer
+  is not perfectly matte was asserted through `texture-a`, a kit texture that
+  no longer exists now she is built here — it is asked of every material she
+  is made of instead, which is a stronger form of the same claim.
+- One process mistake, recorded because it produced numbers that were nearly
+  believed: a targeted test run was started while the full suite was already
+  running in the background, and both were read as results. They were
+  contending for four cores and neither meant anything. Both were discarded
+  and a single clean run taken.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

@@ -2257,6 +2257,12 @@ const PLOT_PROMPT = {
 
 function promptLabel(target) {
   if (!target) return '';
+  /* The two the car adds. `park` only ever appears once the car has stopped,
+     so it never offers to put her out at speed. */
+  if (target.type === 'car') {
+    return target.load ? '🚚 Load up and drive to market' : '🚗 Take the car out';
+  }
+  if (target.type === 'park') return '🅿️ Park and get out';
   if (target.type === 'plot') return PLOT_PROMPT[target.intent]?.() ?? '';
   const def = ANIMALS[target.kind];
   return target.intent === 'collect'
@@ -2309,6 +2315,8 @@ function showPrompt(target) {
 function runPrompt() {
   const target = promptTarget;
   if (!target) return false;
+  if (target.type === 'car') return !!window.Farm3DScene?.board();
+  if (target.type === 'park') return !!window.Farm3DScene?.alight();
   if (target.type === 'plot') {
     const kind = plotIntent(target.plot);
     if (!kind) return false;
@@ -2374,6 +2382,22 @@ window.Farm3DBridge = {
     state.lastSeenAt = Date.now();
     saveState();
   },
+  /* What she can take to market, and what happens when she gets there.
+
+     `haul` is only ever read to decide whether there is a point in loading
+     the car and to stack the right crates in the back; the sale itself runs
+     sellAll over the live inventory on arrival, so a load that never arrives
+     costs nothing and a load that arrives cannot be sold twice. The 2D
+     Market tab is untouched and sells exactly as it did — this is a second
+     road to the same prices, not a replacement for the counter. */
+  haulable: () => Object.keys(GOODS).filter((k) => state.inventory[k] > 0)
+    .map((k) => ({ key: k, emoji: GOODS[k].emoji, qty: state.inventory[k] })),
+  sellHaul() {
+    const sold = Object.keys(GOODS).filter((k) => state.inventory[k] > 0);
+    for (const key of sold) sellAll(key);
+    return sold.length;
+  },
+  announce: showToast,
   /* Step 6's proximity loop: the scene says what is in reach and asks what it
      would mean, the interface offers it, and Space or the button runs it. */
   animalIntent,

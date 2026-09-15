@@ -40,6 +40,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 import { loadModel, loadMeshes, preload, overrideKitColor, overrideKitFinish } from './assets.js';
+import { buildFarmer, FARMER_HEIGHT } from './farmer.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -1075,6 +1076,46 @@ function startScene(bridge) {
     return valueNoise(x * 0.08, z * 0.08) * 0.7 + valueNoise(x * 0.19, z * 0.19) * 0.3;
   }
 
+  /* The height of the terrain *mesh*, as opposed to the height of the
+     function it was built from. They are not the same number anywhere the
+     ground is not flat: the mesh only samples terrainHeight at its own grid
+     vertices, 1.28 units apart, and renders flat triangles between them, so
+     on any rise the drawn surface sits above the curve it approximates.
+
+     The road found this out the hard way. Laid at terrainHeight plus a
+     centimetre or three, it spent every slope submerged in the hill it was
+     supposed to be lying on, and rendered as grass punching up through the
+     tarmac in patches. Interpolating between the same four grid corners the
+     mesh uses puts the ribbon on the surface that is actually drawn, and
+     leaves the lift doing the one job a lift should do — keeping two
+     coincident surfaces from fighting over the depth buffer.
+
+     On the cell's own triangle, not bilinearly across its four corners.
+     Bilinear was the first version and it was still wrong — by centimetres
+     rather than by a tenth of a unit, but the road only clears the ground by
+     six of them, so the black patches came back in smaller pieces. A
+     quadrilateral with four corners at four different heights is not flat
+     and the mesh does not pretend it is: buildTerrain splits every cell into
+     (a, c, b) and (b, c, d), which puts the seam on the anti-diagonal. Which
+     side of that seam a point falls on decides which plane it is standing
+     on, and this asks. */
+  function terrainGridHeight(x, z) {
+    const step = (TERRAIN_HALF * 2) / TERRAIN_SEGMENTS;
+    const gx = (x + TERRAIN_HALF) / step;
+    const gz = (z + TERRAIN_HALF) / step;
+    const ix = Math.floor(gx);
+    const iz = Math.floor(gz);
+    const fx = gx - ix;
+    const fz = gz - iz;
+    const at = (cx, cz) => terrainHeight(-TERRAIN_HALF + cx * step, -TERRAIN_HALF + cz * step);
+    const ha = at(ix, iz);
+    const hb = at(ix + 1, iz);
+    const hc = at(ix, iz + 1);
+    if (fx + fz <= 1) return ha + (hb - ha) * fx + (hc - ha) * fz;
+    const hd = at(ix + 1, iz + 1);
+    return hd + (hc - hd) * (1 - fx) + (hb - hd) * (1 - fz);
+  }
+
   function terrainHeight(x, z) {
     const dx = Math.max(0, Math.abs(x - FLAT_CENTER_X) - FLAT_HALF_X);
     const dz = Math.max(0, Math.abs(z - FLAT_CENTER_Z) - FLAT_HALF_Z);
@@ -1944,6 +1985,191 @@ ${shader.fragmentShader.replace(
      like. Both are rotated a quarter turn, so their long axis runs north-
      south and the width the old note worried about is spent on the free
      dimension rather than the crowded one. */
+  /* -------------------------------------------------------------- */
+  /* The country road, and the market at the end of it                */
+  /* -------------------------------------------------------------- */
+
+  /* Until this the Market was a flat tab with no seat in the world, and the
+     strip of tarmac by the stall was set dressing that led nowhere — the
+     art bible said as much, twice. Now it goes somewhere.
+
+     Built as one ribbon on a spline rather than as tiles. The kit's road
+     pieces are a metre square, so the sixty-odd units of road below would
+     have been well over a hundred models and a hundred draw calls, laid on
+     a grid that cannot bend — a road made of squares can only ever turn in
+     right angles, which is a street, not a country lane. A generated
+     ribbon is one geometry, one draw call, curves as smoothly as it is
+     sampled, and follows the ground it crosses. The kit's tiles stay where
+     they already were, as the pull-in beside the stall; this picks up from
+     their southern end.
+
+     It is deliberately not flat. The road takes its height from
+     terrainHeight, the same function the hills are built from, so it rolls
+     over them — and the car below reads its own height from that same
+     function rather than from this mesh, which is what keeps the two in
+     agreement without the car having to raycast anything. */
+  const ROAD_WIDTH = 4.4;
+  const ROAD_LIFT = 0.06; // clear of the terrain sheet, under the grass blades
+
+  /* The route, as the handful of points it bends through. West of the farm
+     gate it is a straight run out of the yard; after that it wanders, which
+     is the whole point — a road that arrives in two straight lines is a
+     corridor, and the ask was a country road to drive. The last point is
+     the market square. */
+  const ROAD_WAYPOINTS = [
+    [4.7, 8.4], [4.9, 14], [7.5, 19], [13, 22.5], [19, 25], [24, 29],
+    [26, 34.5], [23, 39], [16.5, 41.5], [9, 41], [3.2, 37.8],
+  ];
+
+  const MARKET = { x: 3.2, z: 37.8 };
+  /* How close to the square counts as having arrived, and — the same number
+     doing a second job — how far out the market's own props are allowed to
+     stand before the "nothing has drifted into the hills" test calls them
+     lost. One radius rather than two, because they are the same claim: this
+     is where the market is. */
+  const MARKET_RADIUS = 10;
+
+  const roadCurve = new THREE.CatmullRomCurve3(
+    ROAD_WAYPOINTS.map(([x, z]) => new THREE.Vector3(x, 0, z)),
+    false,
+    'catmullrom',
+    0.5,
+  );
+
+  /* Sampled densely enough that the bends read as curves rather than as a
+     polyline. Every sample is a rung of the ladder the ribbon is built from,
+     so this is also what decides how closely the road hugs the hills. */
+  const ROAD_STEPS = 320;
+  const roadSamples = [];
+  {
+    const p = new THREE.Vector3();
+    const t = new THREE.Vector3();
+    for (let i = 0; i <= ROAD_STEPS; i += 1) {
+      const u = i / ROAD_STEPS;
+      roadCurve.getPointAt(u, p);
+      roadCurve.getTangentAt(u, t);
+      roadSamples.push({
+        x: p.x,
+        z: p.z,
+        // Perpendicular, in the ground plane: the tangent turned a quarter
+        // turn, which for (dx, dz) is (dz, -dx).
+        nx: t.z,
+        nz: -t.x,
+      });
+    }
+  }
+
+  /* How far along the road a point is, and how far off it — answered by
+     walking the samples. Used by the scatter, to keep trees out of the
+     carriageway, and by the drive, to know when the car has arrived.
+
+     A linear scan of 321 points is not clever and does not need to be: the
+     scatter asks a few thousand times at load, and the drive asks once a
+     frame. Anything smarter here would be a grid index to save a tenth of a
+     millisecond nobody is waiting on. */
+  function nearestOnRoad(x, z) {
+    let best = Infinity;
+    let at = 0;
+    for (let i = 0; i < roadSamples.length; i += 1) {
+      const s = roadSamples[i];
+      const d = (s.x - x) ** 2 + (s.z - z) ** 2;
+      if (d < best) { best = d; at = i; }
+    }
+    return { distance: Math.sqrt(best), along: at / ROAD_STEPS };
+  }
+
+  const ROAD_CLEARANCE = ROAD_WIDTH / 2 + 1.6; // verge, plus room not to brush a wing mirror
+  const offRoad = (x, z) => nearestOnRoad(x, z).distance > ROAD_CLEARANCE;
+
+  function buildRoadMesh() {
+    const position = [];
+    const uv = [];
+    const index = [];
+    const halves = [ROAD_WIDTH / 2, -ROAD_WIDTH / 2];
+    let run = 0;
+
+    for (let i = 0; i < roadSamples.length; i += 1) {
+      const s = roadSamples[i];
+      if (i > 0) {
+        const p = roadSamples[i - 1];
+        run += Math.hypot(s.x - p.x, s.z - p.z);
+      }
+      for (let k = 0; k < 2; k += 1) {
+        const hx = s.x + s.nx * halves[k];
+        const hz = s.z + s.nz * halves[k];
+        position.push(hx, terrainGridHeight(hx, hz) + ROAD_LIFT, hz);
+        // u runs along the road in world units, v across it 0..1, which is
+        // what the centre line below is drawn from.
+        uv.push(run, k);
+      }
+      if (i > 0) {
+        const a = (i - 1) * 2;
+        index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(index);
+    /* Normals taken from the slope of the ground rather than from the
+       triangles, which is not a refinement — computeVertexNormals got this
+       visibly wrong. On a bend tight enough that the inner edge of the
+       ribbon barely advances between one rung and the next, the winding of
+       those triangles flips, their computed normal points into the hill, and
+       the road renders in black patches. Every point of a road lying on a
+       hillside has a normal that is knowable without reference to any
+       triangle: it is the hill's, and the hill's is its gradient. */
+    const normal = [];
+    const D = 0.35;
+    for (let i = 0; i < position.length; i += 3) {
+      const px = position[i];
+      const pz = position[i + 2];
+      const dx = terrainGridHeight(px + D, pz) - terrainGridHeight(px - D, pz);
+      const dz = terrainGridHeight(px, pz + D) - terrainGridHeight(px, pz - D);
+      const n = new THREE.Vector3(-dx, 2 * D, -dz).normalize();
+      normal.push(n.x, n.y, n.z);
+    }
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normal, 3));
+    return geo;
+  }
+
+  const ROAD_SURFACE = 0x4a4a4e;
+  const roadMaterial = new THREE.MeshStandardMaterial({
+    color: ROAD_SURFACE,
+    roughness: 0.94,
+    metalness: 0,
+  });
+  /* The markings, drawn in the shader off the UVs rather than modelled or
+     textured. A dashed centre line and two solid edges cost nothing here —
+     no second mesh, no second draw call, no texture to load and no texture
+     to go missing — and the dashes are struck from the same along-the-road
+     distance the ribbon was built with, so they stay a fixed length however
+     sharply the road bends. */
+  roadMaterial.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      {
+        float across = abs( vMapUv.y - 0.5 ) * 2.0;      // 0 centre, 1 kerb
+        float dash = step( 0.5, fract( vMapUv.x * 0.18 ) );
+        float centre = ( 1.0 - step( 0.055, across ) ) * dash;
+        float edge = step( 0.90, across ) * ( 1.0 - step( 0.965, across ) );
+        // Worn rather than fresh: a country lane's paint has had a winter.
+        diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.72, 0.70, 0.62 ),
+          clamp( centre + edge, 0.0, 1.0 ) * 0.78 );
+      }`,
+    );
+  };
+  /* The material needs a map slot for three.js to declare vMapUv at all —
+     the varying only exists when something asks for it. A 1x1 white pixel
+     is the cheapest thing that asks. */
+  roadMaterial.map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  roadMaterial.map.needsUpdate = true;
+
+  const road = new THREE.Mesh(buildRoadMesh(), roadMaterial);
+  scene.add(catches(road));
+
   const PROPS = [
     /* --- the farmhouse, west: the farm's front door, seen across the field ---
        At 4.8 it measures 5.96 across by 7.52 deep, so it is placed with its
@@ -2037,8 +2263,10 @@ ${shader.fragmentShader.replace(
        was no lane to face along. It stands in the west lane, leaving the
        east one clear, so the road still reads as a road rather than as
        something hidden under a car. */
-    { id: 'city-roads/road-end', x: 4.2, z: 9.5, ry: Math.PI },
-    { id: 'city-roads/road-end', x: 5.2, z: 9.5, ry: Math.PI },
+    /* The two road-end caps that used to close this off are gone: the strip
+       is no longer a pull-in that stops for no reason, it is the first ten
+       metres of a road that leaves the farm. The ribbon above takes over
+       from here south. */
     { id: 'city-roads/road-straight', x: 4.2, z: 8.5 },
     { id: 'city-roads/road-straight', x: 5.2, z: 8.5 },
     { id: 'city-roads/road-straight', x: 4.2, z: 7.5 },
@@ -2062,6 +2290,38 @@ ${shader.fragmentShader.replace(
     { id: 'nature/flower_yellowA', x: 0.4, z: 9.4 },
     { id: 'nature/rock_smallA', x: 1.7, z: 8.6, ry: 0.9 },
     { id: 'nature/grass_large', x: -0.8, z: 9.6 },
+
+    /* --- the market, at the far end of the road ---
+       Built entirely from kits already vendored for the farm: two suburban
+       blocks for the buildings, the fantasy-town stall the farm's own
+       market booth comes from, and barrels and boxes off the survival kit.
+       Nothing new was fetched for it, which is worth saying because the
+       obvious move was to pull the `mini-market` kit the mirror does have —
+       it would have meant a new texture atlas, a new manifest entry and a
+       new set of colour corrections to check, to arrive at a row of stalls
+       this game can already build.
+
+       Deliberately a hamlet rather than a town. It is seen at the end of a
+       drive, through fog, from a car; four buildings and a cluster of stalls
+       read as somewhere to take a crop to, and forty would read as a
+       different game. */
+    { id: 'city-suburban/building-type-a', x: -5.0, z: 36.5, ry: 1.25, h: 4.8, blocks: 'box' },
+    { id: 'city-suburban/building-type-b', x: 9.8, z: 31.0, ry: -0.5, h: 5.4, blocks: 'box' },
+    { id: 'fantasy-town/stall-green', x: 1.2, z: 32.6, ry: 0.2, h: 2.6, blocks: 'box' },
+    { id: 'fantasy-town/stall-green', x: 2.6, z: 42.0, ry: -1.1, h: 2.6, blocks: 'box' },
+    /* Loose clutter, deliberately without colliders. Everything above is a
+       box the car will be stopped by; a barrel is not, and a market square
+       whose crates each carry their own no-go zone is a car park with
+       bollards. */
+    { id: 'survival/barrel', x: 2.4, z: 33.9, ry: 0.4 },
+    { id: 'survival/barrel', x: 3.1, z: 33.5, ry: -0.8 },
+    { id: 'survival/box', x: 0.4, z: 39.4, ry: 0.2 },
+    { id: 'survival/box', x: 0.9, z: 40.0, ry: 1.1 },
+    { id: 'survival/signpost', x: 5.4, z: 39.4, ry: -0.6 },
+    { id: 'nature/tree_detailed', x: -3.6, z: 42.0, h: 4.6 },
+    { id: 'nature/tree_default', x: 9.6, z: 37.6, h: 4.2 },
+    { id: 'nature/plant_bush', x: -1.8, z: 34.4 },
+    { id: 'nature/plant_bush', x: 6.4, z: 35.4 },
 
     /* --- the orchard, north: rows that loosen toward the hills ---
        Two of these were tree_default_fall permanently, for variety, before
@@ -2181,6 +2441,9 @@ ${shader.fragmentShader.replace(
         // After scene.add and the position/rotation above, so the box it
         // measures is the one the player will actually walk into.
         addSolid(prop, object);
+        // The one prop this file keeps a handle on, because it is the one
+        // the player gets to drive.
+        if (prop.id === 'car/sedan') carObject = object;
 
         if (!ORCHARD_TREE_IDS.has(prop.id)) return;
         loadModel(`${prop.id}_fall`, prop.h).then(({ object: fall }) => {
@@ -2201,6 +2464,7 @@ ${shader.fragmentShader.replace(
         }).catch((err) => console.warn(`farm: ${prop.id}_fall did not load`, err));
       }).catch((err) => console.warn(`farm: ${prop.id} did not load`, err))));
   }
+  let carObject = null;
   const dressed = dressFarm();
 
   /* -------------------------------------------------------------- */
@@ -2430,8 +2694,39 @@ ${shader.fragmentShader.replace(
   const CAMERA_CLEARANCE = 5;
   const clearOfCamera = (x, z) =>
     Math.hypot(x - camera.position.x, z - camera.position.z) > CAMERA_CLEARANCE;
+  /* ...and nothing may stand in the road, which is the same rule one step
+     further out. The hillside fringe's own bounds stop short of the market,
+     but they cover the first dozen metres the road climbs through, and a
+     pine in the carriageway is worse than a pine in front of the lens: one
+     spoils a screenshot, the other is a tree the car drives into. */
   const onHillside = (x, z) =>
-    Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z) && clearOfCamera(x, z);
+    Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z)
+    && clearOfCamera(x, z) && offRoad(x, z);
+
+  /* The corridor the road runs through, which is everything the drive is
+     seen against. Wider than the road by a good margin on both sides, and
+     clipped to the terrain so nothing is scattered past the edge of the
+     world. */
+  const ROADSIDE_BOUNDS = {
+    xMin: -14, xMax: 38, zMin: FARM_SOUTH, zMax: 46,
+  };
+  /* Trees stand well back. TREE_SETBACK is the number that decides whether
+     the road feels like a lane through woods or a slalom: a trunk is a solid
+     the car stops dead against, so the margin has to leave room to drift
+     wide on a bend without ending the drive. */
+  const TREE_SETBACK = ROAD_WIDTH / 2 + 4.5;
+  const VERGE_SETBACK = ROAD_WIDTH / 2 + 1.2;
+  const nearRoute = (x, z) => nearestOnRoad(x, z).distance;
+  const notAtMarket = (x, z) => Math.hypot(x - MARKET.x, z - MARKET.z) > MARKET_RADIUS;
+  const byTheRoad = (x, z) => {
+    const d = nearRoute(x, z);
+    return d > TREE_SETBACK && d < 26 && !inFarmClearing(x, z) && notAtMarket(x, z);
+  };
+  // Low things may come closer — a bush at the verge is scenery, not a wall.
+  const byTheVerge = (x, z) => {
+    const d = nearRoute(x, z);
+    return d > VERGE_SETBACK && d < 14 && !inFarmClearing(x, z) && notAtMarket(x, z);
+  };
 
   /* The two grass populations' own InstancedMeshes, collected as they land —
      syncSeason hides them under snow rather than styling grass blades that
@@ -2493,6 +2788,36 @@ ${shader.fragmentShader.replace(
       heightRange: [4.4, 6.6], seed: 11, bounds: HILL_BOUNDS, accept: onHillside,
       tintSpread: 0.16,
     }).catch((err) => console.warn('farm: hillside pines did not load', err)),
+
+    /* Countryside along the road. The hillside fringe above stops thirteen
+       units past the farm, which was the whole world until this step; from
+       the driving seat the far half of the route crossed a bare green table,
+       and nothing says "you are moving" less than an empty plane.
+
+       Scattered in a corridor either side of the route rather than over the
+       whole map: these are what the drive is seen against, so they are only
+       worth placing where the drive can see them. Kept out of the
+       carriageway by the same offRoad the fringe uses, with a wider margin —
+       a tree at the kerb of a road you take at twelve units a second is a
+       tree you hit. */
+    scatterInstanced('nature/tree_default', 30, {
+      heightRange: [3.4, 5.0], seed: 20, bounds: ROADSIDE_BOUNDS, accept: byTheRoad,
+      tintSpread: 0.18,
+    }).catch((err) => console.warn('farm: roadside trees did not load', err)),
+
+    scatterInstanced('nature/tree_pineDefaultA', 26, {
+      heightRange: [4.2, 6.4], seed: 21, bounds: ROADSIDE_BOUNDS, accept: byTheRoad,
+      tintSpread: 0.18,
+    }).catch((err) => console.warn('farm: roadside pines did not load', err)),
+
+    scatterInstanced('nature/plant_bush', 34, {
+      heightRange: [0.5, 0.9], seed: 22, bounds: ROADSIDE_BOUNDS, accept: byTheVerge,
+      tintSpread: 0.14,
+    }).catch((err) => console.warn('farm: roadside bushes did not load', err)),
+
+    scatterInstanced('nature/rock_smallA', 16, {
+      heightRange: [0.3, 0.6], seed: 23, bounds: ROADSIDE_BOUNDS, accept: byTheVerge,
+    }).catch((err) => console.warn('farm: roadside rocks did not load', err)),
   ]));
 
   /* -------------------------------------------------------------- */
@@ -3270,20 +3595,14 @@ ${lit}`;
      to stay inside the frame. */
   const HOME = { x: -1.45, z: SPAN / 2 + 0.2 };
 
-  /* One model per farmer the player can choose. These are two authored
-     characters rather than one model recoloured, which is what the boxes and
-     cones this replaces had to do — a skirt, a longer fringe and two shirt
-     colours were the whole of the difference between them. */
-  const FARMER_MODEL = {
-    female: 'blocky-characters/character-e',
-    male: 'blocky-characters/character-a',
+  /* Which clip stands in for each thing she can be doing. The names are
+     farmer.js's, which kept the authored kit's names on purpose so that
+     everything below — the crossfades, the clip-speed scaling, the
+     once-through crouch — carried over to a built figure untouched. */
+  const FARMER_CLIP = {
+    idle: 'idle', walking: 'walk', returning: 'walk', crouching: 'pick-up',
+    carrying: 'carry',
   };
-
-  /* Which authored clip stands in for each thing she can be doing. The kit
-     ships twenty-seven; these are the three this game has any use for, and
-     "pick-up" is a real bend-and-lift, which is exactly the beat the old rig
-     faked by squashing her whole body 24% along Y. */
-  const FARMER_CLIP = { idle: 'idle', walking: 'walk', returning: 'walk', crouching: 'pick-up' };
   const CLIP_FADE = 0.16; // seconds of crossfade between two of them
 
   /* The group is the thing that gets moved and turned; the body hangs inside
@@ -3293,12 +3612,7 @@ ${lit}`;
   farmer.visible = false;
   scene.add(farmer);
 
-  /* Both of them, warmed now rather than when the player picks one: the pick
-     happens on the welcome screen, so the fetch has the whole of that screen
-     to finish in and she is standing in the yard by the time it closes. */
-  preload(Object.values(FARMER_MODEL));
-
-  /** gender -> { object, mixer, actions } once its model has loaded. */
+  /** gender -> { object, mixer, actions }. */
   const bodies = new Map();
   let body = null;
   let bodyGender = null;
@@ -3313,34 +3627,29 @@ ${lit}`;
      complaint in the console but not a fallback rig: every model here is
      precached by the service worker (see sw.js), so an absent one means a
      broken install rather than a slow network. */
-  async function ensureBody(gender) {
+  function ensureBody(gender) {
     if (bodies.has(gender)) return bodies.get(gender);
 
-    const pending = loadModel(FARMER_MODEL[gender]).then(({ object, animations }) => {
-      const mixer = new THREE.AnimationMixer(object);
-      const actions = {};
-      for (const clip of animations) actions[clip.name] = mixer.clipAction(clip);
-      /* Materials arriving after the scene-wide pass below have to opt out of
-         tone mapping themselves, or she alone would be graded by a curve
-         nothing else in the scene is using — see that pass for why. */
-      object.traverse((obj) => {
-        for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
-      });
-      /* Set on the body rather than on the `farmer` group that holds it,
-         because three.js reads these per mesh and a group's flag is not
-         inherited. This is also the half of the fix assets.js started: she
-         was authored unlit, which made her the one thing in the yard that
-         could neither be lit nor shaded. Now she casts her own shadow
-         across the field she is standing in. */
-      casts(object);
-      return { object, mixer, actions };
-    }).catch((err) => {
-      console.warn('farm: the farmer could not be loaded', err);
-      return null;
+    const built = buildFarmer(gender);
+    /* Materials made after the scene-wide pass below have to opt out of tone
+       mapping themselves, or she alone would be graded by a curve nothing
+       else in the scene is using — see that pass for why. */
+    built.object.traverse((obj) => {
+      for (const mat of [obj.material ?? []].flat()) mat.toneMapped = false;
     });
+    /* Set on the body rather than on the `farmer` group that holds it,
+       because three.js reads these per mesh and a group's flag is not
+       inherited. */
+    casts(built.object);
 
-    bodies.set(gender, pending);
-    return pending;
+    /* Resolved rather than returned bare, because the caller awaits this.
+       It used to await a network fetch of a glTF; there is nothing to fetch
+       now — she is built from arithmetic in under a millisecond — but a
+       promise here keeps poseFarmer's swap path, and the tests that watch
+       her appear, working exactly as they did. */
+    const ready = Promise.resolve(built);
+    bodies.set(gender, ready);
+    return ready;
   }
 
   /** Crossfades to a clip, restarting it only when it is not already the one. */
@@ -3770,6 +4079,8 @@ ${lit}`;
   }
 
   function advanceFarmer(dt) {
+    // She is in the car; the stick is steering, not walking.
+    if (inCar) return;
     const world = bridge.getState();
     if (world !== worldRef) {
       worldRef = world;
@@ -3822,9 +4133,235 @@ ${lit}`;
   const REACH = 0.95;
 
   /** The nearest thing worth offering, or null. Recomputed as she moves. */
+  /* -------------------------------------------------------------- */
+  /* Driving the harvest to market                                   */
+  /* -------------------------------------------------------------- */
+
+  /* The car was set dressing for three steps and is now the second half of
+     the game's economy. Walk to it with something sellable in the barn, load
+     it, and drive the road out of the yard to the market at the other end.
+
+     Nothing about the Market tab changed. It sells at the same prices over
+     the same counter it always did; this is a longer way round to the same
+     coins, for a player who would rather drive than tap. The sale itself
+     runs the tab's own sellAll over the live inventory on arrival, which is
+     what makes the two impossible to double up: the crates in the back are a
+     picture of what she set off with, not a second copy of it. */
+  let inCar = false;
+  let carSpeed = 0;
+  let carHeading = 0;
+  const carAt = { x: 4.2, z: 8.4 };
+  let cargo = [];
+  let cargoCrates = null;
+  let arrived = false;
+
+  /* Handling. These are the numbers the whole thing is judged on, so they
+     are named rather than buried: a top speed a little over a brisk run, a
+     stopping distance you have to plan for, and a steering rate that is
+     useless standing still.
+
+     The last one is the difference between a car and a tank. A vehicle that
+     turns on the spot is a turret with wheels; a real one only changes
+     direction because it is moving, so the steering is scaled by speed and
+     falls to nothing as the car stops. Reverse steers the other way for the
+     same reason it does in life — the back wheels are leading. */
+  const CAR_TOP = 12;
+  const CAR_REVERSE_TOP = 4.5;
+  const CAR_ACCEL = 7.5;
+  const CAR_BRAKE = 15;
+  const CAR_COAST = 3.2; // engine braking with the stick centred
+  const CAR_TURN = 1.5; // radians a second at full lock, once up to speed
+  const CAR_GRIP_SPEED = 3.0; // below this, the steering has not bitten yet
+  const CAR_RADIUS = 1.1;
+  /* Off the tarmac it will not run on. A field is not a road, and a country
+     road matters more if leaving it costs something — this is what keeps the
+     drive on the route rather than making the route a suggestion. */
+  const CAR_OFFROAD_TOP = 5.5;
+
+  const carOnRoad = () => nearestOnRoad(carAt.x, carAt.z).distance <= ROAD_WIDTH / 2 + 0.6;
+
+  /* Does the car fit here? Deliberately not keepOutOfSolids, which resolves a
+     blocked step by sliding along the obstruction — right for a person's
+     shoulder against a wall, wrong for a ton of car, which should stop. So
+     this is a plain yes or no and the caller kills the speed on a no. */
+  function carBlocked(x, z) {
+    for (const b of SOLIDS.boxes) {
+      if (b.id === 'car/sedan') continue; // it cannot crash into itself
+      if (x > b.minX - CAR_RADIUS && x < b.maxX + CAR_RADIUS
+        && z > b.minZ - CAR_RADIUS && z < b.maxZ + CAR_RADIUS) return true;
+    }
+    for (const p of SOLIDS.posts) {
+      if (Math.hypot(x - p.x, z - p.z) < p.r + CAR_RADIUS) return true;
+    }
+    return false;
+  }
+
+  function advanceCar(dt) {
+    if (!inCar || !carObject) return;
+
+    /* The stick, read as pedals and a wheel. Screen-up is -z, which is
+       forward, so the throttle is the negated one. */
+    const throttle = -drive.z;
+    const steer = -drive.x;
+
+    if (throttle > 0.05) carSpeed += throttle * CAR_ACCEL * dt;
+    else if (throttle < -0.05) {
+      // Pulling back is the brake while rolling forward and reverse once
+      // stopped, which is one control doing the job players expect of it.
+      carSpeed += throttle * (carSpeed > 0.2 ? CAR_BRAKE : CAR_ACCEL) * dt;
+    } else {
+      const drop = CAR_COAST * dt;
+      carSpeed -= Math.sign(carSpeed) * Math.min(Math.abs(carSpeed), drop);
+    }
+
+    const top = carOnRoad() ? CAR_TOP : CAR_OFFROAD_TOP;
+    carSpeed = Math.max(-CAR_REVERSE_TOP, Math.min(top, carSpeed));
+
+    const bite = Math.min(1, Math.abs(carSpeed) / CAR_GRIP_SPEED);
+    carHeading += steer * CAR_TURN * bite * dt * (carSpeed < 0 ? -1 : 1);
+
+    const nx = carAt.x + Math.sin(carHeading) * carSpeed * dt;
+    const nz = carAt.z + Math.cos(carHeading) * carSpeed * dt;
+    if (carBlocked(nx, nz)) {
+      carSpeed = 0; // a wall is a wall
+    } else {
+      carAt.x = nx;
+      carAt.z = nz;
+    }
+
+    placeCar();
+    if (!arrived && Math.hypot(carAt.x - MARKET.x, carAt.z - MARKET.z) <= MARKET_RADIUS * 0.55) {
+      arrived = true;
+      const sold = bridge.sellHaul();
+      bridge.announce(sold
+        ? '🛒 Sold the load at the market!'
+        : '🛒 You arrive at the market with an empty boot.');
+      // Emptied as well as unstacked: `cargo` is also what decides whether
+      // she walks with her arms full once she gets out, and a farmer
+      // carrying an invisible crate home from a completed sale is the kind
+      // of thing nobody reports and everybody notices.
+      cargo = [];
+      stackCrates([]);
+    }
+    // Leaving again re-arms the arrival, so a second run sells a second load.
+    if (arrived && Math.hypot(carAt.x - MARKET.x, carAt.z - MARKET.z) > MARKET_RADIUS) arrived = false;
+  }
+
+  /* Sits the car on the ground and leans it into the slope it is crossing.
+     The pitch and roll are read from terrainHeight a wheelbase apart rather
+     than from any surface normal, which is the same trick a physics engine
+     would use with four raycasts and costs four arithmetic calls here. */
+  const CAR_WHEELBASE = 1.3;
+  const CAR_TRACK = 0.8;
+  function placeCar() {
+    if (!carObject) return;
+    const sin = Math.sin(carHeading);
+    const cos = Math.cos(carHeading);
+    const y = terrainGridHeight(carAt.x, carAt.z) + ROAD_LIFT;
+    const front = terrainGridHeight(carAt.x + sin * CAR_WHEELBASE, carAt.z + cos * CAR_WHEELBASE);
+    const back = terrainGridHeight(carAt.x - sin * CAR_WHEELBASE, carAt.z - cos * CAR_WHEELBASE);
+    const left = terrainGridHeight(carAt.x + cos * CAR_TRACK, carAt.z - sin * CAR_TRACK);
+    const right = terrainGridHeight(carAt.x - cos * CAR_TRACK, carAt.z + sin * CAR_TRACK);
+
+    carObject.position.set(carAt.x, y, carAt.z);
+    carObject.rotation.set(0, 0, 0);
+    carObject.rotateY(carHeading);
+    carObject.rotateX(-Math.atan2(front - back, CAR_WHEELBASE * 2));
+    carObject.rotateZ(Math.atan2(left - right, CAR_TRACK * 2));
+    if (cargoCrates) cargoCrates.position.copy(carObject.position);
+    if (cargoCrates) cargoCrates.rotation.copy(carObject.rotation);
+  }
+
+  /* What she loaded, stacked in the back. One small box per kind of good
+     rather than per unit — a hundred carrots is a hundred carrots, and this
+     is a picture of the errand, not an inventory. */
+  function stackCrates(load) {
+    if (cargoCrates) {
+      scene.remove(cargoCrates);
+      cargoCrates.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
+      cargoCrates = null;
+    }
+    if (!load.length) return;
+    cargoCrates = new THREE.Group();
+    const crate = new THREE.MeshStandardMaterial({ color: 0x9a7346, roughness: 0.95, flatShading: true });
+    load.slice(0, 4).forEach((item, i) => {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.34), crate);
+      box.position.set(-0.18 + (i % 2) * 0.36, 0.62 + Math.floor(i / 2) * 0.31, -0.5);
+      cargoCrates.add(casts(box));
+    });
+    scene.add(cargoCrates);
+    placeCar();
+  }
+
+  function boardCar() {
+    if (inCar || !carObject) return false;
+    cargo = bridge.haulable();
+    stackCrates(cargo);
+    inCar = true;
+    carSpeed = 0;
+    arrived = false;
+    /* The camera stops being the player's to orbit for as long as she is
+       driving. Left enabled, a drag meant to steer would also swing the
+       shot, and the chase camera below would fight it every frame. */
+    controls.enabled = false;
+    bridge.announce(cargo.length
+      ? `🚚 Loaded ${cargo.map((c) => c.emoji).join('')} — take the road south.`
+      : '🚗 Nothing to sell, but the road is there.');
+    return true;
+  }
+
+  function leaveCar() {
+    if (!inCar) return false;
+    inCar = false;
+    carSpeed = 0;
+    controls.enabled = true;
+    /* Put down beside the driver's door rather than wherever she was when
+       she got in, which could be sixty metres away at the other end of the
+       road. Offset across the car's own heading so she never lands inside
+       it. */
+    at.x = carAt.x + Math.cos(carHeading) * 1.7;
+    at.z = carAt.z - Math.sin(carHeading) * 1.7;
+    facing = carHeading;
+    return true;
+  }
+
+  /* The chase camera. Behind and above, easing rather than rigid, and aimed
+     a little ahead of the car — the three things that separate a camera that
+     follows a car from one bolted to its roof. The easing is also what makes
+     a turn read as a turn: the shot swings in after the car rather than with
+     it, which is the whole look of driving in a game seen from outside. */
+  const CHASE_BACK = 8.5;
+  const CHASE_UP = 3.6;
+  const CHASE_EASE = 0.10;
+  const chaseTmp = new THREE.Vector3();
+  const lookTmp = new THREE.Vector3();
+  function followCar() {
+    const bx = carAt.x - Math.sin(carHeading) * CHASE_BACK;
+    const bz = carAt.z - Math.cos(carHeading) * CHASE_BACK;
+    chaseTmp.set(bx, terrainGridHeight(bx, bz) + CHASE_UP, bz);
+    camera.position.lerp(chaseTmp, CHASE_EASE);
+    lookTmp.set(
+      carAt.x + Math.sin(carHeading) * 3,
+      terrainGridHeight(carAt.x, carAt.z) + 1.1,
+      carAt.z + Math.cos(carHeading) * 3,
+    );
+    controls.target.lerp(lookTmp, CHASE_EASE * 1.6);
+    camera.lookAt(controls.target);
+  }
+
   function nearestTarget() {
     const world = bridge.getState();
     if (!world.farmer) return null;
+
+    /* At the wheel there is exactly one thing she can do, and it is not
+       harvesting anything — the plots and the pen are sixty metres behind
+       her and the reach search below would happily offer one of them from
+       the driving seat. */
+    if (inCar) {
+      return Math.abs(carSpeed) < 0.4
+        ? { type: 'park', distance: 0 }
+        : null;
+    }
 
     let best = null;
     const consider = (candidate, pos) => {
@@ -3845,6 +4382,17 @@ ${lit}`;
         const intent = bridge.animalIntent(kind, animal.id);
         if (intent) consider({ type: 'animal', kind, id: animal.id, intent }, animalSlot(kind, index));
       });
+    }
+
+    /* The car, offered last so a crop underfoot still wins. Its own reach is
+       wider than a plot's: she is walking up to a vehicle, not bending over
+       a tile, and the sedan is a metre and a half wide before she gets to
+       the door handle. */
+    if (carObject) {
+      const d = Math.hypot(carAt.x - at.x, carAt.z - at.z);
+      if (d <= REACH + 1.4 && (!best || d < best.distance)) {
+        best = { type: 'car', distance: d, load: bridge.haulable().length };
+      }
     }
 
     return best;
@@ -3917,8 +4465,24 @@ ${lit}`;
     farmer.visible = !!body;
     if (!body) return;
 
+    /* Not drawn at the wheel. The sedan is a solid low-poly body with a
+       painted-on windscreen and no cabin to sit in — measured the direct
+       way, by seating her in it and looking: her head came out through the
+       roof and her left arm through the door. There is nowhere in that model
+       for a person to be.
+
+       So the car is the thing you are driving, which is what a chase camera
+       behind a vehicle shows anyway. Returning early also skips the whole
+       pose pass while driving, which is a mixer update and a dozen matrix
+       writes a frame for a figure nobody can see. */
+    if (inCar) {
+      farmer.visible = false;
+      return;
+    }
+
     const moving = stance === 'walking' || stance === 'returning';
     if (stance === 'crouching') playClip(FARMER_CLIP.crouching, { once: true, seconds: CROUCH_MS / 1000 });
+    else if (cargo.length && moving) playClip(FARMER_CLIP.carrying);
     else playClip(moving ? FARMER_CLIP.walking : FARMER_CLIP.idle);
 
     /* The walk cycle is played at the speed she is actually covering ground,
@@ -3928,8 +4492,8 @@ ${lit}`;
     if (walkAction) walkAction.timeScale = WALK_SPEED / CLIP_WALK_SPEED;
 
     body.mixer.update(poseDt);
-    farmer.position.set(at.x, 0, at.z);
-    farmer.rotation.y = facing + MODEL_FACING_OFFSET;
+    farmer.position.set(at.x, terrainGridHeight(at.x, at.z), at.z);
+    farmer.rotation.set(0, facing + MODEL_FACING_OFFSET, 0);
   }
 
   /* Every material but the sky's opts out of the tone mapping the renderer
@@ -4246,12 +4810,41 @@ ${lit}`;
        free movement without synthesising a drag on every assertion, and it is
        the same call the stick and the keys already make. */
     drive: (x, z) => setDrive(x, z),
+    /* The two the prompt button calls, and what a test drives the whole
+       errand through. `driving()` already means "the stick is pushed" in
+       this file, so the car's own state is asked for by a different name
+       rather than by overloading that one. */
+    board: () => boardCar(),
+    alight: () => leaveCar(),
+    atWheel: () => inCar,
+    car: () => ({ x: carAt.x, z: carAt.z, heading: carHeading, speed: carSpeed, cargo: cargo.length }),
     /* The pond, as numbers. A test cannot look at a canvas and say whether
        that is water, but it can ask whether she is standing in it, and it can
        watch the shader's clock to know the ripples are actually running
        rather than frozen at t=0 — which is the difference between water and a
        painting of water. */
     pond: () => ({ x: POND.x, z: POND.z, rx: POND.rx, rz: POND.rz, surfaceY: WATER_Y }),
+    /* The road and where it goes. `along` is 0 at the farm gate and 1 at the
+       market square, which is the one number a test needs to say whether a
+       drive actually got anywhere. */
+    market: () => ({ x: MARKET.x, z: MARKET.z, radius: MARKET_RADIUS }),
+    road: () => ({
+      width: ROAD_WIDTH,
+      length: roadCurve.getLength(),
+      start: { x: roadSamples[0].x, z: roadSamples[0].z },
+      end: { x: roadSamples[roadSamples.length - 1].x, z: roadSamples[roadSamples.length - 1].z },
+    }),
+    onRoad: (x, z) => nearestOnRoad(x, z),
+    /* A point on the route and the way it is heading there, so anything that
+       wants to follow the road — a test, a bot — can steer by it rather than
+       by aiming at the destination and hoping the road happens to go that
+       way. `along` is 0 at the farm gate, 1 at the market. */
+    roadPointAt: (along) => {
+      const i = Math.max(0, Math.min(roadSamples.length - 1,
+        Math.round(along * ROAD_STEPS)));
+      const s0 = roadSamples[i];
+      return { x: s0.x, z: s0.z, heading: Math.atan2(-s0.nz, -s0.nx) };
+    },
     inPond: (x, z) => inPondFootprint(x, z),
     waterPhase: () => waterUniforms.uTime.value,
     /* Where the nth animal of a kind is actually standing right now, not
@@ -4317,6 +4910,28 @@ ${lit}`;
        than read back out of the table that set it — the ratio between this
        and a building is the whole point of the scale pass. Null until she
        has loaded. */
+    /* What she is built out of, for the tests that care that she is a person
+       rather than a block. `headFraction` is the number the whole rebuild
+       turns on: a Lego minifigure is a third head, a chibi a third, and an
+       adult about a sixth. */
+    farmerBuild: () => {
+      if (!body) return null;
+      const size = new THREE.Vector3();
+      const total = new THREE.Box3().setFromObject(body.object).getSize(size).y;
+      const head = body.object.getObjectByName('head');
+      const headY = head
+        ? new THREE.Box3().setFromObject(head).getSize(new THREE.Vector3()).y
+        : 0;
+      const wanted = ['hips', 'chest', 'neck', 'head',
+        'armL', 'foreL', 'handL', 'armR', 'foreR', 'handR',
+        'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR'];
+      return {
+        height: total,
+        headFraction: headY / total,
+        joints: wanted.filter((n) => !!body.object.getObjectByName(n)),
+        clips: Object.keys(body.actions).sort(),
+      };
+    },
     farmerHeight: () => (body
       ? new THREE.Box3().setFromObject(body.object).getSize(new THREE.Vector3()).y
       : null),
@@ -4598,6 +5213,7 @@ ${lit}`;
     const dt = lastStepAt ? (now - lastStepAt) / 1000 : 0;
     lastStepAt = now;
     advanceFarmer(dt);
+    advanceCar(dt);
 
     /* Nothing drawn while the context is gone, and none of the per-frame
        sync work that only exists to feed a draw. three.js's render() is
@@ -4663,8 +5279,17 @@ ${lit}`;
     syncAnimals(now);
     poseFarmer(now);
     syncPrompt();
-    followFarmer();
-    controls.update();
+    /* One camera or the other, never both. followFarmer slides the orbit
+       target to wherever she is standing, which while she is sitting in a
+       moving car is a fight the chase camera would win only intermittently.
+       controls.update() is skipped for the same reason — it is disabled for
+       the duration, and calling update on a disabled control is a no-op that
+       still costs a matrix. */
+    if (inCar) followCar();
+    else {
+      followFarmer();
+      controls.update();
+    }
 
     // Zeroed here rather than by the renderer itself, so what drawCost()
     // reports is this whole frame across every pass — see renderer.info

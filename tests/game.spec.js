@@ -3640,14 +3640,23 @@ test.describe('foliage, instanced', () => {
     await page.evaluate(() => window.Farm3DScene.foliageReady());
     const counts = await page.evaluate(() => window.Farm3DScene.foliageCounts());
 
+    /* Bushes and rocks joined this list when the road to market did: the
+       countryside the drive crosses is scattered from the same instancer the
+       farm is, so a species that fails to land out there fails here too. */
     expect(Object.keys(counts).sort()).toEqual([
-      'nature/grass', 'nature/grass_large', 'nature/tree_default', 'nature/tree_pineDefaultA',
+      'nature/grass', 'nature/grass_large', 'nature/plant_bush',
+      'nature/rock_smallA', 'nature/tree_default', 'nature/tree_pineDefaultA',
     ].sort());
     for (const n of Object.values(counts)) expect(n).toBeGreaterThan(0);
 
+    /* Ordered by how much of each there should be, which is the part that
+       catches a scatter quietly placing three trees instead of thirty. Grass
+       outnumbers everything; the trees, which are now the farm's fringe plus
+       the roadside, outnumber the rocks. */
     expect(counts['nature/grass']).toBeGreaterThan(counts['nature/grass_large']);
     expect(counts['nature/grass_large']).toBeGreaterThan(counts['nature/tree_default']);
     expect(counts['nature/grass_large']).toBeGreaterThan(counts['nature/tree_pineDefaultA']);
+    expect(counts['nature/tree_default']).toBeGreaterThan(counts['nature/rock_smallA']);
   });
 });
 
@@ -4906,8 +4915,22 @@ test.describe('the size of the place', () => {
     expect(posts.length).toBeGreaterThanOrEqual(8);
 
     for (const t of posts) {
-      // Twice her height is a sapling; a tree she picks from is three times.
-      expect(t.height / her, `${t.id} at (${t.x}, ${t.z})`).toBeGreaterThan(2.7);
+      /* Asked as a height and as a ratio, because on their own each one can
+         be satisfied by the wrong thing: a tall ratio by shrinking the
+         farmer, a tall tree by a scale nobody sized against a person.
+
+         The ratio used to be 2.7 and it was calibrated against a farmer who
+         was 1.45 units tall — a short one, chosen back when a third of her
+         height was head and anything realistic loomed over the plots. She is
+         1.6 now and properly proportioned, so the same 4.2-unit orchard tree
+         comes out at 2.6 times her rather than 2.9. Nothing about the
+         orchard changed; the yardstick did, and it moved toward the truth —
+         a four-metre tree over a person really is about two and a half
+         times their height. So the ratio is restated against the figure that
+         is actually standing there, and the absolute height is asserted
+         alongside it so the pair cannot both be met by a mistake. */
+      expect(t.height, `${t.id} at (${t.x}, ${t.z})`).toBeGreaterThan(3.5);
+      expect(t.height / her, `${t.id} at (${t.x}, ${t.z})`).toBeGreaterThan(2.4);
       /* The trunk stops her and the canopy does not — the whole reason a
          tree is a post here and not a box. A collider anywhere near the
          canopy's own width would turn the orchard into a maze. */
@@ -4936,6 +4959,7 @@ test.describe('the size of the place', () => {
     const bad = await page.evaluate(() => {
       const s = window.Farm3DScene;
       const roam = s.roam();
+      const market = s.market();
       const drowned = [];
       const adrift = [];
       for (const p of s.props()) {
@@ -4943,10 +4967,15 @@ test.describe('the size of the place', () => {
         /* A margin either way, because a building is placed by its middle
            and is meant to sit with its back against the farm's edge — it is
            the ones out in the hills that this is looking for. */
-        if (p.x < roam.minX - 4 || p.x > roam.maxX + 4
-          || p.z < roam.minZ - 4 || p.z > roam.maxZ + 4) {
-          adrift.push(`${p.id} at (${p.x}, ${p.z})`);
-        }
+        const onFarm = p.x >= roam.minX - 4 && p.x <= roam.maxX + 4
+          && p.z >= roam.minZ - 4 && p.z <= roam.maxZ + 4;
+        /* ...or at the market, which is deliberately out in the hills — it
+           is the place at the end of the road. Checked against the market's
+           own radius rather than waved through by a bigger farm margin, so
+           this still catches a farm prop that has wandered off; "adrift"
+           means "in neither place", not "far from the middle". */
+        const atMarket = Math.hypot(p.x - market.x, p.z - market.z) <= market.radius;
+        if (!onFarm && !atMarket) adrift.push(`${p.id} at (${p.x}, ${p.z})`);
       }
       return { drowned, adrift };
     });
@@ -5395,9 +5424,15 @@ test.describe('surfaces catch the light', () => {
       .map(([name]) => name);
     expect(matte).toEqual([]);
 
-    // And the table reaches the farmer, who is loaded down a different path
-    // in assets.js and returns before the name-keyed passes the rest use.
-    expect(roughness['texture-a'] ?? roughness['texture-e']).toBeLessThan(1);
+    /* And the farmer, who is no longer reached by that table at all — she is
+       built in farmer.js now rather than loaded from a kit, with materials of
+       her own. The claim is the same one and it still needs holding: the
+       thing the player looks at most must not be the one surface in the farm
+       that cannot catch the light. Asked of every material she is made of,
+       since there is no single texture standing in for her any more. */
+    const hers = Object.entries(roughness).filter(([name]) => name.startsWith('farmer-'));
+    expect(hers.length).toBeGreaterThanOrEqual(5);
+    expect(hers.filter(([, r]) => r >= 1)).toEqual([]);
   });
 });
 
@@ -5533,6 +5568,241 @@ test.describe('when the browser takes the canvas away', () => {
     await expect.poll(() => page.evaluate(() => window.Farm3DScene.drawCost().calls), { timeout: 15_000 })
       .toBeGreaterThan(0);
   });
+});
+
+test.describe('the farmer is a person', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.waitForFunction(() => !!window.Farm3DScene.farmerBuild());
+  };
+
+  test('she is built to human proportions, not to a minifigure\'s', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const her = await page.evaluate(() => window.Farm3DScene.farmerBuild());
+
+    /* The number the rebuild turns on. The kit character this replaces was
+       about a third head — which is what "like Lego" means, measured — and an
+       adult is nearer a sixth. Asserted as a band rather than a point: the
+       exact figure is a styling decision that may be tuned again, but
+       anything above a quarter is a toy and anything under a tenth is not a
+       person either. */
+    expect(her.headFraction).toBeLessThan(0.24);
+    expect(her.headFraction).toBeGreaterThan(0.10);
+
+    // A neck, two arms with elbows and wrists, two legs with knees and
+    // ankles. The joints are what a bend needs; a slab has none of them.
+    expect(her.joints).toHaveLength(16);
+    expect(her.clips).toEqual(['carry', 'idle', 'pick-up', 'walk']);
+  });
+
+  test('both farmers are built, and neither is the other', async ({ page }) => {
+    await load(page, makeSave({ farmer: 'female' }));
+    await ready(page);
+    const she = await page.evaluate(() => window.Farm3DScene.farmerBuild());
+
+    await page.evaluate(() => { state.farmer = 'male'; });
+    await expect.poll(
+      () => page.evaluate(() => window.Farm3DScene.farmerBuild()?.height),
+      { timeout: 10_000 },
+    ).toBeGreaterThan(0);
+    const he = await page.evaluate(() => window.Farm3DScene.farmerBuild());
+
+    // Same skeleton, same clips — the difference between them is build and
+    // colouring, which is all it was when they were two authored models.
+    expect(he.joints).toEqual(she.joints);
+    expect(he.clips).toEqual(she.clips);
+    expect(Math.abs(he.height - she.height)).toBeLessThan(0.25);
+  });
+});
+
+test.describe('the road to market', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+
+  test('the road runs from the farm gate to the market', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const { road, market, roam } = await page.evaluate(() => ({
+      road: window.Farm3DScene.road(),
+      market: window.Farm3DScene.market(),
+      roam: window.Farm3DScene.roam(),
+    }));
+
+    // It starts inside the farm she can walk to...
+    expect(road.start.x).toBeGreaterThan(roam.minX);
+    expect(road.start.x).toBeLessThan(roam.maxX);
+    expect(road.start.z).toBeLessThan(roam.maxZ + 2);
+    // ...and finishes at the market, not merely somewhere out of sight.
+    expect(Math.hypot(road.end.x - market.x, road.end.z - market.z)).toBeLessThan(1);
+    /* Long enough to be a drive. A road this game could cross in a second
+       would not have been worth building — the ask was a country road, and
+       the distance is most of what makes it one. */
+    expect(road.length).toBeGreaterThan(40);
+  });
+
+  test('nothing is growing in the carriageway', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+
+    /* Sampled along the road itself rather than over the map: the question
+       is whether anything solid stands where the car will be, and the car
+       will be on the road. A trunk in the lane is a drive that ends in a
+       tree at twelve units a second. */
+    const blocked = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const { posts, boxes } = s.solids();
+      const hits = [];
+      for (let i = 0; i <= 200; i += 1) {
+        const p = s.roadPointAt(i / 200);
+        for (const t of posts) {
+          if (Math.hypot(t.x - p.x, t.z - p.z) < t.r + 1.4) hits.push(`${t.id} at ${i / 200}`);
+        }
+        for (const b of boxes) {
+          if (b.id === 'car/sedan') continue;
+          if (p.x > b.minX - 1.4 && p.x < b.maxX + 1.4
+            && p.z > b.minZ - 1.4 && p.z < b.maxZ + 1.4) hits.push(`${b.id} at ${i / 200}`);
+        }
+      }
+      return [...new Set(hits)];
+    });
+    expect(blocked).toEqual([]);
+  });
+});
+
+test.describe('driving the harvest to market', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const loaded = { wheat: 10, corn: 4, carrot: 3, pumpkin: 1, milk: 0, egg: 0, wool: 0 };
+
+  /* Drives the route the way a player would: steering at a point further
+     along the road, and lifting off for the bends. Full lock is a turn
+     radius of eight units and the tightest corner is nearer six, so a bot
+     that holds the throttle down simply leaves the road — which is correct
+     of the car, and the reason this brakes. */
+  const driveToMarket = (page) => page.evaluate(async () => {
+    const s = window.Farm3DScene;
+    const started = performance.now();
+    await new Promise((resolve) => {
+      const tick = () => {
+        const c = s.car();
+        const m = s.market();
+        if (Math.hypot(c.x - m.x, c.z - m.z) < m.radius * 0.5
+          || performance.now() - started > 40_000) {
+          s.drive(0, 0); resolve(); return;
+        }
+        const here = s.onRoad(c.x, c.z);
+        const near = s.roadPointAt(Math.min(1, here.along + 0.03));
+        const far = s.roadPointAt(Math.min(1, here.along + 0.09));
+        const wrap = (a) => {
+          let v = a;
+          while (v > Math.PI) v -= Math.PI * 2;
+          while (v < -Math.PI) v += Math.PI * 2;
+          return v;
+        };
+        const err = wrap(Math.atan2(near.x - c.x, near.z - c.z) - c.heading);
+        const bend = Math.abs(wrap(Math.atan2(far.x - c.x, far.z - c.z) - c.heading));
+        const pace = bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1);
+        s.drive(Math.max(-1, Math.min(1, -err * 2.4)), c.speed > pace * 12 ? 0.35 : -1);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  });
+
+  test('loading up and driving there sells the load', async ({ page }) => {
+    await load(page, makeSave({ inventory: { ...loaded } }));
+    await ready(page);
+    const before = await page.evaluate(() => state.coins);
+
+    expect(await page.evaluate(() => window.Farm3DScene.board())).toBe(true);
+    expect(await page.evaluate(() => window.Farm3DScene.car().cargo)).toBe(4);
+
+    await driveToMarket(page);
+
+    // Arrived, sold, and the barn is empty.
+    await expect.poll(() => page.evaluate(() => state.inventory.wheat), { timeout: 10_000 }).toBe(0);
+    const after = await page.evaluate(() => state.coins);
+    expect(after).toBeGreaterThan(before);
+    expect(await page.evaluate(() => window.Farm3DScene.car().cargo)).toBe(0);
+  });
+
+  test('a drive that never arrives costs nothing', async ({ page }) => {
+    await load(page, makeSave({ inventory: { ...loaded } }));
+    await ready(page);
+    const before = await page.evaluate(() => ({ coins: state.coins, wheat: state.inventory.wheat }));
+
+    await page.evaluate(() => window.Farm3DScene.board());
+    // A short run down the road and back out of the car, nowhere near the
+    // market. The crates are a picture of the errand, not a second copy of
+    // the barn, so turning back has to leave the barn exactly as it was.
+    await page.evaluate(async () => {
+      window.Farm3DScene.drive(0, -1);
+      await new Promise((r) => setTimeout(r, 1200));
+      window.Farm3DScene.drive(0, 0);
+    });
+    expect(await page.evaluate(() => window.Farm3DScene.alight())).toBe(true);
+
+    const after = await page.evaluate(() => ({ coins: state.coins, wheat: state.inventory.wheat }));
+    expect(after).toEqual(before);
+  });
+
+  test('the Market tab still sells exactly as it did', async ({ page }) => {
+    /* The promise this feature was built on: the drive is a second road to
+       the same prices, not a replacement for the counter. A player who never
+       gets in the car must not notice that it exists. */
+    await load(page, makeSave({ inventory: { ...loaded } }));
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    const before = await page.evaluate(() => state.coins);
+
+    await page.getByRole('button', { name: /Market/ }).click();
+    /* The wheat row's own Sell All, found by the good's emoji rather than by
+       position in the list — GOODS happens to start with wheat today and
+       this test is not about that. */
+    await page.locator('.market-item').filter({ hasText: '🌾' })
+      .getByRole('button').click();
+
+    expect(await page.evaluate(() => state.inventory.wheat)).toBe(0);
+    expect(await page.evaluate(() => state.coins)).toBeGreaterThan(before);
+  });
+
+  test('the car is stopped by a building rather than driven through it',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+      await page.evaluate(() => window.Farm3DScene.board());
+
+      /* Aimed at the barn, which is the nearest solid east of the yard, and
+         held there. A car that passes through it ends up well past it; one
+         that is stopped by it ends up against it. */
+      const barn = await page.evaluate(() => window.Farm3DScene.solids().boxes
+        .find((b) => b.id.includes('building-type-b')));
+      await page.evaluate(async (target) => {
+        const s = window.Farm3DScene;
+        const started = performance.now();
+        await new Promise((resolve) => {
+          const tick = () => {
+            const c = s.car();
+            if (performance.now() - started > 6000) { s.drive(0, 0); resolve(); return; }
+            let err = Math.atan2(target.x - c.x, target.z - c.z) - c.heading;
+            while (err > Math.PI) err -= Math.PI * 2;
+            while (err < -Math.PI) err += Math.PI * 2;
+            s.drive(Math.max(-1, Math.min(1, -err * 2)), -1);
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        });
+      }, { x: (barn.minX + barn.maxX) / 2, z: (barn.minZ + barn.maxZ) / 2 });
+
+      const c = await page.evaluate(() => window.Farm3DScene.car());
+      const inside = c.x > barn.minX && c.x < barn.maxX && c.z > barn.minZ && c.z < barn.maxZ;
+      expect(inside, `car at (${c.x.toFixed(1)}, ${c.z.toFixed(1)}) is inside the barn`).toBe(false);
+    });
 });
 
 /* ------------------------------------------------------------------ */

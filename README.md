@@ -51,6 +51,23 @@ sheen off the low sun that bark and dirt do not. The camera follows her and is y
 to move — drag to orbit, pinch to zoom, two fingers to pan, clamped so it
 can't go underground or flip upside down.
 
+The farmer is a person rather than a toy — six and a half heads tall, with a
+neck, shoulders, a waist and limbs that bend at the elbow and knee, built from
+scratch because no kit in the library has a human in it. She walks with her
+arms swinging, bends at the knees to pick a crop, and carries a load in front
+of her.
+
+**And there is somewhere to take that load.** A country road leaves the yard
+past the market stall and winds sixty metres over the hills to a market
+village — stalls, a couple of houses, a signpost. Walk to the car with
+something sellable in the barn and she loads it up; the camera drops in behind
+the bumper and you drive. The steering only bites once you are moving and the
+tightest bend is tighter than the car's turning circle at full speed, so you
+have to lift off for the corners, and the grass is less than half as fast as
+the tarmac. Arrive at the market and the load sells itself. The Market tab is
+untouched and sells the same goods at the same prices from the same counter —
+the drive is a longer way round, for players who would rather drive than tap.
+
 It is a farm at human scale. The farmhouse stands more than three times her
 height and the barn nearly four, the orchard is grown trees rather than
 saplings, and the ground is about twenty-five metres square — big enough
@@ -337,8 +354,13 @@ hurricane, that the clouds are a function of the save rather than of how long
 the tab has been open and that no sunlight falls on them at midnight, that
 the pond's water really does shallow out instead of ending on a cliff, that
 nothing in the farm is left at the fully matte roughness every kit ships, that
-a browser taking the WebGL context away is explained rather than leaving a
-blank box, that the farm comes back whole when the context is restored, and
+the farmer is built to human proportions rather than a minifigure's and has
+every joint a bend needs, that the road actually runs from the farm gate to the
+market with nothing growing in the carriageway, that loading the car and
+driving there sells the load while a drive that turns back costs nothing, that
+the car is stopped by a building rather than driven through it, that the Market
+tab still sells exactly as it did, that a browser taking the WebGL context away
+is explained rather than leaving a blank box, that the farm comes back whole when the context is restored, and
 that the reload offered when it never is keeps the player's coins — and that
 shadows stay switched off on a machine with no GPU, which is the whole point
 of gating them. **Scale and collision** are tested
