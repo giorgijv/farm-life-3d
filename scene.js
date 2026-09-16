@@ -2028,6 +2028,17 @@ ${shader.fragmentShader.replace(
      lost. One radius rather than two, because they are the same claim: this
      is where the market is. */
   const MARKET_RADIUS = 10;
+  /* How far out she may walk, which is deliberately *inside* the radius the
+     shop is tested at rather than equal to it.
+
+     Equal was the first version and it put her exactly on the circle, since
+     that is what a clamp to a radius does. The distance back then came out at
+     10.000000000000002 — two ulp over — and `<= MARKET_RADIUS` is false for
+     that, so walking to the edge of the square closed the shop while she was
+     standing in it. Half a unit of slack is not a tolerance bolted onto a
+     comparison; it is a fence set inside the boundary, so no float can land
+     on the wrong side of it. */
+  const MARKET_WALK_RADIUS = MARKET_RADIUS - 0.5;
 
   const roadCurve = new THREE.CatmullRomCurve3(
     ROAD_WAYPOINTS.map(([x, z]) => new THREE.Vector3(x, 0, z)),
@@ -4067,14 +4078,46 @@ ${lit}`;
     }
   }
 
+  /* Where she is allowed to be on foot: the farm, or the market square.
+
+     Two regions rather than one box, and they do not touch — the farm ends at
+     z 10.2 and the square starts at 27.8. She cannot walk between them; the
+     only way into the second is to drive, which is the whole point of it.
+
+     This is also a bug fix for the step that added the market. The clamp was
+     a single ROAM box applied to every step, so parking at the market and
+     getting out left her standing 27 units outside it, and her first step
+     snapped her back to the farm's southern fence. Nothing reported it
+     because getting out at the market is the last thing anyone does; it
+     showed up the moment the shop below gave her a reason to.
+
+     The region is chosen by where she *is*, not where she is going, so there
+     is no edge to cross that could teleport her: whichever one she is in, she
+     stays in until she drives out of it. */
+  function clampToWalkable(fromX, fromZ, x, z, out) {
+    if (Math.hypot(fromX - MARKET.x, fromZ - MARKET.z) <= MARKET_RADIUS) {
+      const dx = x - MARKET.x;
+      const dz = z - MARKET.z;
+      const d = Math.hypot(dx, dz);
+      if (d <= MARKET_WALK_RADIUS) { out.x = x; out.z = z; return; }
+      out.x = MARKET.x + (dx / d) * MARKET_WALK_RADIUS;
+      out.z = MARKET.z + (dz / d) * MARKET_WALK_RADIUS;
+      return;
+    }
+    out.x = Math.max(ROAM.minX, Math.min(ROAM.maxX, x));
+    out.z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, z));
+  }
+
+  const walkTmp = { x: 0, z: 0 };
+
   function steer(dt) {
     const mag = Math.min(1, Math.hypot(drive.x, drive.z));
     const step = WALK_SPEED * mag * dt;
     const fromX = at.x;
     const fromZ = at.z;
-    const x = Math.max(ROAM.minX, Math.min(ROAM.maxX, fromX + (drive.x / mag) * step));
-    const z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, fromZ + (drive.z / mag) * step));
-    moveWithCollision(fromX, fromZ, x, z, at, true);
+    clampToWalkable(fromX, fromZ,
+      fromX + (drive.x / mag) * step, fromZ + (drive.z / mag) * step, walkTmp);
+    moveWithCollision(fromX, fromZ, walkTmp.x, walkTmp.z, at, true);
     facing = Math.atan2(drive.x, drive.z);
   }
 
@@ -4196,7 +4239,36 @@ ${lit}`;
     return false;
   }
 
+  /* Is the market open to her? Only if she is standing in it — which, since
+     her feet cannot carry her out of the farm, means only if she drove.
+
+     Stated as "the car is in the square and she is in it or beside it"
+     rather than just "the car is in the square", so parking there and
+     driving home again closes the shop behind her. It is a market, not a
+     licence.
+
+     Pushed to script.js on change rather than polled by it: the tab re-renders
+     once a second anyway, but a second of a dead Buy button after arriving is
+     a second of the player thinking it did not work. */
+  /* null rather than false, so the first frame always counts as a change and
+     pushes the answer across. Starting it at false would have matched the
+     real state at the farm gate and therefore pushed nothing — leaving
+     script.js on its own open-by-default, with the shop trading happily
+     until she drove to the market and back. The default there exists for
+     builds with no scene at all; this is the scene taking ownership of it. */
+  let shopOpen = null;
+  function syncShop() {
+    const carThere = Math.hypot(carAt.x - MARKET.x, carAt.z - MARKET.z) <= MARKET_RADIUS;
+    const sheIsThere = inCar
+      || Math.hypot(at.x - MARKET.x, at.z - MARKET.z) <= MARKET_RADIUS;
+    const open = carThere && sheIsThere;
+    if (open === shopOpen) return;
+    shopOpen = open;
+    bridge.setMarketOpen?.(open);
+  }
+
   function advanceCar(dt) {
+    syncShop();
     if (!inCar || !carObject) return;
 
     /* The stick, read as pedals and a wheel. Screen-up is -z, which is
@@ -4817,6 +4889,7 @@ ${lit}`;
     board: () => boardCar(),
     alight: () => leaveCar(),
     atWheel: () => inCar,
+    atMarket: () => shopOpen,
     car: () => ({ x: carAt.x, z: carAt.z, heading: carHeading, speed: carSpeed, cargo: cargo.length }),
     /* The pond, as numbers. A test cannot look at a canvas and say whether
        that is water, but it can ask whether she is standing in it, and it can

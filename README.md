@@ -64,9 +64,15 @@ something sellable in the barn and she loads it up; the camera drops in behind
 the bumper and you drive. The steering only bites once you are moving and the
 tightest bend is tighter than the car's turning circle at full speed, so you
 have to lift off for the corners, and the grass is less than half as fast as
-the tarmac. Arrive at the market and the load sells itself. The Market tab is
-untouched and sells the same goods at the same prices from the same counter —
-the drive is a longer way round, for players who would rather drive than tap.
+the tarmac. Arrive at the market and the load sells itself.
+
+**Selling still works from the farm; buying does not.** Goods leave the farm
+over the same counter at the same prices they always did — a buyer comes to
+you. Upgrades and barns are a shop, and a shop is somewhere you go: their
+buttons show what they would cost and stay greyed out until she is standing in
+the market square, which means the car and the road. Everything else on that
+tab — difficulty, farmer, sound, save data — is a setting rather than a
+purchase and is reachable wherever she is.
 
 It is a farm at human scale. The farmhouse stands more than three times her
 height and the barn nearly four, the orchard is grown trees rather than
@@ -359,7 +365,10 @@ every joint a bend needs, that the road actually runs from the farm gate to the
 market with nothing growing in the carriageway, that loading the car and
 driving there sells the load while a drive that turns back costs nothing, that
 the car is stopped by a building rather than driven through it, that the Market
-tab still sells exactly as it did, that a browser taking the WebGL context away
+tab still sells from the farm while upgrades and barns refuse until she has
+driven there — below the button as well as on it — that parking at the market
+and getting out leaves her standing in the square rather than back at the farm,
+that a browser taking the WebGL context away
 is explained rather than leaving a blank box, that the farm comes back whole when the context is restored, and
 that the reload offered when it never is keeps the player's coins — and that
 shadows stay switched off on a machine with no GPU, which is the whole point

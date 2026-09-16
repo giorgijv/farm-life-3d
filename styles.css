@@ -3387,3 +3387,22 @@ body {
   transform: translateY(2px);
   box-shadow: 0 1px 0 rgb(0 0 0 / 0.25);
 }
+
+/* The "you have to drive there" line above the upgrade list. Styled as a
+   notice rather than an error: nothing has gone wrong, the shop is simply
+   somewhere else. */
+.shop-note {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: rgb(217 131 36 / 0.14);
+  border: 1px solid rgb(217 131 36 / 0.35);
+  color: var(--ink, #4a3527);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.shop-note[hidden] {
+  display: none;
+}

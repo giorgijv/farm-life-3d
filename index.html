@@ -150,6 +150,11 @@
     <!-- MARKET TAB -->
     <section id="marketTab" class="tab-screen hidden">
       <h2 class="group-title">🔧 Upgrades</h2>
+      <!-- Why the buy buttons are greyed out, shown only when they are. A
+           live region because it appears and disappears as she drives in and
+           out of the square, and a screen reader that never sees the buttons
+           change colour has nothing else to go on. -->
+      <p class="shop-note" id="shopNote" role="status" aria-live="polite" hidden></p>
       <div class="upgrade-list" id="upgradeList"></div>
 
       <h2 class="group-title">Sell Goods</h2>

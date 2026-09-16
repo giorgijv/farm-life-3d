@@ -2565,6 +2565,101 @@ No new assets were fetched, and the draw budget is unchanged — the road is one
 mesh and the roadside scenery is instanced, so the worst-case test passes at
 the same ceilings it did before.
 
+## 33. The shop moved to the market
+
+Buying now costs a journey: upgrades and barns can only be bought while she is
+standing in the market square, which she can only reach by car.
+
+Selling did not move. Goods leave the farm exactly as they always did, over the
+same counter at the same prices — §32 committed to that and this does not take
+it back. The asymmetry is the point: a buyer comes to you, a shop does not.
+
+### What is gated, and what is not
+
+| | where |
+|---|---|
+| Sell Goods | the farm, as before |
+| 🔧 Upgrades | **the market** |
+| 🌪️ Barns | **the market** |
+| Difficulty, Farmer, Sound, Save Data | anywhere — settings, not purchases |
+| Animals, plots | their own tabs, untouched |
+
+Scoped to the Market tab because that is what "buy stuff in the market" names.
+Animals are bought on the Animals tab and plots on the Farm; neither moved.
+
+### The default is open, and that is load-bearing
+
+`marketOpen` starts **true** in script.js, and the scene sets it false on its
+first frame. That direction is deliberate and it is the most important line in
+the change: on any build where there is no scene to own the value — WebGL
+refused, the module failed to load, a browser that cannot run it — the shop
+stays open and the game stays playable. A gate whose *closed* state is also its
+failure mode eventually locks somebody out of their own save.
+
+The scene's own flag starts at `null` rather than `false` for the matching
+reason. Starting it false would have matched the real state at the farm gate
+and therefore pushed nothing, leaving script.js on its open-by-default and the
+shop trading happily until she drove to the market and back. `null` guarantees
+the first frame counts as a change.
+
+### Three bugs, none of them in the rule
+
+The rule itself was ten lines. Everything that went wrong was in the wiring.
+
+- **Getting out at the market threw her home.** Her walk is clamped to the farm
+  and the clamp was one box applied to every step — so parking at the market,
+  which §32 shipped, left her standing twenty-seven units outside it and her
+  first step snapped her back to the southern fence. This was already broken
+  before this section; nothing had reported it because getting out at the
+  market is the last thing anyone does, and the shop is what finally gave her a
+  reason to. She now has two places she may stand, the farm and the square,
+  chosen by where she *is* so there is no edge to cross.
+- **The barn cards never redrew.** `renderBarns` skips a card whose signature
+  is unchanged, and the signature is `status:price` — driving to the market
+  changes neither, so the Build button kept whatever it was first drawn as.
+  Arriving visibly did nothing.
+- **Refreshing the market tab was not enough.** The barns are rendered from
+  `render()`'s market branch rather than from inside `renderMarket`, so opening
+  the shop refreshed the upgrades and left the barns alone.
+
+### The tests that had to move
+
+Two whole describes — `barns` and `upgrades` — buy things while standing at the
+farm, because they are about what a purchase *costs*. They now open the shop
+through the bridge first, with a comment saying why: making each of them drive
+sixty metres would be slower, flakier, and would test the road over and over
+instead of the pricing rule it came to check. Where a purchase can be made has
+its own describe, with the drive in it.
+
+That helper has to **wait for the scene's first frame** before overriding.
+Setting it earlier is silently undone by that frame, which is what happened,
+and which read as a Build button greyed out for no reason. `atMarket()` answers
+null until the scene has reported, so the wait is for that frame specifically
+rather than for a guessed delay.
+
+### The fence inside the boundary
+
+The square's walk clamp is half a unit *inside* the radius the shop is tested
+at, and that half unit is a fix rather than a margin of taste.
+
+Equal was the first version, and a clamp to a radius puts her exactly on the
+circle. The distance back came out **10.000000000000002** — two ulp over — and
+`<= MARKET_RADIUS` is false for that number, so walking to the edge of the
+square closed the shop while she was standing in it. The answer is not a
+tolerance bolted onto the comparison; it is a fence set inside the boundary, so
+no float can land on the wrong side of it.
+
+Found by a test asserting she was still inside the square after a walk, which
+failed on the fifteenth decimal place. The assertion was right and the code was
+wrong, which is the less common way round.
+
+### The consequence worth stating
+
+A hurricane that arrives while she is at the farm can no longer be answered by
+buying a barn on the spot — the barn is at the market, and the round trip is
+about twelve seconds of driving. That is a real difficulty change and it
+follows directly from the rule as asked for, rather than being an oversight.
+
 ---
 
 ## Verified, not assumed
@@ -2972,6 +3067,25 @@ Everything above was checked before it was written:
   running in the background, and both were read as results. They were
   contending for four cores and neither meant anything. Both were discarded
   and a single clean run taken.
+
+- §33's three wiring bugs were each found by printing the live state rather
+  than by reading the code: the shop reported open while its buttons rendered
+  shut, which is what pointed at the render-skip signature; and `marketOpen`
+  read true in the page while the barn card still said otherwise, which is
+  what separated "the value is wrong" from "the value never reached the DOM".
+- §33's boundary bug is in this list rather than in the section alone because
+  it is the kind that reads as test flake and is not: a walk to the edge of
+  the market square really did shut the shop with her standing in it, and the
+  only symptom was an assertion failing by two parts in a quadrillion.
+- One test in §33 was fixed rather than its subject: "leaving shuts it again"
+  reversed for a fixed four seconds and failed one run in three, because how
+  long it takes to back out of the square depends on what is in the way. It
+  waits for her to be out instead.
+- The open-by-default is asserted by argument rather than by test, and that is
+  said plainly here because it is the one claim in §33 without one: a build
+  with no scene at all is not something this suite can stand up. What is
+  tested is that the value only ever changes through the bridge, which is the
+  property the argument rests on.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

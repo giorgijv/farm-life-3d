@@ -1670,7 +1670,12 @@ function renderBarns() {
     const price = barnPrice(key);
     const affordable = !owned && !outgrown && state.coins >= price;
     const status = owned ? 'owned' : outgrown ? 'outgrown' : affordable ? 'ready' : 'saving';
-    const sig = `${status}:${price}`;
+    /* marketOpen is part of the signature because the button's own text and
+       disabled state now depend on it. Left out, the card kept whatever it
+       was first drawn as: arriving at the market changed nothing she could
+       see, because the only thing that would have redrawn the card was a
+       change of status or price, and driving there changes neither. */
+    const sig = `${status}:${price}:${marketOpen}`;
 
     if (card.dataset.sig !== sig) {
       card.className = `barn-card ${status}`;
@@ -1701,8 +1706,10 @@ function renderBarns() {
         btn.disabled = true;
       } else {
         const upgrade = price !== barn.cost;
-        btn.textContent = `${upgrade ? 'Upgrade' : 'Build'} (${price.toLocaleString('en-GB')}💰)`;
-        btn.disabled = !affordable;
+        btn.textContent = marketOpen
+          ? `${upgrade ? 'Upgrade' : 'Build'} (${price.toLocaleString('en-GB')}💰)`
+          : `${SHUT_SHORT} · ${price.toLocaleString('en-GB')}💰`;
+        btn.disabled = !marketOpen || !affordable;
         btn.onclick = () => buyBarn(key);
       }
       card.appendChild(btn);
@@ -2398,6 +2405,19 @@ window.Farm3DBridge = {
     return sold.length;
   },
   announce: showToast,
+  /* The scene telling the shop whether she is standing in it. See marketOpen
+     for why this is a setter the scene pushes rather than something the
+     interface asks for. */
+  setMarketOpen(open) {
+    if (open === marketOpen) return;
+    marketOpen = open;
+    /* The whole render, not renderMarket alone: the barns are their own
+       section rendered from render()'s market branch rather than from inside
+       renderMarket, so refreshing only the latter left the Build buttons
+       greyed out after she had arrived. The tab redraws once a second
+       regardless, so this is about the second in between. */
+    if (activeTab === 'market') render();
+  },
   /* Step 6's proximity loop: the scene says what is in reach and asks what it
      would mean, the interface offers it, and Space or the button runs it. */
   animalIntent,
@@ -3066,6 +3086,12 @@ function buyUpgrade(key) {
   const def = UPGRADES[key];
   const level = upgradeLevel(key);
   if (level >= def.maxLevel) return;
+  /* Checked here as well as on the button. The button is what the player
+     sees; this is what actually holds, and the two are not the same thing —
+     a stale render, a keyboard activating a control mid-drive, or anything
+     else reaching this function directly would otherwise walk straight past
+     a disabled attribute. */
+  if (!marketOpen) { shopRefusal(); return; }
 
   const cost = upgradeCost(key);
   if (state.coins < cost) {
@@ -3080,6 +3106,32 @@ function buyUpgrade(key) {
   showToast(`${def.name} upgraded to level ${level + 1}!`);
   saveState();
   render();
+}
+
+/* Whether the market will sell her anything, which is a question about where
+   she is standing rather than about what she can afford. Goods are sold from
+   the farm as they always were — a buyer comes to you — but buying means
+   going to the market, which means the car and the road.
+
+   Starts open, and that default is load-bearing rather than tidy. The scene
+   owns this value and sets it false on its first frame, so on any build where
+   there is no scene to own it — WebGL refused, the module failed to load, a
+   browser that cannot run it at all — the shop stays open and the game stays
+   playable. A gate whose closed state is the failure mode is a gate that
+   eventually locks someone out of their own save.
+
+   Not persisted, for the same reason it is not a purchase: it is where she is
+   standing this second, and a reloaded farm starts her at the gate. */
+let marketOpen = true;
+
+/* What the player is told when it is shut, in one place: the buttons say it
+   short, the toast says it whole, and both would otherwise drift. */
+const SHUT_SHORT = '🚗 At the market';
+const SHUT_LONG = 'Drive the car to the market to buy this — selling works from the farm.';
+
+function shopRefusal() {
+  SFX.error();
+  showToast(SHUT_LONG);
 }
 
 function renderUpgrades() {
@@ -3123,11 +3175,26 @@ function renderUpgrades() {
       btn.setAttribute('aria-label', `${def.name} is fully upgraded`);
     } else {
       const cost = upgradeCost(key);
-      btn.textContent = `Upgrade (${cost}💰)`;
-      btn.disabled = state.coins < cost;
-      btn.setAttribute('aria-label', `Upgrade ${def.name} to level ${level + 1} for ${cost} coins`);
+      /* The price is shown either way. A shut shop should say "not here",
+         not "not for you" — a player deciding whether the drive is worth
+         making needs to know what it would cost when they arrive. */
+      btn.textContent = marketOpen ? `Upgrade (${cost}💰)` : `${SHUT_SHORT} · ${cost}💰`;
+      btn.disabled = !marketOpen || state.coins < cost;
+      btn.setAttribute('aria-label', marketOpen
+        ? `Upgrade ${def.name} to level ${level + 1} for ${cost} coins`
+        : `${def.name}, level ${level + 1}, ${cost} coins. ${SHUT_LONG}`);
     }
   });
+
+  /* One line above the list saying what the greyed-out buttons are waiting
+     for. Without it the whole section reads as broken rather than as shut:
+     "disabled" is not a reason, and a button that has never worked for this
+     player has no history to infer one from. */
+  const note = document.getElementById('shopNote');
+  if (note) {
+    note.textContent = marketOpen ? '' : SHUT_LONG;
+    note.hidden = marketOpen;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -3673,6 +3740,7 @@ function resolveHurricane() {
 function buyBarn(key) {
   const barn = BARNS[key];
   if (!barn || state.barn === key) return;
+  if (!marketOpen) { shopRefusal(); return; }
   // Never let a purchase move backwards to less shelter.
   if (BARNS[state.barn] && BARNS[state.barn].capacity >= barn.capacity) return;
 

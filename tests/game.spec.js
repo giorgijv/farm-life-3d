@@ -433,7 +433,10 @@ test.describe('hurricanes', () => {
 test.describe('barns', () => {
   const banked = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
   const barnBtn = (page, i) => page.locator('#barnList .barn-card').nth(i).locator('.barn-btn');
-  const openMarket = (page) => page.getByRole('button', { name: /Market/ }).click();
+  const openMarket = async (page) => {
+    await page.getByRole('button', { name: /Market/ }).click();
+    await openShop(page);
+  };
 
   test('both barns are offered at their prices', async ({ page }) => {
     await load(page, banked({ coins: 0 }));
@@ -2881,6 +2884,30 @@ test.describe('preferences', () => {
   });
 });
 
+/* Opens the shop where a test is about what a purchase *costs* rather than
+   about where it can be made.
+
+   Buying is gated on standing in the market square, which she can only reach
+   by car — that rule has its own describe, with the drive in it. Every other
+   test that buys something is asking a pricing question, and making each of
+   them drive sixty metres first would be slower, flakier, and would test the
+   road over and over instead of the thing it came to check.
+
+   The wait is the part that matters. The scene pushes "shut" on its first
+   frame and then only on a change, so an override set *before* that first
+   frame is quietly overwritten by it — which is exactly what happened, and
+   read as a Build button that stayed greyed out for no reason. atMarket()
+   answers null until the scene has reported once, so waiting on it is
+   waiting for that frame specifically rather than for a guessed delay. */
+const openShop = async (page) => {
+  await page.waitForFunction(
+    () => window.Farm3DScene && window.Farm3DScene.atMarket() !== null,
+    null,
+    { timeout: 15_000 },
+  );
+  await page.evaluate(() => window.Farm3DBridge.setMarketOpen(true));
+};
+
 /* ------------------------------------------------------------------ */
 /* Upgrades                                                            */
 /* ------------------------------------------------------------------ */
@@ -2892,6 +2919,7 @@ test.describe('upgrades', () => {
   test('buying a level charges the cost and records it', async ({ page }) => {
     await load(page, makeSave({ coins: 500 }));
     await page.getByRole('button', { name: /Market/ }).click();
+    await openShop(page);
 
     const sprinkler = upgradeCard(page, 'Sprinkler');
     await expect(sprinkler.locator('.upgrade-level')).toHaveText('Level 0 / 3');
@@ -2905,6 +2933,7 @@ test.describe('upgrades', () => {
   test('each level costs more than the last', async ({ page }) => {
     await load(page, makeSave({ coins: 10_000 }));
     await page.getByRole('button', { name: /Market/ }).click();
+    await openShop(page);
 
     const sprinkler = upgradeCard(page, 'Sprinkler');
     const costs = [];
@@ -2923,6 +2952,7 @@ test.describe('upgrades', () => {
   test('a level cannot be bought without the coins', async ({ page }) => {
     await load(page, makeSave({ coins: 10 }));
     await page.getByRole('button', { name: /Market/ }).click();
+    await openShop(page);
 
     await expect(upgradeCard(page, 'Sprinkler').getByRole('button')).toBeDisabled();
     await expect.poll(async () => (await readSave(page)).upgrades.sprinkler).toBe(0);
@@ -2974,6 +3004,7 @@ test.describe('upgrades', () => {
       inventory: { wheat: 0, corn: 0, carrot: 0, pumpkin: 0, milk: 2, egg: 0, wool: 0 },
     }));
     await page.getByRole('button', { name: /Market/ }).click();
+    await openShop(page);
 
     // Milk is 9 base; +30% rounds to 12.
     const milk = page.locator('#sellList .market-item').filter({ hasText: 'Milk' });
@@ -5803,6 +5834,173 @@ test.describe('driving the harvest to market', () => {
       const inside = c.x > barn.minX && c.x < barn.maxX && c.z > barn.minZ && c.z < barn.maxZ;
       expect(inside, `car at (${c.x.toFixed(1)}, ${c.z.toFixed(1)}) is inside the barn`).toBe(false);
     });
+});
+
+test.describe('the shop is at the market', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+    // The scene owns the shop's state and reports it on its first frame.
+    await page.waitForFunction(
+      () => window.Farm3DScene.atMarket() !== null, null, { timeout: 15_000 },
+    );
+  };
+  const rich = { coins: 9000, inventory: { wheat: 12, corn: 0, carrot: 0, pumpkin: 0, milk: 0, egg: 0, wool: 0 } };
+  const market = (page) => page.getByRole('button', { name: /Market/ }).click();
+  const upgradeBtn = (page) => page.locator('#upgradeList .upgrade-item')
+    .filter({ hasText: 'Sprinkler' }).getByRole('button');
+
+  /* The same drive the market run uses, and for the same reason it brakes for
+     bends: full lock is a turn radius of eight units and the tightest corner
+     on the route is nearer six. */
+  const driveToMarket = (page) => page.evaluate(async () => {
+    const s = window.Farm3DScene;
+    const started = performance.now();
+    await new Promise((resolve) => {
+      const tick = () => {
+        const c = s.car();
+        const m = s.market();
+        if (Math.hypot(c.x - m.x, c.z - m.z) < m.radius * 0.5
+          || performance.now() - started > 40_000) {
+          s.drive(0, 0); resolve(); return;
+        }
+        const here = s.onRoad(c.x, c.z);
+        const near = s.roadPointAt(Math.min(1, here.along + 0.03));
+        const far = s.roadPointAt(Math.min(1, here.along + 0.09));
+        const wrap = (a) => {
+          let v = a;
+          while (v > Math.PI) v -= Math.PI * 2;
+          while (v < -Math.PI) v += Math.PI * 2;
+          return v;
+        };
+        const err = wrap(Math.atan2(near.x - c.x, near.z - c.z) - c.heading);
+        const bend = Math.abs(wrap(Math.atan2(far.x - c.x, far.z - c.z) - c.heading));
+        const pace = bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1);
+        s.drive(Math.max(-1, Math.min(1, -err * 2.4)), c.speed > pace * 12 ? 0.35 : -1);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  });
+
+  test('nothing can be bought from the farm', async ({ page }) => {
+    await load(page, makeSave(rich));
+    await ready(page);
+    await market(page);
+
+    expect(await page.evaluate(() => window.Farm3DScene.atMarket())).toBe(false);
+    await expect(upgradeBtn(page)).toBeDisabled();
+    // The price is still shown. A shut shop should say "not here", not
+    // "not for you" — the drive is a decision, and it needs a number.
+    await expect(upgradeBtn(page)).toContainText('120');
+    await expect(page.locator('#shopNote')).toBeVisible();
+
+    /* And the rule holds below the button, which is the half that matters:
+       a disabled attribute is a hint to a mouse, not a guarantee.
+
+       Compared before and after rather than against the fixture's 9000: the
+       save's achievements pay out on load, so the number by the time this
+       runs is its own business. What is being asserted is that the attempt
+       changed nothing, which is the actual claim. */
+    const before = await page.evaluate(() => state.coins);
+    await page.evaluate(() => buyUpgrade('sprinkler'));
+    expect(await page.evaluate(() => state.upgrades.sprinkler)).toBe(0);
+    expect(await page.evaluate(() => state.coins)).toBe(before);
+  });
+
+  test('selling still works from the farm', async ({ page }) => {
+    /* The promise the drive was built on, now that buying has moved: goods
+       leave the farm as they always did. Only buying costs a journey. */
+    await load(page, makeSave(rich));
+    await ready(page);
+    await market(page);
+
+    const before = await page.evaluate(() => state.coins);
+    await page.locator('.market-item').filter({ hasText: '🌾' }).getByRole('button').click();
+    expect(await page.evaluate(() => state.inventory.wheat)).toBe(0);
+    expect(await page.evaluate(() => state.coins)).toBeGreaterThan(before);
+  });
+
+  test('driving there opens the shop, and leaving shuts it again', async ({ page }) => {
+    await load(page, makeSave(rich));
+    await ready(page);
+
+    await page.evaluate(() => window.Farm3DScene.board());
+    await driveToMarket(page);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.atMarket()), { timeout: 10_000 })
+      .toBe(true);
+
+    await market(page);
+    await expect(upgradeBtn(page)).toBeEnabled();
+    await expect(page.locator('#shopNote')).toBeHidden();
+
+    await upgradeBtn(page).click();
+    expect(await page.evaluate(() => state.upgrades.sprinkler)).toBe(1);
+
+    /* Away again. It is a market, not a licence — leaving the square has to
+       take the shop with it, or "arrive once" becomes "arrive ever".
+
+       Driven until she is actually out rather than for a guessed four
+       seconds: reverse tops out at 4.5 units a second and the square is ten
+       across, so how long the trip takes depends on what she has to back
+       around. The fixed version failed one run in three. */
+    await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const started = performance.now();
+      s.drive(0, 1);
+      await new Promise((resolve) => {
+        const tick = () => {
+          const c = s.car();
+          const m = s.market();
+          if (Math.hypot(c.x - m.x, c.z - m.z) > m.radius + 2
+            || performance.now() - started > 20_000) {
+            s.drive(0, 0); resolve(); return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+    });
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.atMarket()), { timeout: 10_000 })
+      .toBe(false);
+  });
+
+  test('she can park at the market and shop on foot', async ({ page }) => {
+    await load(page, makeSave(rich));
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.board());
+    await driveToMarket(page);
+    expect(await page.evaluate(() => window.Farm3DScene.alight())).toBe(true);
+
+    /* Getting out used to throw her home. Her walk is clamped to the farm,
+       and the clamp was one box applied to every step, so her first step out
+       of the car at the market snapped her twenty-seven units back to the
+       southern fence. The square is a second place she is allowed to stand. */
+    const parked = await page.evaluate(() => window.Farm3DScene.farmerAt());
+    await page.evaluate(async () => {
+      window.Farm3DScene.drive(0.7, 0.7);
+      await new Promise((r) => setTimeout(r, 1200));
+      window.Farm3DScene.drive(0, 0);
+    });
+    const walked = await page.evaluate(() => window.Farm3DScene.farmerAt());
+    const m = await page.evaluate(() => window.Farm3DScene.market());
+
+    expect(Math.hypot(parked.x - m.x, parked.z - m.z)).toBeLessThanOrEqual(m.radius);
+    expect(Math.hypot(walked.x - m.x, walked.z - m.z)).toBeLessThanOrEqual(m.radius);
+    expect(await page.evaluate(() => window.Farm3DScene.atMarket())).toBe(true);
+  });
+
+  test('a barn cannot be built from the farm either', async ({ page }) => {
+    await load(page, makeSave({
+      coins: 20000, unlockedAchievements: [...ACHIEVEMENT_IDS],
+    }));
+    await ready(page);
+    await market(page);
+
+    await expect(page.locator('#barnList .barn-card').nth(0).locator('.barn-btn')).toBeDisabled();
+    await page.evaluate(() => buyBarn('small'));
+    expect((await readSave(page)).barn).toBeNull();
+  });
 });
 
 /* ------------------------------------------------------------------ */
