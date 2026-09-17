@@ -2454,7 +2454,21 @@ ${shader.fragmentShader.replace(
         addSolid(prop, object);
         // The one prop this file keeps a handle on, because it is the one
         // the player gets to drive.
-        if (prop.id === 'car/sedan') carObject = object;
+        if (prop.id === 'car/sedan') {
+          carObject = object;
+          /* The sedan is the one kit model with named moving parts, and this
+             is what makes the difference between driving a car and sliding a
+             car-shaped object: four wheels and a body, each addressable.
+             Found by reading the glTF's node list rather than hoped for. */
+          carParts = {
+            body: object.getObjectByName('body'),
+            fl: object.getObjectByName('wheel-front-left'),
+            fr: object.getObjectByName('wheel-front-right'),
+            bl: object.getObjectByName('wheel-back-left'),
+            br: object.getObjectByName('wheel-back-right'),
+          };
+          dressCar();
+        }
 
         if (!ORCHARD_TREE_IDS.has(prop.id)) return;
         loadModel(`${prop.id}_fall`, prop.h).then(({ object: fall }) => {
@@ -2476,6 +2490,7 @@ ${shader.fragmentShader.replace(
       }).catch((err) => console.warn(`farm: ${prop.id} did not load`, err))));
   }
   let carObject = null;
+  let carParts = null;
   const dressed = dressFarm();
 
   /* -------------------------------------------------------------- */
@@ -3589,11 +3604,17 @@ ${lit}`;
   const WALK_SPEED = 4.2;                       // world units per second
   const CROUCH_MS = 450;                        // the beat at the tile before the crop pops
   const STAND_OFF = 0.66;                       // she stops this far south of a tile's centre
-  /* How fast the authored walk cycle looks right at 1x, in the same units as
-     WALK_SPEED. Measured by eye against the clip rather than read off the
-     file, because a glTF clip carries no ground speed of its own — the
-     animator moved the legs, not the character. */
-  const CLIP_WALK_SPEED = 1.5;
+  /* How much ground the cycle covers at 1x, in the same units as WALK_SPEED.
+     A clip carries no ground speed of its own — the legs move, the character
+     does not — so this is the contract between the two, and getting it wrong
+     is what makes feet skate or windmill.
+
+     2.6 rather than the 1.5 inherited from the kit's walk. She moves at 4.2,
+     which is a run for someone 1.6 tall, and against 1.5 the clip was playing
+     at 2.8x: five and a half steps a second, which is a cartoon. farmer.js's
+     cycle is now authored as a running stride to match, and this is what it
+     covers. */
+  const CLIP_WALK_SPEED = 2.6;
   /* Which way the model faces at rotation 0. facing is atan2(dx, dz), so the
      scene's forward is +Z — towards the camera — and the kit's characters are
      authored looking that way already, so there is nothing to correct. Kept
@@ -4110,15 +4131,78 @@ ${lit}`;
 
   const walkTmp = { x: 0, z: 0 };
 
+  /* Which way the camera is looking, as an angle about Y. Read off where the
+     camera actually is relative to what it is pointed at, rather than off any
+     stored orbit state, so it is the truth for whatever has moved the shot —
+     the follow, a drag, the chase camera. */
+  function cameraYaw() {
+    return Math.atan2(
+      camera.position.x - controls.target.x,
+      camera.position.z - controls.target.z,
+    );
+  }
+
+  /* How fast she comes round to a new heading. High enough to feel immediate
+     — she is not a lorry — and low enough that the turn is a turn rather than
+     a teleport, which is what makes the walk cycle read as walking rather
+     than as a figure being dragged sideways.
+
+     Two numbers rather than one, because an ease on its own is only a turn
+     while the frames are quick. `delta * dt * TURN_EASE` reaches the whole
+     delta the moment a frame takes 1/14 of a second, and this frame loop
+     hands out real elapsed time unclamped — so on a phone dropping to 12fps
+     the ease silently became the assignment it was written to replace, and
+     she snapped round on precisely the hardware where the snap is most
+     jarring. The cap is a ceiling in radians per second, which does not care
+     how the frames fall: a half turn takes π/TURN_RATE seconds of wall clock
+     whether that is three frames or thirty.
+
+     Both are wanted. For the bulk of a large turn the cap is the smaller of
+     the two and she comes round at a steady rate; inside the last ~40° the
+     ease is smaller and lands her on the heading softly instead of stopping
+     dead on it. */
+  const TURN_EASE = 14;
+  const TURN_RATE = 10;
+
   function steer(dt) {
     const mag = Math.min(1, Math.hypot(drive.x, drive.z));
     const step = WALK_SPEED * mag * dt;
     const fromX = at.x;
     const fromZ = at.z;
+
+    /* The stick, read as the player sees it rather than as the world does.
+
+       Until this, pushing up walked her toward -Z whatever the camera was
+       doing — and the camera is the player's to orbit. Half a turn of the
+       shot and up walked her toward the bottom of the screen; a quarter turn
+       and it walked her sideways. Nothing was broken, and it was exactly as
+       uncomfortable as broken would have been, because the only model anyone
+       brings to a third-person view is "that way on the stick is that way on
+       the screen".
+
+       Rotating the input by the camera's own yaw is the whole fix. At the
+       default shot the yaw is zero and this is the identity, which is why
+       every test that drives her without touching the camera still describes
+       the same walk. */
+    const yaw = cameraYaw();
+    const sin = Math.sin(yaw);
+    const cos = Math.cos(yaw);
+    const wantX = drive.x * cos + drive.z * sin;
+    const wantZ = -drive.x * sin + drive.z * cos;
+
     clampToWalkable(fromX, fromZ,
-      fromX + (drive.x / mag) * step, fromZ + (drive.z / mag) * step, walkTmp);
+      fromX + (wantX / mag) * step, fromZ + (wantZ / mag) * step, walkTmp);
     moveWithCollision(fromX, fromZ, walkTmp.x, walkTmp.z, at, true);
-    facing = Math.atan2(drive.x, drive.z);
+
+    // Eased rather than assigned, and wrapped the short way round so a turn
+    // through south goes the way a person would rather than the long way.
+    const want = Math.atan2(wantX, wantZ);
+    let delta = want - facing;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    const cap = TURN_RATE * dt;
+    const eased = delta * Math.min(1, dt * TURN_EASE);
+    facing += Math.max(-cap, Math.min(cap, eased));
   }
 
   function advanceFarmer(dt) {
@@ -4269,6 +4353,11 @@ ${lit}`;
 
   function advanceCar(dt) {
     syncShop();
+    /* Before the early return, so a parked car still lights its headlamps
+       after dusk and still settles back onto its springs. A car that only
+       looks like a car while it is being driven is a prop again the moment
+       she gets out of it. */
+    animateCar(dt);
     if (!inCar || !carObject) return;
 
     /* The stick, read as pedals and a wheel. Screen-up is -z, which is
@@ -4323,6 +4412,142 @@ ${lit}`;
      The pitch and roll are read from terrainHeight a wheelbase apart rather
      than from any surface normal, which is the same trick a physics engine
      would use with four raycasts and costs four arithmetic calls here. */
+  /* -------------------------------------------------------------- */
+  /* What makes it read as a car rather than a car-shaped object      */
+  /* -------------------------------------------------------------- */
+
+  /* Four things, in the order they matter from the chase camera.
+
+     Wheels that turn. A vehicle whose wheels are welded is a sled, and at
+     twelve units a second the eye catches it immediately even though each
+     wheel is a dozen pixels across. The kit gives them as named nodes, so
+     this is arithmetic rather than modelling.
+
+     Front wheels that steer. The same point one step further: the car
+     already turns, and until now nothing about it pointed where it was
+     going.
+
+     A body that leans on its springs. Rolled into a corner, pitched under
+     the brakes. Applied to the `body` node alone rather than to the whole
+     model, which is the physical truth — the shell moves on its suspension
+     and the contact patches do not — and also the thing that stops the
+     wheels lifting off the road when it rolls.
+
+     Lamps. Two red at the back that come on under braking and in reverse,
+     two white at the front that light after dusk. */
+  const WHEEL_RADIUS = 0.3; // the wheel nodes sit exactly this far up
+  const MAX_STEER = 0.42; // radians of lock at the front wheels
+  const ROLL_PER_G = 0.085;
+  const PITCH_PER_G = 0.05;
+  const SUSPENSION_EASE = 0.12;
+
+  let wheelSpin = 0;
+  let steerAngle = 0;
+  let bodyRoll = 0;
+  let bodyPitch = 0;
+  let lastCarSpeed = 0;
+  let carLamps = null;
+
+  /* Lamps, built here rather than modelled: the kit's sedan has its lights
+     painted into the texture atlas, which cannot be turned on. Four small
+     emissive plates sitting just proud of the bodywork do what a texture
+     cannot, and cost four quads. */
+  function dressCar() {
+    if (!carParts?.body || carLamps) return;
+    const make = (hex) => new THREE.MeshStandardMaterial({
+      name: 'car-lamp',
+      color: hex,
+      emissive: new THREE.Color(hex),
+      emissiveIntensity: 0,
+      roughness: 0.4,
+      metalness: 0,
+    });
+    const lamp = (material, x, y, z, w, h) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), material);
+      m.position.set(x, y, z);
+      if (z < 0) m.rotation.y = Math.PI;
+      carParts.body.add(m);
+      return m;
+    };
+    const rear = make(0xd8200c);
+    const front = make(0xfff0c4);
+    /* Placed off the body's measured box rather than by eye: it runs x ±0.75,
+       y 0 to 1.15, z ±1.275 in its own space. The first attempt put them at
+       z ±1.02 and x ±0.30, which buried all four inside the bodywork — four
+       lamps lighting the inside of a car. A hair proud of the panel is where
+       a lamp goes. */
+    carLamps = {
+      rear: [lamp(rear, 0.47, 0.52, -1.285, 0.26, 0.13), lamp(rear, -0.47, 0.52, -1.285, 0.26, 0.13)],
+      front: [lamp(front, 0.47, 0.50, 1.285, 0.24, 0.12), lamp(front, -0.47, 0.50, 1.285, 0.24, 0.12)],
+      rearMat: rear,
+      frontMat: front,
+    };
+  }
+
+  /* Everything above, stepped once a frame. Split out of placeCar because
+     placeCar answers "where is the car" and this answers "what is it doing",
+     and the second needs a dt the first has never had. */
+  function animateCar(dt) {
+    if (!carParts) return;
+
+    /* Spin from ground speed, not from the throttle: a wheel's rate is its
+       car's speed over its own radius, which is what keeps the tread still
+       relative to the road instead of scrabbling. Negative because a car
+       going forward (+Z) turns its wheels the way a positive X rotation does
+       not. */
+    wheelSpin -= (carSpeed / WHEEL_RADIUS) * dt;
+    /* Wrapped, or after ten minutes of driving this is a number big enough
+       that single-precision loses the fractional part and the wheels start
+       stepping in visible jerks. */
+    wheelSpin %= Math.PI * 2;
+
+    // Steering eased rather than snapped: a wheel takes a moment to come off
+    // lock, and the ease is what makes it look attached to a hand.
+    const wantSteer = inCar ? -drive.x * MAX_STEER : 0;
+    steerAngle += (wantSteer - steerAngle) * Math.min(1, dt * 9);
+
+    for (const [k, part] of Object.entries(carParts)) {
+      if (k === 'body' || !part) continue;
+      const steered = k === 'fl' || k === 'fr';
+      part.rotation.set(wheelSpin, steered ? steerAngle : 0, 0, 'YXZ');
+    }
+
+    /* Lateral acceleration is speed times yaw rate, which is the physics
+       definition and not an approximation of it — and yaw rate here is the
+       steering the car is actually getting, bite and all, so the lean
+       answers what the car is doing rather than what the stick asked for. */
+    const bite = Math.min(1, Math.abs(carSpeed) / CAR_GRIP_SPEED);
+    const yawRate = inCar ? -drive.x * CAR_TURN * bite * (carSpeed < 0 ? -1 : 1) : 0;
+    const lateral = carSpeed * yawRate;
+    const along = dt > 0 ? (carSpeed - lastCarSpeed) / dt : 0;
+    lastCarSpeed = carSpeed;
+
+    const wantRoll = THREE.MathUtils.clamp(lateral * ROLL_PER_G * 0.1, -0.16, 0.16);
+    const wantPitch = THREE.MathUtils.clamp(-along * PITCH_PER_G * 0.1, -0.08, 0.08);
+    /* The spring settles in the same wall-clock time whatever the frame rate,
+       which a bare per-frame factor does not: 0.12 a frame is a fifth of a
+       second at 60fps and a second and a half at six, so the same car would
+       have soft springs on a phone and firm ones on a desktop. Written as the
+       fraction left after `dt` seconds of decaying at the 60fps rate. */
+    const settle = 1 - (1 - SUSPENSION_EASE) ** (dt * 60);
+    bodyRoll += (wantRoll - bodyRoll) * settle;
+    bodyPitch += (wantPitch - bodyPitch) * settle;
+    if (carParts.body) {
+      carParts.body.rotation.set(bodyPitch, 0, bodyRoll, 'ZXY');
+      // The shell squats a little under the same forces that tilt it.
+      carParts.body.position.y = 0.15 - Math.abs(bodyRoll) * 0.06;
+    }
+
+    if (!carLamps) return;
+    /* Brake lights on when she is slowing the car with the stick or backing
+       up — not merely when the car is slowing, which would light them every
+       time she lifted off. */
+    const braking = inCar && (drive.z > 0.05) && carSpeed > -0.1;
+    carLamps.rearMat.emissiveIntensity = braking || (inCar && carSpeed < -0.2) ? 2.4 : 0.15;
+    // Headlights follow the same night the lamps in the yard do.
+    carLamps.frontMat.emissiveIntensity = skyNight > 0.45 ? 2.2 : 0;
+  }
+
   const CAR_WHEELBASE = 1.3;
   const CAR_TRACK = 0.8;
   function placeCar() {
@@ -4372,10 +4597,11 @@ ${lit}`;
     inCar = true;
     carSpeed = 0;
     arrived = false;
-    /* The camera stops being the player's to orbit for as long as she is
-       driving. Left enabled, a drag meant to steer would also swing the
-       shot, and the chase camera below would fight it every frame. */
-    controls.enabled = false;
+    /* The camera stays the player's throughout. followCar only steers the
+       angle back when nobody is holding it, so a drag no longer fights the
+       chase — see that function for why being unable to look around was the
+       worst thing about the drive. */
+    lastDragAt = performance.now();
     bridge.announce(cargo.length
       ? `🚚 Loaded ${cargo.map((c) => c.emoji).join('')} — take the road south.`
       : '🚗 Nothing to sell, but the road is there.');
@@ -4386,7 +4612,6 @@ ${lit}`;
     if (!inCar) return false;
     inCar = false;
     carSpeed = 0;
-    controls.enabled = true;
     /* Put down beside the driver's door rather than wherever she was when
        she got in, which could be sixty metres away at the other end of the
        road. Offset across the car's own heading so she never lands inside
@@ -4405,20 +4630,68 @@ ${lit}`;
   const CHASE_BACK = 8.5;
   const CHASE_UP = 3.6;
   const CHASE_EASE = 0.10;
+  /* How long after the player lets go of the camera before it starts finding
+     its way back behind the car. Long enough to look at something and still
+     be looking at it; short enough that letting go means letting go. */
+  const LOOK_ASIDE_MS = 1400;
   const chaseTmp = new THREE.Vector3();
   const lookTmp = new THREE.Vector3();
+  let draggingCamera = false;
+  let lastDragAt = 0;
+  controls.addEventListener('start', () => { draggingCamera = true; });
+  controls.addEventListener('end', () => {
+    draggingCamera = false;
+    lastDragAt = performance.now();
+  });
+
+  /* The chase camera, which now lets go when the player takes hold of it.
+
+     The first version simply disabled the orbit controls for the whole drive
+     and drove the camera by hand. That is the easy way to stop the two
+     fighting, and it costs the player the ability to look at anything —
+     glance at the market coming up on the left, check what is behind, see
+     where the road goes before committing to the bend. On a drive that lasts
+     a minute each way, being unable to turn your head is the single least
+     comfortable thing about it.
+
+     So the controls stay live and this only moves what they orbit *around*:
+     the target follows the car always, and the camera's own angle is eased
+     back to behind the car only while nobody is holding it. Drag and it is
+     yours; let go and it comes back on its own.
+
+     setAzimuthalAngle rather than moving camera.position, because the angle
+     is the controls' own state — writing the position instead would put the
+     two out of step and the next drag would jump. */
   function followCar() {
-    const bx = carAt.x - Math.sin(carHeading) * CHASE_BACK;
-    const bz = carAt.z - Math.cos(carHeading) * CHASE_BACK;
-    chaseTmp.set(bx, terrainGridHeight(bx, bz) + CHASE_UP, bz);
-    camera.position.lerp(chaseTmp, CHASE_EASE);
     lookTmp.set(
       carAt.x + Math.sin(carHeading) * 3,
       terrainGridHeight(carAt.x, carAt.z) + 1.1,
       carAt.z + Math.cos(carHeading) * 3,
     );
+    /* The target is moved rather than lerped toward, minus the same easing —
+       lerping a target that is itself chasing a moving car compounds two lags
+       into a camera that trails visibly behind at speed. */
     controls.target.lerp(lookTmp, CHASE_EASE * 1.6);
-    camera.lookAt(controls.target);
+
+    /* Moved as a position rather than as an angle, because this version of
+       OrbitControls has getAzimuthalAngle but no setter for it — checked in
+       the vendored file rather than assumed from the docs, after the setter
+       version threw on every frame of the first drive.
+
+       Writing the position works because update() derives its spherical from
+       wherever the camera actually is, every call: it reads object.position
+       against target, converts, applies whatever the player's drag has
+       queued, and writes back. So the two compose instead of fighting — this
+       nudges the camera home, the drag turns it, and update() is the only
+       thing that finally sets the position. */
+    const holding = draggingCamera || performance.now() - lastDragAt < LOOK_ASIDE_MS;
+    if (!holding) {
+      const bx = carAt.x - Math.sin(carHeading) * CHASE_BACK;
+      const bz = carAt.z - Math.cos(carHeading) * CHASE_BACK;
+      chaseTmp.set(bx, terrainGridHeight(bx, bz) + CHASE_UP, bz);
+      camera.position.lerp(chaseTmp, CHASE_EASE);
+    }
+    controls.update();
   }
 
   function nearestTarget() {
@@ -4890,6 +5163,43 @@ ${lit}`;
     alight: () => leaveCar(),
     atWheel: () => inCar,
     atMarket: () => shopOpen,
+    /* Which way the shot is facing. The walk is read through this — the stick
+       is rotated into the camera's frame — so a test that wants to prove
+       "forward means away from the camera" needs to be able to ask where the
+       camera is pointing, and asking it here is asking the same function the
+       walk asks. */
+    cameraYaw: () => cameraYaw(),
+    /* The moving parts of the car, which are what separate driving a vehicle
+       from sliding a vehicle-shaped object across the ground. A test can
+       watch the wheels turn with the speed, the front pair follow the stick,
+       the shell lean on its springs, and the lamps answer the brake and the
+       hour. */
+    carParts: () => {
+      if (!carParts?.body) return null;
+      return {
+        spin: carParts.fl ? carParts.fl.rotation.x : null,
+        steer: carParts.fl ? carParts.fl.rotation.y : null,
+        rearSteer: carParts.bl ? carParts.bl.rotation.y : null,
+        roll: carParts.body.rotation.z,
+        pitch: carParts.body.rotation.x,
+        brakeLamp: carLamps ? carLamps.rearMat.emissiveIntensity : null,
+        headLamp: carLamps ? carLamps.frontMat.emissiveIntensity : null,
+      };
+    },
+    /* Which way she is pointing. Where she *ends up* cannot tell a turn from
+       a snap — both finish facing the same way — so the test needs to be able
+       to read the heading mid-turn, frame by frame. */
+    facing: () => facing,
+    /* Paired with `facing`: how much time the step that produced it was
+       given. A turn is a claim about radians per second, and both halves of
+       that have to come from the same frame for the claim to be checkable. */
+    frameDt: () => frameDt,
+    turnRate: () => TURN_RATE,
+    /* Where the shot is, so a test can ask whether the chase camera is
+       keeping up with the car rather than trailing it into the distance —
+       which is a question about the camera and cannot be asked of anything
+       else the scene reports. */
+    cameraAt: () => ({ x: camera.position.x, y: camera.position.y, z: camera.position.z }),
     car: () => ({ x: carAt.x, z: carAt.z, heading: carHeading, speed: carSpeed, cargo: cargo.length }),
     /* The pond, as numbers. A test cannot look at a canvas and say whether
        that is water, but it can ask whether she is standing in it, and it can
@@ -5163,6 +5473,13 @@ ${lit}`;
   const FRAME_INTERVAL_MS = 1000 / 30;
   let lastDrawAt = 0;
   let lastStepAt = 0;
+  /* The seconds the last frame handed the movement code, kept so a test can
+     ask questions in the units the movement actually works in. Wall clock
+     from outside the page cannot answer them: this scene runs at a handful
+     of frames a second on a software rasteriser, so an observation taken
+     between two animation frames is quantised to a sixth of a second and a
+     rate and a teleport look alike. */
+  let frameDt = 0;
 
   /* A backgrounded tab is where rAF genuinely stops — the browser simply
      never calls frame() again until the tab is visible, at which point the
@@ -5285,6 +5602,7 @@ ${lit}`;
     // drawing below is skipped, never the walking.
     const dt = lastStepAt ? (now - lastStepAt) / 1000 : 0;
     lastStepAt = now;
+    frameDt = dt;
     advanceFarmer(dt);
     advanceCar(dt);
 
@@ -5358,7 +5676,7 @@ ${lit}`;
        controls.update() is skipped for the same reason — it is disabled for
        the duration, and calling update on a disabled control is a no-op that
        still costs a matrix. */
-    if (inCar) followCar();
+    if (inCar) followCar(); // which drives controls.update() itself
     else {
       followFarmer();
       controls.update();

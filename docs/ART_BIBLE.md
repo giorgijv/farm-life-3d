@@ -2662,6 +2662,198 @@ follows directly from the rule as asked for, rather than being an oversight.
 
 ---
 
+## 34. Two passes: making them look real, then making them comfortable to move
+
+Two jobs done in order, because the second one is only worth doing once the
+first has settled: detail on the farmer and the car, then the controls that
+move them.
+
+### The car was a shape, not a vehicle
+
+The sedan was already a good model. What it was not was a car: it slid across
+the ground with four welded wheels, no lamps, and a shell that stayed perfectly
+level through a corner taken at twelve units a second. None of that is a
+modelling problem — every part needed was already in the glTF, named, and
+sitting unused.
+
+`dressFarm` now keeps hold of five of those nodes (`body`, and the four
+`wheel-*`), and `animateCar` drives them each frame:
+
+| Part | Driven by | Number |
+|---|---|---|
+| Wheel spin | road speed ÷ wheel radius | `WHEEL_RADIUS = 0.3` |
+| Front steer | stick, eased | `MAX_STEER = 0.42` rad |
+| Body roll | lateral acceleration | `ROLL_PER_G = 0.085` |
+| Body pitch | along-axis acceleration | `PITCH_PER_G = 0.05` |
+
+The rear wheels are pointedly *not* steered. It is a detail nobody would
+consciously notice and everybody would feel: four-wheel steering reads as a
+shopping trolley.
+
+The lamps are four emissive planes rather than lights, because four lights on
+a moving object is a real cost on a phone and the effect wanted is the lamp
+being *lit*, not the ground being lit by it. Rear lamps sit at 0.15 and go to
+2.4 under brake or reverse; front lamps sit at 0 and come up to 2.2 once the
+sky is past `skyNight > 0.45`, so the car turns its headlights on when the
+player would.
+
+Their positions are measured, not placed by eye: the body's local bounding box
+is x ±0.75, y 0 to 1.15, z ±1.275, so the lamps go at z ±1.285 — just proud of
+the bodywork. The first attempt guessed ±1.0 and buried all four inside the
+shell, which renders as nothing at all and looks exactly like code that does
+not work.
+
+### The farmer, closer up
+
+She is built from primitives (see §32 for why), and the gap between "built from
+primitives" and "a person" is mostly seams. Added here: a belt band at the
+torso join, a collar ring at the neck, cuffs at the elbows, soles under the
+boots, and two brow chips above the eyes. Limbs went from 6-sided to 8-sided,
+which at her on-screen size is the difference between a rounded arm and a
+visible flat.
+
+The brows are the cheapest thing in the list and did the most. A face with eyes
+and no brows reads as blank in a way that is hard to name until it is fixed.
+
+### Then: four things that made her uncomfortable to move
+
+With the models settled, the controls. Four problems, found by playing rather
+than by reading:
+
+1. **The stick moved her in world directions.** Push up and she walked toward
+   −Z — regardless of where the camera was, and the camera is the player's to
+   orbit freely. A quarter turn of the shot and up walked her sideways; a half
+   turn and up walked her toward the viewer. Nothing was broken and it was
+   exactly as uncomfortable as broken would have been, because the only model
+   anyone brings to a third-person view is *that way on the stick is that way
+   on the screen*. Fixed by rotating the input by the camera's own yaw before
+   it becomes a step. At the default shot the yaw is zero and the rotation is
+   the identity, which is why every existing walk test still describes the same
+   walk.
+
+2. **She pivoted on the spot.** The heading was assigned, not turned, so a
+   change of direction was a single-frame snap with the walk cycle continuing
+   underneath it. Now eased — and rate-capped, which is its own story below.
+
+3. **The walk clip ran at 2.8×.** `CLIP_WALK_SPEED` is a contract: it says how
+   fast the authored clip's feet move, so the player can be moved at
+   `WALK_SPEED` without the legs skating. The authored clip was a stroll and
+   she moves at 4.2, so it was being played at nearly three times speed —
+   frantic little legs under a body gliding along. Re-authored as an actual
+   running stride (longer reach, a real shin kick, arms swinging from the
+   shoulder) and the constant raised 1.5 → 2.6 to match what was drawn.
+
+4. **The camera was locked while driving.** The chase camera took the controls
+   away entirely, so a player who wanted to look at where they were going
+   could not. Now the orbit stays live: a drag is honoured immediately, and
+   the chase eases back in `LOOK_ASIDE_MS = 1400` after the player lets go.
+
+### The turn that was only a turn on a fast machine
+
+Item 2 was written as the obvious ease:
+
+```js
+facing += delta * Math.min(1, dt * TURN_EASE);   // TURN_EASE = 14
+```
+
+which is wrong, and wrong in a way that hides. `dt * 14` reaches 1 the moment a
+frame takes 1/14 of a second, and this frame loop hands out **real elapsed time,
+unclamped** — so at 12fps the ease evaluates to `delta * 1` and is precisely the
+assignment it was written to replace. The turn was smooth on a desktop and a
+snap on a phone: it degraded on exactly the hardware where a snap is most
+jarring, and no amount of playing it on a fast machine would ever have shown it.
+
+It was caught by a test, and only because the test ran somewhere slow. The
+suite draws on a software rasteriser at around six frames a second; the first
+version of the test watched two animation frames and asserted the turn was only
+part-done, and it failed with a turn of exactly π. Exactly π is not a wobble, it
+is an assignment.
+
+The fix is a ceiling in radians per second, which does not care how the frames
+fall:
+
+```js
+const cap = TURN_RATE * dt;                      // TURN_RATE = 10
+const eased = delta * Math.min(1, dt * TURN_EASE);
+facing += Math.max(-cap, Math.min(cap, eased));
+```
+
+Both numbers earn their place. For the bulk of a large turn the cap is smaller
+and she comes round at a steady rate; inside the last ~40° the ease is smaller
+and lands her softly instead of stopping dead. A half turn takes π/10 of a
+second of simulated time whether that is three frames or thirty.
+
+### Testing a rate from outside the page
+
+Two honest attempts failed before the third worked, and the failures are the
+useful part.
+
+*Counting frames* — "she should not have finished after two animation frames" —
+is false here. At six frames a second a half turn genuinely does fit in two,
+and the assertion fails on a correct implementation.
+
+*Timing it from outside* — "a half turn cannot take less than π/10 seconds" —
+measured **2.7ms**. The scene's `dt` runs from its own previous step, not from
+the moment the stick moved, so the first frame after the input carries a slice
+of time that elapsed before the input existed. The turn really did complete
+within three milliseconds of wall clock, while respecting a 10 rad/s cap in the
+scene's own accounting. Both numbers are true.
+
+What is actually being claimed is *radians per second*, and both halves have to
+come from the same frame for it to be checkable at all. So the scene now
+exposes `frameDt()` alongside `facing()`, and the test asserts the thing the
+code promises: **no single frame turns her further than `TURN_RATE * dt`.** That
+holds at six frames a second and at six hundred.
+
+The test was then run against the old unclamped ease to confirm it fails —
+a regression guard that does not fail on the regression is decoration.
+
+### The sibling bug that turned out not to exist
+
+Having found one per-frame constant doing damage, the obvious move is to
+suspect the others. There are two: `CHASE_EASE = 0.10` on the driving camera
+and `SUSPENSION_EASE = 0.12` on the car's springs, both applied per frame with
+no `dt` in sight.
+
+The arithmetic says the camera one should be ruinous. A lerp at factor α toward
+a target moving at speed v settles at a lag of `v·Δt·(1−α)/α`, which at 60fps
+and 12 units a second is 1.8 units and at six frames a second is **eighteen** —
+the car would drive off and leave the shot behind.
+
+Measured, the worst distance over a full-throttle run at six frames a second
+was **10.8 units**, against a chase point set 8.5 back. There is no runaway,
+and the reason is in how the follow is built rather than in the lerp: the
+camera's position is rebuilt by `controls.update()` every frame from
+`controls.target` plus the spherical offset. The target is what is following
+the car, so the camera is carried along with it rigidly, and the lerp only ever
+has the *offset* to correct — a bounded quantity, not an accumulating one. The
+formula was being applied to the wrong thing.
+
+So `CHASE_EASE` stays as it is, and the measurement is now a test, because the
+argument that makes it safe is subtle enough to be broken by a refactor that
+looks harmless.
+
+`SUSPENSION_EASE` was a real, if small, frame-rate dependence — the same spring
+settling in a fifth of a second on a desktop and a second and a half on a
+phone — and is now written as `1 - (1 - ease) ** (dt * 60)`, which is the same
+decay expressed in seconds instead of frames. It is cosmetic either way; it is
+fixed because it was two lines and because leaving a known one in place
+immediately after writing this section down would be an odd thing to do.
+
+### A mistake worth recording
+
+Both car tests failed for a while against code that was working. The cause was
+a leftover debugging copy of the `carParts` test accessor left in the returned
+object literal below the real one — and in JavaScript the later key wins
+silently. The tests were reading a probe's shape (bounding boxes, a nested
+`lamps` object) and finding no `brakeLamp` or `rearSteer` on it.
+
+No error, no warning, and the failure looked exactly like broken car code. The
+habit that would have caught it instantly: after any session of probing, grep
+the test surface for duplicate keys before believing a failure.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -3086,6 +3278,35 @@ Everything above was checked before it was written:
   with no scene at all is not something this suite can stand up. What is
   tested is that the value only ever changes through the bridge, which is the
   property the argument rests on.
+
+- §34's lamp positions are the car body's measured local bounding box (x ±0.75,
+  y 0–1.15, z ±1.275), printed from the loaded geometry. The first placement
+  was estimated and put all four lamps inside the shell.
+- §34's turning defect was found by a test failing, not by playing: the ease
+  looks and feels correct at 60fps and is an assignment below 14fps, and this
+  machine is slow enough to show it. The value that gave it away was a turn of
+  exactly π.
+- The rate cap's test was run against the code it replaced and confirmed to
+  fail there. A regression test that passes on the regression proves nothing,
+  and the only way to know which kind you have written is to try it.
+- §34's camera-relative walk was confirmed by driving the stick at two
+  different camera yaws and comparing where she went: at yaw 0 she walked
+  dz −4.13, and at yaw −158° the same push sent her dx 1.37, dz 3.9 — a
+  different world direction, the same screen direction.
+- The two failed approaches to testing the turn are written up in §34 rather
+  than quietly deleted, because each produced a confident number that was
+  true and useless: a turn of exactly π, and a half turn measured at 2.7ms.
+- The chase camera's supposed eighteen-unit lag is in §34 as a **non**-result.
+  The arithmetic was sound and the conclusion was wrong, because it was
+  applied to a lerp that corrects an offset rather than one that chases a
+  position. Measured worst case: 10.8 units against a target of 8.5. Had it
+  been "fixed" on the strength of the formula, the change would have been
+  written up here as an improvement and nobody would have been the wiser.
+- Two tests in §34 time out on the default thirty seconds when the rest of the
+  suite is running beside them, and pass in nineteen and twenty-six seconds
+  alone. They are marked slow rather than trimmed: the time is in loading the
+  scene and driving sixty metres, not in anything that could be asserted less
+  carefully.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

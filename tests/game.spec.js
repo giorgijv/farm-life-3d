@@ -5922,6 +5922,13 @@ test.describe('the shop is at the market', () => {
   });
 
   test('driving there opens the shop, and leaving shuts it again', async ({ page }) => {
+    /* The longest errand in the suite: load the scene, drive sixty metres,
+       buy something, and reverse back out of the square. It takes nineteen
+       seconds of the default thirty on a software rasteriser with nothing
+       else running, and crossed the line when the rest of the suite was
+       running beside it. The assertions are not the slow part and none of
+       them have been relaxed — the budget has. */
+    test.slow();
     await load(page, makeSave(rich));
     await ready(page);
 
@@ -6000,6 +6007,236 @@ test.describe('the shop is at the market', () => {
     await expect(page.locator('#barnList .barn-card').nth(0).locator('.barn-btn')).toBeDisabled();
     await page.evaluate(() => buyBarn('small'));
     expect((await readSave(page)).barn).toBeNull();
+  });
+});
+
+test.describe('the car is a car', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+    await page.waitForFunction(() => !!window.Farm3DScene.carParts(), null, { timeout: 15_000 });
+  };
+  const parts = (page) => page.evaluate(() => window.Farm3DScene.carParts());
+  const hold = (page, x, z, ms) => page.evaluate(async ([dx, dz, t]) => {
+    window.Farm3DScene.drive(dx, dz);
+    await new Promise((r) => setTimeout(r, t));
+  }, [x, z, ms]);
+
+  test('the wheels turn with the ground, and the front pair steer', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.board());
+
+    const still = await parts(page);
+    await hold(page, 0, -1, 900);
+    const moving = await parts(page);
+    /* Turning at all is the whole claim — a welded wheel is the thing the
+       eye catches at twelve units a second even though each one is a dozen
+       pixels across. */
+    expect(moving.spin).not.toBe(still.spin);
+
+    await hold(page, -1, -1, 700);
+    const turning = await parts(page);
+    // The front wheels point where the car is being asked to go; the back
+    // pair do not, because that is not how a car works.
+    expect(Math.abs(turning.steer)).toBeGreaterThan(0.1);
+    expect(turning.rearSteer).toBe(0);
+
+    // And the shell leans on its springs into the corner it is taking.
+    expect(Math.abs(turning.roll)).toBeGreaterThan(0.005);
+    await page.evaluate(() => window.Farm3DScene.drive(0, 0));
+  });
+
+  test('the camera keeps up with it rather than trailing off', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* The chase camera lerps toward a spot behind the car every frame, which
+       is the arrangement that trails visibly behind at speed if the lerp is
+       the only thing moving the shot. It is not — OrbitControls rebuilds the
+       position from its target each frame, so moving the target carries the
+       camera with it and the lerp only has the offset to correct. That is an
+       argument, and this is the measurement: a full-throttle run never put
+       the camera more than 10.8 units from a car it is meant to sit 8.5
+       behind. The bound below is generous against that, because what would
+       break it is the follow coming undone, not a unit of overshoot. */
+    const worst = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      s.board();
+      s.drive(0, -1);
+      let far = 0;
+      const t0 = performance.now();
+      await new Promise((done) => {
+        const tick = () => {
+          const c = s.car();
+          const cam = s.cameraAt();
+          far = Math.max(far, Math.hypot(cam.x - c.x, cam.z - c.z));
+          if (performance.now() - t0 > 3000) done();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      s.drive(0, 0);
+      return far;
+    });
+
+    expect(worst).toBeLessThan(18);
+  });
+
+  test('it lights its brake lamps and, after dark, its headlamps', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.board());
+
+    const parked = await parts(page);
+    expect(parked.headLamp).toBe(0);
+
+    await hold(page, 0, -1, 700);
+    const rolling = await parts(page);
+    await hold(page, 0, 1, 250);
+    const braking = await parts(page);
+    expect(braking.brakeLamp).toBeGreaterThan(rolling.brakeLamp);
+
+    await page.evaluate(() => { window.Farm3DScene.drive(0, 0); state.dayElapsedMs = 45_000; });
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.carParts().headLamp),
+      { timeout: 10_000 }).toBeGreaterThan(0);
+  });
+});
+
+test.describe('moving her is comfortable', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  /* Pushes the stick and reports which way she actually went, as an angle in
+     the same convention the scene uses: atan2(dx, dz). */
+  const pushed = (page, x, z, ms = 800) => page.evaluate(async ([dx, dz, t]) => {
+    const s = window.Farm3DScene;
+    const from = s.farmerAt();
+    s.drive(dx, dz);
+    await new Promise((r) => setTimeout(r, t));
+    s.drive(0, 0);
+    const to = s.farmerAt();
+    return {
+      went: Math.atan2(to.x - from.x, to.z - from.z),
+      moved: Math.hypot(to.x - from.x, to.z - from.z),
+      yaw: s.cameraYaw(),
+    };
+  }, [x, z, ms]);
+
+  const wrap = (a) => {
+    let v = a;
+    while (v > Math.PI) v -= Math.PI * 2;
+    while (v < -Math.PI) v += Math.PI * 2;
+    return Math.abs(v);
+  };
+
+  test('forward on the stick is away from the camera, whatever the camera is doing',
+    async ({ page }) => {
+      // Two walks and a drag on top of a scene load, which is most of the
+      // default budget before anything is asserted. See the note on the
+      // market errand above.
+      test.slow();
+      await load(page, makeSave());
+      await ready(page);
+
+      /* The bug this is nailed against: the stick used to move her in world
+         directions, so once the player orbited the shot — which they may do
+         freely — pushing up walked her sideways, or toward themselves. The
+         only model anyone brings to a third-person view is "that way on the
+         stick is that way on the screen". */
+      const straight = await pushed(page, 0, -1);
+      expect(straight.moved).toBeGreaterThan(1);
+      // Away from the camera is the camera's yaw turned around.
+      expect(wrap(straight.went - (straight.yaw + Math.PI))).toBeLessThan(0.35);
+
+      // Now swing the shot right round and ask again. The world direction she
+      // should walk in is completely different; the screen direction is not.
+      const canvas = page.locator('canvas');
+      const box = await canvas.boundingBox();
+      const vp = page.viewportSize();
+      /* Dragged somewhere actually on screen: the scene box is taller than
+         the window on this profile, so its own centre is below the fold and
+         a drag there lands on nothing. Cost an hour of believing the orbit
+         was broken. */
+      const y = (Math.max(box.y, 0) + Math.min(box.y + box.height, vp.height)) / 2;
+      await page.mouse.move(box.x + box.width / 2, y);
+      await page.mouse.down();
+      for (let i = 1; i <= 12; i += 1) {
+        await page.mouse.move(box.x + box.width / 2 + i * 25, y, { steps: 2 });
+        await page.waitForTimeout(20);
+      }
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+
+      const orbited = await pushed(page, 0, -1);
+      expect(Math.abs(orbited.yaw - straight.yaw)).toBeGreaterThan(0.6);
+      expect(orbited.moved).toBeGreaterThan(1);
+      expect(wrap(orbited.went - (orbited.yaw + Math.PI))).toBeLessThan(0.5);
+    });
+
+  test('she turns rather than snapping round', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* Walk her one way, ask for the opposite, and watch the heading come
+       round frame by frame.
+
+       Read in the scene's own units rather than off the wall clock, which
+       two earlier versions of this test tried and neither could do honestly.
+       Counting animation frames fails because this scene draws at a handful
+       of frames a second on a software rasteriser, and a half turn really
+       does fit inside two of them. Timing it from outside fails because the
+       frame that runs after the stick moves was already part-way through
+       when it moved, so the turn appears to take a couple of milliseconds.
+       Both are the same mistake: a rate is radians *per second*, and the
+       seconds have to be the ones the movement code was handed.
+
+       So the claim checked here is the one the code makes — no frame turns
+       her faster than the cap — which holds at six frames a second and at
+       six hundred, and which the ease this replaced failed at anything
+       below fourteen. */
+    await pushed(page, 0, -1, 500);
+    const swung = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const wrapTo = (a) => {
+        let v = a;
+        while (v > Math.PI) v -= Math.PI * 2;
+        while (v < -Math.PI) v += Math.PI * 2;
+        return v;
+      };
+      const from = s.facing();
+      const frames = [];
+      let prev = from;
+      s.drive(0, 1);
+      await new Promise((done) => {
+        let ticks = 0;
+        const tick = () => {
+          const now = s.facing();
+          if (now !== prev) frames.push({ turn: wrapTo(now - prev), dt: s.frameDt() });
+          prev = now;
+          ticks += 1;
+          // Sampled until there is enough to say something, or until she has
+          // plainly finished — she settles onto the heading and stops moving.
+          if (frames.length >= 6 || ticks >= 40) done();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      s.drive(0, 0);
+      return { from, to: s.facing(), frames, rate: s.turnRate() };
+    });
+
+    // She did come round — a cap that never lets go is not a turn either.
+    expect(wrap(swung.to - (swung.from + Math.PI))).toBeLessThan(0.05);
+    /* And no single frame took her further than its own share of the turn.
+       The slack is for the frame the stick moved in, which the scene timed
+       from its previous step rather than from the stick. */
+    for (const f of swung.frames) {
+      expect(Math.abs(f.turn)).toBeLessThan(swung.rate * f.dt * 1.05 + 0.01);
+    }
+    // Sampling that caught nothing would pass the loop above vacuously.
+    expect(swung.frames.length).toBeGreaterThan(0);
   });
 });
 

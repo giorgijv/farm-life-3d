@@ -106,6 +106,8 @@ const LOOK = {
     shirt: 0x9a5fbf,
     trousers: 0x4f6180,
     boots: 0x4a3527,
+    belt: 0x5c4028,
+    sole: 0x2e2118,
     ponytail: true,
     shoulders: 0.94, // narrower than his, and a slightly deeper waist taper
     waist: 0.80,
@@ -116,6 +118,8 @@ const LOOK = {
     shirt: 0x3f8f5f,
     trousers: 0x6b5a45,
     boots: 0x43301f,
+    belt: 0x3c2a19,
+    sole: 0x241a12,
     ponytail: false,
     beard: true,
     shoulders: 1.06,
@@ -149,7 +153,7 @@ const mat = (hex, name) => new THREE.MeshStandardMaterial({
    `sides` is the whole style dial. Six reads as a limb, four as a plank; the
    torso is four scaled unevenly, because a chest is wider than it is deep
    and a square one is the Lego silhouette this is here to get away from. */
-function part(material, { top, bottom, length, sides = 6, depth = 1, twist = 0 }) {
+function part(material, { top, bottom, length, sides = 8, depth = 1, twist = 0 }) {
   const geo = new THREE.CylinderGeometry(top, bottom, length, sides, 1);
   if (twist) geo.rotateY(twist);
   if (depth !== 1) geo.scale(1, 1, depth);
@@ -180,6 +184,15 @@ export function buildFarmer(gender) {
   const shirt = mat(look.shirt, 'farmer-shirt');
   const trousers = mat(look.trousers, 'farmer-trousers');
   const boots = mat(look.boots, 'farmer-boots');
+  /* Two more materials than the figure strictly needs, and they earn their
+     place at viewing distance rather than close up. She is ten to twenty-five
+     units from the camera, where a face is a handful of pixels and a fold of
+     cloth is none — what still reads at that range is where one colour stops
+     and another starts. A belt splits a torso that was one purple column into
+     a shirt and a pair of trousers; a dark sole does the same for the boot
+     against the ground. Both are bands, not detail. */
+  const belt = mat(look.belt, 'farmer-belt');
+  const sole = mat(look.sole, 'farmer-sole');
 
   const root = new THREE.Group();
   root.name = 'farmer-built';
@@ -210,10 +223,27 @@ export function buildFarmer(gender) {
     length: CHEST_UP * 0.72, sides: 4, depth: 0.66, twist: Math.PI / 4,
   }));
 
+  /* The belt, sitting on the seam the two torso pieces already meet at, so it
+     hides the join as well as making it. */
+  const beltBand = part(belt, {
+    top: 0.615 * HU * look.waist, bottom: 0.615 * HU * look.waist,
+    length: 0.17 * HU, sides: 4, depth: 0.68, twist: Math.PI / 4,
+  });
+  beltBand.position.y = 0.09 * HU;
+  chest.add(beltBand);
+
   const neck = bone('neck', 0, NECK_UP, 0);
   chest.add(neck);
   neck.add(part(skin, { top: 0.21 * HU, bottom: 0.25 * HU, length: 0.34 * HU, sides: 6 })
     .translateY(0.30 * HU));
+  /* A collar: the shirt closing round the neck rather than the neck growing
+     out of a shoulder. One ring, and from behind — the view the game is
+     played from — it is the only thing separating her hair from her back. */
+  const collar = part(shirt, {
+    top: 0.30 * HU, bottom: 0.34 * HU, length: 0.14 * HU, sides: 8, depth: 0.85,
+  });
+  collar.position.y = 0.02 * HU;
+  neck.add(collar);
 
   const head = bone('head', 0, HEAD_UP, 0);
   neck.add(head);
@@ -252,10 +282,22 @@ export function buildFarmer(gender) {
      stylised. Deliberately nothing else: a mouth at this size is a smudge. */
   const eyes = mat(0x2b2119, 'farmer-eyes');
   for (const side of [1, -1]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.11 * HU, 0.12 * HU, 0.06 * HU), eyes);
-    eye.position.set(0.17 * HU * side, 0.03 * HU, 0.44 * HU);
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.12 * HU, 0.085 * HU, 0.06 * HU), eyes);
+    eye.position.set(0.17 * HU * side, 0.04 * HU, 0.44 * HU);
     head.add(eye);
   }
+  /* Brows, one shade darker than the hair and a touch above the eyes. Two
+     more chips, and the reason they are worth it is that eyes alone read as
+     surprise: a face with no brow line has nowhere to sit its expression, and
+     the default it lands on is a stare. */
+  const brows = mat(look.hair, 'farmer-brow');
+  for (const side of [1, -1]) {
+    const brow = new THREE.Mesh(new THREE.BoxGeometry(0.13 * HU, 0.032 * HU, 0.05 * HU), brows);
+    brow.position.set(0.17 * HU * side, 0.145 * HU, 0.435 * HU);
+    brow.rotation.z = -0.1 * side;
+    head.add(brow);
+  }
+
   if (look.beard) {
     const beard = new THREE.Mesh(new THREE.SphereGeometry(0.47 * HU, 8, 5, 0, Math.PI * 2, 1.9, 0.75), hair);
     beard.scale.set(0.99, 1.1, 1.02);
@@ -276,8 +318,14 @@ export function buildFarmer(gender) {
     shoulder.add(joint(shirt, 0.215 * HU));
     shoulder.add(part(shirt, { top: 0.23 * HU, bottom: 0.185 * HU, length: UPPER_ARM }));
 
+    /* The sleeve's cuff, where shirt gives way to forearm. Placed on the
+       elbow rather than the upper arm so it travels with the bend. */
+    const cuff = part(shirt, { top: 0.20 * HU, bottom: 0.19 * HU, length: 0.12 * HU });
+    cuff.position.y = 0.04 * HU;
+
     const elbow = bone(`fore${S}`, 0, -UPPER_ARM, 0);
     shoulder.add(elbow);
+    elbow.add(cuff);
     elbow.add(joint(skin, 0.165 * HU));
     elbow.add(part(skin, { top: 0.175 * HU, bottom: 0.14 * HU, length: FOREARM }));
 
@@ -303,6 +351,15 @@ export function buildFarmer(gender) {
        ankle, not centred on it: a foot is mostly in front of its own leg. */
     const boot = new THREE.Mesh(new THREE.BoxGeometry(0.44 * HU, BOOT_H, 0.9 * HU), boots);
     boot.position.set(0, 0, 0.16 * HU);
+    /* A sole, slightly wider than the boot and darker than everything. It is
+       the one part of her that touches the ground, and a dark edge there is
+       what stops a figure looking like it is hovering a centimetre over its
+       own shadow. */
+    const tread = new THREE.Mesh(
+      new THREE.BoxGeometry(0.47 * HU, BOOT_H * 0.32, 0.93 * HU), sole,
+    );
+    tread.position.set(0, -BOOT_H * 0.36, 0.16 * HU);
+    ankle.add(tread);
     ankle.add(boot);
 
     limbs[S] = { shoulder, elbow, wrist, hip, knee, ankle };
@@ -346,42 +403,54 @@ function buildClips() {
   const clips = [];
 
   /* --- walk ------------------------------------------------------- */
-  /* One second, two steps, authored to look right at 1.5 units a second —
-     which is the CLIP_WALK_SPEED scene.js scales against, so her feet stay
-     planted when the walk speed is tuned. Five keys: contact, pass, contact,
+  /* One second, two steps, authored to cover 2.6 units a second — which is
+     the CLIP_WALK_SPEED scene.js scales against, so her feet stay planted
+     whatever the walk speed is tuned to. Five keys: contact, pass, contact,
      pass, and back to the first.
+
+     A running stride rather than a walking one, because the game moves her at
+     4.2 and that is a run for someone 1.6 tall. Authored at 1.5 first, it was
+     being played at 2.8x and she windmilled; the answer is a longer stride,
+     not a slower clip, because a slower clip slides her feet along the ground
+     instead of planting them.
 
      The arms are the half that makes it read as walking rather than
      marching. They swing opposite their own side's leg, which is what a
      human does to cancel the twist the legs put into the hips, and the
      chest counter-rotates a few degrees for the same reason. */
   const wt = [0, 0.25, 0.5, 0.75, 1];
-  const F = -0.62; const B = 0.5; // thigh forward / back at contact
+  /* A running stride, not a walking one. The game moves her at 4.2 units a
+     second, which is a run for someone 1.6 tall; authored for a walk, the
+     clip was being played at 2.8x and her legs windmilled. The answer is a
+     longer stride rather than a slower clip — a slower clip slides her feet
+     along the ground instead of planting them. About a third larger
+     throughout, and CLIP_WALK_SPEED in scene.js moves with it. */
+  const F = -0.82; const B = 0.66; // thigh forward / back at contact
   clips.push(new THREE.AnimationClip('walk', 1, [
     rot('thighL', wt, [[F, 0, 0], [-0.05, 0, 0], [B, 0, 0], [0.12, 0, 0], [F, 0, 0]]),
     rot('thighR', wt, [[B, 0, 0], [0.12, 0, 0], [F, 0, 0], [-0.05, 0, 0], [B, 0, 0]]),
     // The knee never straightens fully on the planted leg and folds hard on
     // the swinging one; a leg that stays straight through the pass reads as
     // a stilt.
-    rot('shinL', wt, [[0.16, 0, 0], [0.62, 0, 0], [0.12, 0, 0], [0.30, 0, 0], [0.16, 0, 0]]),
-    rot('shinR', wt, [[0.12, 0, 0], [0.30, 0, 0], [0.16, 0, 0], [0.62, 0, 0], [0.12, 0, 0]]),
+    rot('shinL', wt, [[0.20, 0, 0], [0.86, 0, 0], [0.14, 0, 0], [0.40, 0, 0], [0.20, 0, 0]]),
+    rot('shinR', wt, [[0.14, 0, 0], [0.40, 0, 0], [0.20, 0, 0], [0.86, 0, 0], [0.14, 0, 0]]),
     rot('footL', wt, [[-0.22, 0, 0], [-0.10, 0, 0], [0.18, 0, 0], [-0.05, 0, 0], [-0.22, 0, 0]]),
     rot('footR', wt, [[0.18, 0, 0], [-0.05, 0, 0], [-0.22, 0, 0], [-0.10, 0, 0], [0.18, 0, 0]]),
-    rot('armL', wt, [[0.44, 0, 0.10], [0.02, 0, 0.10], [-0.48, 0, 0.10], [0.02, 0, 0.10], [0.44, 0, 0.10]]),
-    rot('armR', wt, [[-0.48, 0, -0.10], [0.02, 0, -0.10], [0.44, 0, -0.10], [0.02, 0, -0.10], [-0.48, 0, -0.10]]),
-    rot('foreL', wt, [[-0.34, 0, 0], [-0.52, 0, 0], [-0.22, 0, 0], [-0.40, 0, 0], [-0.34, 0, 0]]),
-    rot('foreR', wt, [[-0.22, 0, 0], [-0.40, 0, 0], [-0.34, 0, 0], [-0.52, 0, 0], [-0.22, 0, 0]]),
+    rot('armL', wt, [[0.60, 0, 0.10], [0.02, 0, 0.10], [-0.64, 0, 0.10], [0.02, 0, 0.10], [0.60, 0, 0.10]]),
+    rot('armR', wt, [[-0.64, 0, -0.10], [0.02, 0, -0.10], [0.60, 0, -0.10], [0.02, 0, -0.10], [-0.64, 0, -0.10]]),
+    rot('foreL', wt, [[-0.62, 0, 0], [-0.80, 0, 0], [-0.48, 0, 0], [-0.70, 0, 0], [-0.62, 0, 0]]),
+    rot('foreR', wt, [[-0.48, 0, 0], [-0.70, 0, 0], [-0.62, 0, 0], [-0.80, 0, 0], [-0.48, 0, 0]]),
     rot('chest', wt, [[0.04, 0.09, 0], [0.04, 0, 0], [0.04, -0.09, 0], [0.04, 0, 0], [0.04, 0.09, 0]]),
     rot('head', wt, [[0, -0.05, 0], [0, 0, 0], [0, 0.05, 0], [0, 0, 0], [0, -0.05, 0]]),
     /* Two bobs per cycle, not one: the body rises over each planted leg, so
        it peaks at both passes. Getting this wrong is the single most obvious
        tell in a walk cycle — one bob per cycle looks like a limp. */
     pos('hips', wt, [
-      0, HIP_Y - 0.012, 0,
-      0, HIP_Y + 0.010, 0,
-      0, HIP_Y - 0.012, 0,
-      0, HIP_Y + 0.010, 0,
-      0, HIP_Y - 0.012, 0,
+      0, HIP_Y - 0.022, 0,
+      0, HIP_Y + 0.018, 0,
+      0, HIP_Y - 0.022, 0,
+      0, HIP_Y + 0.018, 0,
+      0, HIP_Y - 0.022, 0,
     ]),
   ]));
 

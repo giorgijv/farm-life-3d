@@ -19,7 +19,10 @@ top of these rules rather than replacing them — the simulation, the economy an
 the save format are shared with the original.
 
 **What's 3D:** the field is a 3D yard, and you drive the farmer around it —
-an on-screen stick under your thumb, or the arrow keys or WASD. Walk up to
+an on-screen stick under your thumb, or the arrow keys or WASD. Up on the
+stick is away from the camera whichever way you have orbited the shot, so
+the controls stay pointed at the screen rather than at the compass, and she
+turns to a new heading rather than pivoting on the spot. Walk up to
 something and the game offers what it is for ("Plant 🌾 Wheat", "Harvest",
 "Collect 🥛"); press that button, or the space bar, and she does it. Clearing
 a ripe field is a round she walks rather than four instant taps.
@@ -53,9 +56,10 @@ can't go underground or flip upside down.
 
 The farmer is a person rather than a toy — six and a half heads tall, with a
 neck, shoulders, a waist and limbs that bend at the elbow and knee, built from
-scratch because no kit in the library has a human in it. She walks with her
-arms swinging, bends at the knees to pick a crop, and carries a load in front
-of her.
+scratch because no kit in the library has a human in it. She has a belt, a
+collar, cuffs at the sleeve, soles under her boots and brows over her eyes.
+She runs with her arms swinging at the stride she is actually covering ground
+at, bends at the knees to pick a crop, and carries a load in front of her.
 
 **And there is somewhere to take that load.** A country road leaves the yard
 past the market stall and winds sixty metres over the hills to a market
@@ -64,7 +68,12 @@ something sellable in the barn and she loads it up; the camera drops in behind
 the bumper and you drive. The steering only bites once you are moving and the
 tightest bend is tighter than the car's turning circle at full speed, so you
 have to lift off for the corners, and the grass is less than half as fast as
-the tarmac. Arrive at the market and the load sells itself.
+the tarmac. The wheels turn with the road and the front pair steer where you
+point them, the shell leans into a corner and dips on the brakes, the tail
+lights come on when you slow, and after dark it runs with its headlights lit.
+The camera stays yours while you drive — drag to look at where you are going
+and it eases back behind the car a moment after you let go. Arrive at the
+market and the load sells itself.
 
 **Selling still works from the farm; buying does not.** Goods leave the farm
 over the same counter at the same prices they always did — a buyer comes to
@@ -368,7 +377,12 @@ the car is stopped by a building rather than driven through it, that the Market
 tab still sells from the farm while upgrades and barns refuse until she has
 driven there — below the button as well as on it — that parking at the market
 and getting out leaves her standing in the square rather than back at the farm,
-that a browser taking the WebGL context away
+that the car's wheels turn with the ground while only the front pair steer and
+its lamps answer the brake and the hour, that up on the stick is away from the
+camera however the shot has been orbited, that no single frame turns her
+further than her turning rate allows — the claim being a rate, it is checked
+against the time the frame was actually given rather than against a stopwatch
+outside the page — that a browser taking the WebGL context away
 is explained rather than leaving a blank box, that the farm comes back whole when the context is restored, and
 that the reload offered when it never is keeps the player's coins — and that
 shadows stay switched off on a machine with no GPU, which is the whole point
