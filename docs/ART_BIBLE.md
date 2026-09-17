@@ -3307,6 +3307,18 @@ Everything above was checked before it was written:
   alone. They are marked slow rather than trimmed: the time is in loading the
   scene and driving sixty metres, not in anything that could be asserted less
   carefully.
+- A third — the turn test — was marked slow *and* fixed, because its cost was
+  waste rather than work. It sampled until it had collected six frames of
+  movement or run forty frames, and she finishes the turn in two or three:
+  the remaining thirty-odd frames were spent watching a heading that had
+  stopped changing. It now stops when she arrives, and went from 17.4s to
+  4.1s. This shipped and failed CI, having passed locally every time — the
+  waste fitted inside the budget on this machine and did not on the runner.
+  The tell was in the timing all along: seventeen seconds is an absurd price
+  for one half-turn, and a green suite is not a reason to stop reading the
+  numbers beside the ticks. Rewriting the loop also meant the earlier
+  "confirmed it fails on the old code" no longer covered the test that
+  shipped, so that check was run again against the rewrite.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

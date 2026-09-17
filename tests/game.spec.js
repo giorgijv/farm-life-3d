@@ -6176,6 +6176,7 @@ test.describe('moving her is comfortable', () => {
     });
 
   test('she turns rather than snapping round', async ({ page }) => {
+    test.slow();
     await load(page, makeSave());
     await ready(page);
 
@@ -6206,19 +6207,25 @@ test.describe('moving her is comfortable', () => {
         return v;
       };
       const from = s.facing();
+      const target = wrapTo(from + Math.PI);
       const frames = [];
       let prev = from;
       s.drive(0, 1);
       await new Promise((done) => {
-        let ticks = 0;
+        const t0 = performance.now();
         const tick = () => {
           const now = s.facing();
           if (now !== prev) frames.push({ turn: wrapTo(now - prev), dt: s.frameDt() });
           prev = now;
-          ticks += 1;
-          // Sampled until there is enough to say something, or until she has
-          // plainly finished — she settles onto the heading and stops moving.
-          if (frames.length >= 6 || ticks >= 40) done();
+          /* Stopped when she arrives, not after a fixed count of frames. The
+             count was the first version and it was quietly the slowest thing
+             in the file: she finishes the turn in two or three frames and
+             then stops moving, so no further samples are taken and the loop
+             spun out the remaining thirty-odd for nothing — seven seconds of
+             it at the frame rate a software rasteriser manages, which is what
+             pushed this test over its budget on CI. */
+          const settled = Math.abs(wrapTo(now - target)) < 0.02;
+          if (settled || performance.now() - t0 > 3000) done();
           else requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
