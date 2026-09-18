@@ -17,6 +17,10 @@ function makeSave(overrides = {}) {
     selectedSeed: null,
     unlockedPlots: 9,
     plots: Array.from({ length: PLOT_COUNT }, () => ({ crop: null, plantedAt: null })),
+    // Stated rather than left to the migration to infer from the cow: a
+    // fixture should say what farm it is, not depend on a rule about old
+    // saves that has its own test elsewhere.
+    pasture: true,
     cows: [{ id: 1, state: 'hungry', feedAt: null }],
     chickens: [],
     sheep: [],

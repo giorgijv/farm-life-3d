@@ -41,6 +41,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 import { loadModel, loadMeshes, preload, overrideKitColor, overrideKitFinish } from './assets.js';
 import { buildFarmer, FARMER_HEIGHT } from './farmer.js';
+import { buildBarn, BARN_WIDTH, BARN_DEPTH } from './barn.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -551,7 +552,11 @@ function startScene(bridge) {
      rails scaled to the box's width or depth, a post InstancedMesh at each
      corner. `cx`/`cz` is the box's centre, not the world origin — the pen
      sits well off to one side of it. */
+  /* Returns what it built, which the crop field's caller ignores and the
+     pasture's does not: the pasture is bought, so its fence has to be able
+     to not be there. */
   function buildFence(cx, cz, halfX, halfZ) {
+    const built = [];
     [
       { pos: [cx, 0.25, cz + halfZ], scaleX: halfX * 2, rotY: 0 },
       { pos: [cx, 0.25, cz - halfZ], scaleX: halfX * 2, rotY: 0 },
@@ -563,6 +568,7 @@ function startScene(bridge) {
       rail.scale.x = scaleX;
       rail.rotation.y = rotY;
       scene.add(casts(rail));
+      built.push(rail);
     });
 
     const posts = new THREE.InstancedMesh(postGeo, fenceMat, 4);
@@ -574,6 +580,8 @@ function startScene(bridge) {
       posts.setMatrixAt(i, m4);
     });
     scene.add(casts(posts));
+    built.push(posts);
+    return built;
   }
 
   buildFence(0, 0, yardHalf, yardHalf);
@@ -984,7 +992,23 @@ function startScene(bridge) {
      tier read the same rendererIsSoftware() signal for the same reason. */
   const PEN_CAP = rendererIsSoftware() ? 3 : 6;
 
-  buildFence(PEN_CX, 0, PEN_HALF_X, PEN_HALF_Z);
+  /* The pasture's fence, which is only up once it has been paid for. Held
+     rather than dropped so syncPasture below can show it the moment the
+     purchase goes through, without rebuilding anything.
+
+     Only the fence, and only its visibility. The ground under it stays flat
+     and walkable either way: an unbought pasture is a corner of the farm
+     with nothing on it, not a hole she falls into, and making it impassable
+     would mean a player who walks east before buying it hits an invisible
+     wall for reasons the game never explained. */
+  const penFence = buildFence(PEN_CX, 0, PEN_HALF_X, PEN_HALF_Z);
+  let pastureShown = null;
+  function syncPasture() {
+    const owned = Boolean(bridge.getState().pasture);
+    if (owned === pastureShown) return;
+    pastureShown = owned;
+    for (const part of penFence) part.visible = owned;
+  }
 
   /* The middle of what the player is looking at: halfway between the field's
      west fence and the pen's east one. Declared here, with the two fences
@@ -2203,9 +2227,12 @@ ${shader.fragmentShader.replace(
        Taller than the house, which is what a barn is for, and set far enough
        east that the path branch can reach its west wall without running
        under the building. Same edge-hugging logic as the farmhouse. */
-    { id: 'city-suburban/building-type-b', x: 10.2, z: -0.6, ry: -Math.PI / 2, h: 5.6, blocks: 'box' },
-    { id: 'survival/barrel', x: 6.9, z: 1.2, ry: 0.9, h: 0.75 },
-    { id: 'survival/barrel', x: 7.1, z: 1.9, ry: 0.2, h: 0.7 },
+    /* The barn itself is no longer in this list. It is built rather than
+       loaded (see barn.js) because a kit building is a closed shell and this
+       one has to be walked into, and it is placed below with the rest of the
+       things that have a wall list instead of a bounding box. */
+    { id: 'survival/barrel', x: 7.8, z: 4.0, ry: 0.9, h: 0.75 },
+    { id: 'survival/barrel', x: 8.4, z: 4.5, ry: 0.2, h: 0.7 },
     { id: 'nature/log', x: 6.8, z: 5.6, ry: 0.7 },
     { id: 'nature/rock_largeA', x: 9.2, z: 7.0, ry: 0.6 },
     { id: 'nature/plant_bush', x: 8.1, z: 6.3 },
@@ -2494,6 +2521,206 @@ ${shader.fragmentShader.replace(
   const dressed = dressFarm();
 
   /* -------------------------------------------------------------- */
+  /* The barn — the one building with an inside                        */
+  /* -------------------------------------------------------------- */
+
+  /* Placed here rather than in PROPS because it is not a prop: it arrives
+     synchronously (nothing to fetch), it contributes five collision
+     rectangles instead of one bounding box, and the scene keeps hold of its
+     walls and roof so they can get out of the camera's way. Everything it
+     needs to be positioned is a constant, so it is standing before the
+     foliage scatter runs and takes its footprint into account like any
+     other solid. */
+  const BARN_AT = { x: 10.25, z: -1.2 };
+  const barn = buildBarn();
+  barn.object.position.set(BARN_AT.x, 0, BARN_AT.z);
+  barn.object.traverse((obj) => {
+    for (const m of [obj.material ?? []].flat()) m.toneMapped = false;
+  });
+  scene.add(casts(barn.object));
+
+  /* Its walls, offset into world space. Pushed straight onto the same list
+     the loaded buildings use, so every consumer — the walk, the car, the
+     foliage scatter, the test surface — sees a barn made of five walls
+     without knowing that it is anything other than five more solids. */
+  for (const w of barn.walls) {
+    SOLIDS.boxes.push({
+      id: 'barn',
+      minX: w.minX + BARN_AT.x, maxX: w.maxX + BARN_AT.x,
+      minZ: w.minZ + BARN_AT.z, maxZ: w.maxZ + BARN_AT.z,
+      minY: 0, maxY: barn.wallTop,
+    });
+  }
+
+  /* World-space versions of the two rectangles the rest of the file asks
+     about: where she is standing when she is indoors, and where the door is
+     when she wants to be. */
+  const BARN_INSIDE = {
+    minX: barn.inside.minX + BARN_AT.x, maxX: barn.inside.maxX + BARN_AT.x,
+    minZ: barn.inside.minZ + BARN_AT.z, maxZ: barn.inside.maxZ + BARN_AT.z,
+  };
+  const BARN_DOOR = { x: barn.doorway.x + BARN_AT.x, z: barn.doorway.z + BARN_AT.z };
+
+  function insideBarn(x, z) {
+    return x > BARN_INSIDE.minX && x < BARN_INSIDE.maxX
+      && z > BARN_INSIDE.minZ && z < BARN_INSIDE.maxZ;
+  }
+
+  /* The roof and the near walls, hidden while she is under them.
+
+     This is the part of an enterable building that is actually hard, and it
+     is a camera problem rather than a geometry one: the shot is the
+     player's to orbit, so which wall is in the way changes from frame to
+     frame and cannot be decided once at build time. Each shell piece knows
+     the direction its outward face points, so the test is one dot product —
+     a wall whose outward normal points back towards the camera is a wall the
+     camera is looking at the outside of, and therefore the one between the
+     camera and the room. Hiding exactly those leaves the far walls standing,
+     which is what keeps the inside reading as a room rather than as a floor
+     with furniture on it.
+
+     Only ever visibility. The walls stay in SOLIDS the whole time, so a
+     hidden wall still stops her — being able to walk out through a wall you
+     cannot see would be a worse bug than not being able to see in. */
+  function revealBarn(showInside) {
+    barn.roof.visible = !showInside;
+    for (const piece of barn.shell) {
+      if (!showInside) {
+        piece.mesh.visible = true;
+        continue;
+      }
+      const toCamera = {
+        x: camera.position.x - BARN_AT.x,
+        z: camera.position.z - BARN_AT.z,
+      };
+      piece.mesh.visible = piece.normal.x * toCamera.x + piece.normal.z * toCamera.z <= 0;
+    }
+  }
+
+  /* -------------------------------------------------------------- */
+  /* What is in the barn                                               */
+  /* -------------------------------------------------------------- */
+
+  /* The stores, as objects on the floor rather than as a number on a panel.
+     This is the whole reason the building is enterable: the Market tab can
+     already tell you that you have eleven wheat, and a tab that tells you
+     that is not a barn. Walking in and seeing the crop stacked against the
+     back wall — and seeing the stacks shrink the week you sell up — is a
+     different kind of knowing, and it is the one a farm game is for.
+
+     Crops go in crates and animal produce in barrels, which is both what
+     those containers are for and a way of telling the two halves of the
+     harvest apart at a glance from the doorway. */
+  const STOCK_BAY = [
+    { key: 'wheat', model: 'survival/box' },
+    { key: 'corn', model: 'survival/box' },
+    { key: 'carrot', model: 'survival/box' },
+    { key: 'pumpkin', model: 'survival/box' },
+    { key: 'milk', model: 'survival/barrel' },
+    { key: 'egg', model: 'survival/barrel' },
+    { key: 'wool', model: 'survival/barrel' },
+  ];
+  /* How many go in a container, and how many containers a commodity may
+     stack to. Both are presentation rather than simulation — the save's
+     number is the truth and nothing here rounds it — but the ratio is what
+     decides whether the barn reads as full or as empty at the point in the
+     game where most players are standing. Three to a crate and six crates
+     means a bay fills at eighteen, which a decent wheat run reaches and a
+     first harvest does not. */
+  const PER_CONTAINER = 3;
+  const STOCK_STACK = 6;
+  const STOCK_SLOTS = STOCK_BAY.length * STOCK_STACK;
+  const CONTAINER_H = 0.42;
+
+  const stockMeshes = {}; // model id -> InstancedMesh[]
+  const stockScale = {};  // model id -> the factor that makes it CONTAINER_H tall
+  let stockSig = '';      // the stores the crates below were last drawn for
+  const stockModelsReady = Promise.all(
+    [...new Set(STOCK_BAY.map((s) => s.model))].map((id) =>
+      loadMeshes(id).then(({ meshes, height }) => {
+        stockMeshes[id] = meshes.map(({ geometry, material }) => {
+          material.toneMapped = false;
+          const mesh = new THREE.InstancedMesh(geometry, material, STOCK_SLOTS);
+          for (let i = 0; i < STOCK_SLOTS; i += 1) hideInstance(mesh, i, 0, 0);
+          scene.add(casts(mesh));
+          return mesh;
+        });
+        /* The survival kit is authored small — its barrel comes out of the
+           file about a third of a unit tall — so the scale is worked out
+           from the model's own measured height, the same way assets.js does
+           it, rather than written down as a factor that would be wrong the
+           day the asset changed. */
+        stockScale[id] = height > 0 ? CONTAINER_H / height : 1;
+        /* The signature is computed from the stores, and the stores are
+           readable long before these meshes are — so the first sync ran
+           against an empty stockMeshes, recorded the signature it had drawn
+           nothing for, and then skipped every frame after the crates
+           arrived. Cleared here so the next frame redraws against the meshes
+           that now exist. The barn stood empty with eighteen wheat in the
+           save, which is exactly the bug a signature cache invites. */
+        stockSig = '';
+      }).catch((err) => console.warn(`farm: ${id} did not load`, err))),
+  );
+
+  /* The bay runs along the back wall, left to right in the order above, and
+     stacks upward. Laid out in the barn's local frame and offset once, so
+     the numbers below read against BARN_WIDTH rather than against the
+     barn's happening to be at x 9.9. */
+  function stockSpot(bayIndex, level) {
+    const across = (bayIndex - (STOCK_BAY.length - 1) / 2) * (BARN_WIDTH / (STOCK_BAY.length + 0.4));
+    return {
+      x: BARN_AT.x + across,
+      y: barn.floorY + CONTAINER_H * (level + 0.5),
+      z: BARN_AT.z - BARN_DEPTH / 2 + 1.15,
+    };
+  }
+
+  /* Rebuilt only when the stores actually change. The signature is the same
+     trick the barn cards in script.js use, and for the same reason: this
+     walks every slot of every instanced mesh, and the stores change a few
+     times a minute at most while this would otherwise run sixty times a
+     second. */
+  function syncStock() {
+    const inv = bridge.getState().inventory ?? {};
+    const sig = STOCK_BAY.map((s) => inv[s.key] ?? 0).join(',');
+    if (sig === stockSig) return;
+    stockSig = sig;
+
+    const used = {};
+    for (const id of Object.keys(stockMeshes)) used[id] = 0;
+
+    STOCK_BAY.forEach((bay, bayIndex) => {
+      const meshes = stockMeshes[bay.model];
+      if (!meshes) return;
+      const count = Math.max(0, Math.floor(inv[bay.key] ?? 0));
+      const containers = Math.min(STOCK_STACK, Math.ceil(count / PER_CONTAINER));
+      for (let level = 0; level < containers; level += 1) {
+        const at = stockSpot(bayIndex, level);
+        const slot = used[bay.model];
+        used[bay.model] += 1;
+        const scale = stockScale[bay.model] ?? 1;
+        for (const mesh of meshes) setInstance(mesh, slot, at.x, at.y, at.z, scale, scale);
+      }
+    });
+
+    // Everything past what is in store is parked out of sight rather than
+    // left holding last week's harvest.
+    for (const [id, meshes] of Object.entries(stockMeshes)) {
+      for (let i = used[id]; i < STOCK_SLOTS; i += 1) {
+        for (const mesh of meshes) hideInstance(mesh, i, 0, 0);
+      }
+    }
+    for (const meshes of Object.values(stockMeshes)) {
+      for (const mesh of meshes) mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  function syncBarn() {
+    revealBarn(insideBarn(at.x, at.z));
+    syncStock();
+  }
+
+  /* -------------------------------------------------------------- */
   /* Foliage, instanced                                                */
   /* -------------------------------------------------------------- */
 
@@ -2535,6 +2762,11 @@ ${shader.fragmentShader.replace(
     for (const r of PATH_RECTS) {
       if (x >= r.x0 - 0.35 && x <= r.x1 + 0.35 && z >= r.z0 - 0.35 && z <= r.z1 + 0.35) return true;
     }
+    /* The barn's floor, which the loop below cannot rule out on its own: its
+       solids are five walls rather than one footprint, so the room between
+       them is open ground as far as SOLIDS is concerned, and the first build
+       grew a fine crop of grass across the threshing floor. */
+    if (insideBarn(x, z)) return true;
     const m = FOLIAGE_CLEARANCE;
     for (const b of SOLIDS.boxes) {
       if (x >= b.minX - m && x <= b.maxX + m && z >= b.minZ - m && z <= b.maxZ + m) return true;
@@ -5200,6 +5432,42 @@ ${lit}`;
        which is a question about the camera and cannot be asked of anything
        else the scene reports. */
     cameraAt: () => ({ x: camera.position.x, y: camera.position.y, z: camera.position.z }),
+    /* The barn, as the numbers a test can hold it to. A screenshot is the
+       only thing that can say it looks like a barn; these say it is a place
+       — a door in a known spot, a room with walls round it, and a roof that
+       gets out of the way when she is under it. */
+    barn: () => ({
+      door: { x: BARN_DOOR.x, z: BARN_DOOR.z },
+      inside: { ...BARN_INSIDE },
+      walls: SOLIDS.boxes.filter((b) => b.id === 'barn').length,
+      indoors: insideBarn(at.x, at.z),
+      roofVisible: barn.roof.visible,
+      /* How many of the shell's walls are currently drawn. Outdoors this is
+         all of them; indoors the ones between the camera and the room are
+         not, which is the whole trick and the thing most likely to break
+         quietly. */
+      wallsDrawn: barn.shell.filter((piece) => piece.mesh.visible).length,
+    }),
+    /* How many containers are standing in the stock bay. Not what is in the
+       save — the save is script.js's business — but how much of it has been
+       put on the floor, which is the only claim this side makes. */
+    barnStock: () => {
+      let n = 0;
+      for (const meshes of Object.values(stockMeshes)) {
+        if (!meshes.length) continue;
+        const mesh = meshes[0];
+        for (let i = 0; i < STOCK_SLOTS; i += 1) {
+          mesh.getMatrixAt(i, tmpMatrix);
+          tmpMatrix.decompose(tmpPos, tmpQuat, tmpScale);
+          if (tmpScale.x > 0.0001) n += 1;
+        }
+      }
+      return n;
+    },
+    stockReady: () => stockModelsReady.then(() => true),
+    /* Whether the pasture is fenced in the world, as opposed to whether the
+       save says it was bought — the two being the same thing is the claim. */
+    pastureFenced: () => pastureShown === true,
     car: () => ({ x: carAt.x, z: carAt.z, heading: carHeading, speed: carSpeed, cargo: cargo.length }),
     /* The pond, as numbers. A test cannot look at a canvas and say whether
        that is water, but it can ask whether she is standing in it, and it can
@@ -5669,6 +5937,8 @@ ${lit}`;
     syncPlots(now);
     syncAnimals(now);
     poseFarmer(now);
+    syncBarn();
+    syncPasture();
     syncPrompt();
     /* One camera or the other, never both. followFarmer slides the orbit
        target to wherever she is standing, which while she is sitting in a

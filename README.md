@@ -27,7 +27,8 @@ something and the game offers what it is for ("Plant 🌾 Wheat", "Harvest",
 "Collect 🥛"); press that button, or the space bar, and she does it. Clearing
 a ripe field is a round she walks rather than four instant taps.
 
-Beside the field is a fenced pen with the herd in it — animated cows,
+Beside the field is the pasture, fenced once you have bought it, with the
+herd in it — animated cows,
 chickens, sheep, a dog and a cat, each wandering its own lane, a guardian on
 duty trotting the fence line while a hungry one waits it out. The crops are
 modelled too, and change shape as they grow rather than just colour. There is
@@ -39,9 +40,8 @@ drifts overhead on the same forecast — fair-weather scraps most days, a sky
 filling in over the three before a storm, gold at dusk and a dim overcast at
 midnight — and it drifts on the game's own clock, so the same day at the same
 hour gives you the same sky back. A car sits
-parked on a two-lane pull-in by the market stall, the way the stall itself is
-set dressing rather than somewhere she walks — the Market tab still sells
-from a flat 2D counter, same as ever. The sun
+parked on a two-lane pull-in by the market stall, and it is the one you drive
+to market (below); the stall beside it is set dressing. The sun
 tracks the same clock the 2D sky strip reads, carrying the yard from daylight
 through a warm dusk into a moonlit night, and on a machine with a GPU it
 casts: the farmhouse lays a long shadow across the field in the afternoon,
@@ -60,6 +60,21 @@ scratch because no kit in the library has a human in it. She has a belt, a
 collar, cuffs at the sleeve, soles under her boots and brows over her eyes.
 She runs with her arms swinging at the stride she is actually covering ground
 at, bends at the knees to pick a crop, and carries a load in front of her.
+
+**The barn has an inside.** The building east of the pasture is a real barn —
+red boards, white trim, a gambrel roof — and its doorway is a gap you walk
+through rather than a painting on a wall. Go in and the roof and whichever
+walls are between you and the camera step aside, so you can see the room; the
+walls still stop you, so you leave the way you came. What is in there is your
+stores, as things rather than numbers: crops stacked in crates, milk and eggs
+and wool in barrels, growing as you harvest and emptying the week you sell up.
+
+**The pasture is bought; the field is not.** The crop field comes with the
+farm. The pasture east of it is unfenced ground until you pay to fence it, and
+until you do there is nowhere to keep an animal — so the first herd is a
+decision you save for rather than something the Animals tab hands you on the
+first morning. Fence it once and it is yours for good. (A farm from before
+this change keeps the pen it was already using.)
 
 **And there is somewhere to take that load.** A country road leaves the yard
 past the market stall and winds sixty metres over the hills to a market
@@ -87,9 +102,11 @@ It is a farm at human scale. The farmhouse stands more than three times her
 height and the barn nearly four, the orchard is grown trees rather than
 saplings, and the ground is about twenty-five metres square — big enough
 that the buildings standing on it can be building-sized. She cannot walk
-through any of them: the two buildings, the stall, the car and every orchard
-trunk stop her and slide her along themselves. The canopies do not, so
-standing under an apple tree is still allowed.
+through any of them: the farmhouse, the stall, the car, every orchard trunk
+and all five of the barn's walls stop her and slide her along themselves. The
+canopies do not, so standing under an apple tree is still allowed — and
+neither does the barn's doorway, which is the one gap in the farm that is
+meant to be walked through.
 
 If your browser ever takes the 3D view away — phones short on memory do this,
 and some of them never give it back — the farm no longer just goes blank. The
@@ -377,6 +394,14 @@ the car is stopped by a building rather than driven through it, that the Market
 tab still sells from the farm while upgrades and barns refuse until she has
 driven there — below the button as well as on it — that parking at the market
 and getting out leaves her standing in the square rather than back at the farm,
+that the barn is five walls with a gap in one of them rather than one solid
+block — she walks in through the door, the roof and the near walls get out of
+the camera's way, and the walls she can no longer see still stop her — that
+what is stacked inside it follows what is actually in the save, that no grass
+grows on its floor, that a new farm has a field and no pasture while buying one
+fences it and opens the herd, that the refusal holds when the disabled button is
+gone round, and that a save from before the pasture existed keeps the herd it
+already had while one with no animals does not get a free field,
 that the car's wheels turn with the ground while only the front pair steer and
 its lamps answer the brake and the hour, that up on the stick is away from the
 camera however the shot has been orbited, that no single frame turns her

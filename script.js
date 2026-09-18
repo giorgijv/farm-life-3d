@@ -8,6 +8,16 @@ const PLOT_COUNT = 16;
 const INITIAL_UNLOCKED_PLOTS = 8;
 const PLOT_UNLOCK_BASE_COST = 30;
 const PLOT_UNLOCK_INCREMENT = 25;
+/* The pasture: the farm's second field, and the one you have to buy.
+   
+   The crop field comes with the farm because a farm game that opens with
+   nothing to do is not a farm game. The pasture does not, which turns
+   "should I keep animals at all?" into a decision with a price on it rather
+   than a tab that is simply there from the first minute. 120 is a little
+   over two plot unlocks and well under a small barn, so it lands as the
+   thing you save for after the first proper harvest — which is also the
+   point at which feeding animals stops being a gamble. */
+const PASTURE_COST = 120;
 const DAY_LENGTH_MS = 90 * 1000; // one in-game day
 /* Both games are served from giorgijv.github.io, and localStorage is scoped to
    the origin rather than the path, so a save key shared with the 2D game would
@@ -393,6 +403,7 @@ function freshState() {
     selectedSeed: null,
     unlockedPlots: INITIAL_UNLOCKED_PLOTS,
     plots: Array.from({ length: PLOT_COUNT }, emptyPlot),
+    pasture: false,
     cows: [],
     chickens: [],
     sheep: [],
@@ -759,6 +770,21 @@ function migrateSave(parsed) {
       // A producing animal with no feed time would never finish.
       .map((a) => (a.state === 'producing' && a.feedAt === null ? becomeHungry(a) : a));
   });
+
+  /* The pasture, and the one migration rule that matters: anybody who
+     already has an animal already has a pasture.
+
+     This field did not exist before this build, so every save in the wild
+     is missing it, and a missing field reads as false — which would take the
+     pen away from a player mid-game and leave a herd standing in a field
+     they no longer own. Nothing else in the save would be wrong; the cows
+     would simply have nowhere to be. So the pen is granted to anyone whose
+     save shows they were using it, which is the same judgement the plot
+     migration above makes when it decides a short grid means an old save
+     rather than a broken one. New farms, which have no animals, start
+     without it and buy it — which is the point of the change. */
+  if (typeof parsed.pasture === 'boolean') merged.pasture = parsed.pasture;
+  else merged.pasture = ANIMAL_ORDER.some((kind) => merged[ANIMALS[kind].stateKey].length > 0);
 
   // Re-issue ids so a save with missing or duplicated ones can't collide.
   let nextId = 1;
@@ -2998,20 +3024,65 @@ function buyAnimalCost(kind) {
   return def.buyBaseCost + owned * def.costIncrement;
 }
 
+/* The pasture gate. Every buy button on this tab reads through it, and so
+   does buyAnimal itself — the button's disabled state is a courtesy to the
+   player and the check in the action is the rule, because a keyboard, a
+   queued walk or a stale render can all reach the action without going
+   through a button that was drawn a moment ago. */
 function renderBuyButtons() {
   ANIMAL_ORDER.forEach((kind) => {
     const def = ANIMALS[kind];
     const cost = buyAnimalCost(kind);
     const btn = document.getElementById('buy' + kind[0].toUpperCase() + kind.slice(1) + 'Btn');
+    if (!state.pasture) {
+      // Says what is missing rather than what it costs. A greyed-out button
+      // showing a price the player can afford is a bug report waiting to be
+      // filed.
+      btn.textContent = `${def.name} — needs a pasture`;
+      btn.disabled = true;
+      btn.onclick = null;
+      return;
+    }
     btn.textContent = `Buy ${def.name} (${cost}💰)`;
     btn.disabled = state.coins < cost;
     btn.onclick = () => buyAnimal(kind);
   });
+
+  const btn = document.getElementById('buyPastureBtn');
+  const note = document.getElementById('pastureNote');
+  if (!btn || !note) return;
+  btn.hidden = Boolean(state.pasture);
+  note.hidden = Boolean(state.pasture);
+  if (!state.pasture) {
+    btn.textContent = `Fence the pasture (${PASTURE_COST}💰)`;
+    btn.disabled = state.coins < PASTURE_COST;
+    btn.onclick = buyPasture;
+  }
+}
+
+function buyPasture() {
+  if (state.pasture) return;
+  if (state.coins < PASTURE_COST) {
+    SFX.error();
+    showToast('Not enough coins!');
+    return;
+  }
+  state.coins -= PASTURE_COST;
+  state.pasture = true;
+  SFX.buy();
+  showToast('🌱 The pasture is fenced — the herd has somewhere to live.');
+  saveState();
+  render();
 }
 
 function buyAnimal(kind) {
   const def = ANIMALS[kind];
   const cost = buyAnimalCost(kind);
+  if (!state.pasture) {
+    SFX.error();
+    showToast('Fence the pasture first — there is nowhere to keep it.');
+    return;
+  }
   if (state.coins < cost) {
     SFX.error();
     showToast('Not enough coins!');

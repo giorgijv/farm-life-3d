@@ -2854,6 +2854,176 @@ the test surface for duplicate keys before believing a failure.
 
 ---
 
+## 35. A building with an inside, and a field with a price
+
+Two changes asked for together, and they turn out to be the same change seen
+twice: the farm had things on it that were scenery, and both of these make one
+of them into somewhere you go or something you own.
+
+### The barn had to be built, and not for the usual reason
+
+The farmer is built from primitives because no kit in the mirror has a human
+in it (§32). The barn is built for a harder reason: **no authored building can
+be walked into.** Every model in `city-suburban` is an exterior — a closed
+shell with a painted-on door and no volume behind it. Cutting a hole in the
+south wall does not reveal a room; it reveals the back of the north wall's
+outward face, lit from the wrong side, with nothing in between.
+
+Which turns out not to matter, because an enterable building is a short list:
+four walls that stop her, one gap that does not, a floor, and a roof that gets
+out of the camera's way. Building it exactly is also what lets the collision
+rectangles *be* the walls you can see, rather than the one bounding box a
+loaded model would have given — and a door you cannot walk through is not a
+door.
+
+So the east building is now `barn.js`: red boards, white trim, a gambrel roof,
+and a doorway two and a third units wide. Gambrel rather than gable because
+that profile reads as "barn" against the treeline at fifty metres, which is
+most of the job — from the yard this is a silhouette.
+
+It is sized to the gap it lives in rather than to a picture of a barn. The
+pasture fence ends at x 6.19 and the farm's flat ground stops at 13.4, so 6.8
+across centred at 9.9 fills that strip with a hand's breadth either side.
+
+### Seeing in
+
+This is the part that is actually hard, and it is a camera problem rather than
+a geometry one. The shot is the player's to orbit freely, so *which* wall is
+between the camera and the room changes every frame and cannot be decided once
+at build time.
+
+Each shell piece carries the outward normal of the face it belongs to, so the
+test is one dot product: a wall whose outward normal points back toward the
+camera is one the camera is looking at the outside of, and therefore the one in
+the way. Hiding exactly those — plus the roof — leaves the far walls standing,
+which is what keeps the interior reading as a room rather than as a floor with
+furniture on it.
+
+**Visibility only, never collision.** The walls stay in `SOLIDS` the whole
+time. Being able to stroll out through a wall you cannot see would be a worse
+bug than not being able to see in, and there is a test that drives her hard at
+the hidden back wall and requires her to still be indoors afterwards.
+
+### Three things the first build got wrong
+
+All three were caught by screenshot, and none would have been caught by
+reading the code.
+
+**The roof splayed open like a pair of shutters.** A sign. A gambrel pitch runs
+from the eave *inward and upward* — on the right-hand side that is up and to
+the left — so `rotation.z` wants `-side * tilt`, not `side * tilt`. (A box is
+symmetric end to end, so the angle that is formally correct and the one used
+here differ by exactly pi and draw the same roof.)
+
+**Grass grew across the threshing floor.** The foliage scatter keeps clear of
+`SOLIDS`, and the barn's solids are five *walls* — so the room between them is
+open ground as far as the scatter is concerned. The clearing test needed the
+interior rectangle added explicitly. This is the standing cost of modelling a
+building as walls instead of a footprint, and it will catch the next thing that
+reasons about buildings from `SOLIDS` too.
+
+**A white rectangle hung in the air over the doorway.** The trim was parented
+to the root rather than to the wall it sits on, so hiding a wall left its trim
+behind. A child goes with its parent; the bands and the door surround are now
+children of the boards they are painted on.
+
+### The stores, as objects
+
+The Market tab can already tell you that you have eleven wheat, and a tab that
+tells you that is not a barn. Crops stack in crates and animal produce in
+barrels — which is both what those containers are for and a way to read the two
+halves of the harvest apart from the doorway.
+
+Three to a container, six containers to a bay, so a bay fills at eighteen: a
+decent wheat run reaches it and a first harvest does not. The numbers shown are
+presentation and the save is the truth — nothing here rounds anything — but the
+bay answers to the save, and a test sells the lot and watches it empty.
+
+**One bug worth recording, because the cache invited it.** The stock is redrawn
+only when a signature over the stores changes. The stores are readable long
+before the crate models are, so the first sync ran against an empty mesh table,
+recorded the signature it had drawn nothing for, and then skipped every frame
+after the crates arrived. The barn stood empty with eighteen wheat in the save.
+The signature is now cleared when the models land.
+
+### Where the barn could stand, which was narrower than it looked
+
+The east edge is the farm's flat ground at 13.4. The west edge is set by
+something much less obvious, and the first placement got it wrong.
+
+The walk-to-work queue walks a **straight line** to a plot or an animal and
+finishes when it has covered the distance — it does not ask collision whether
+it arrived. That is safe only while the rectangle holding the field and the
+pasture is clear of anything solid, and there is a test that holds it to be,
+scanning out to x 6.5. The first barn put its west wall at exactly 6.5, which
+with the farmer's body radius reached 6.25 and put 806 blocked points inside
+that rectangle. A job sent to the pen's east edge would have ended with her
+standing against a wall believing she had arrived.
+
+So the barn is 6.3 across rather than 6.8, centred at 10.25 rather than 9.9,
+which puts the wall at 7.1 and keeps a third of a unit of daylight. The
+interior lost half a unit and nothing else changed.
+
+### Two tests that had to change, and why that is not the same as weakening them
+
+**"Walking east stops her at the barn wall"** looked up its target by the model
+id `building-type-b`. The barn is not that any more — but the market village
+has one of those standing in it, so the query did not fail. It quietly measured
+a building sixty metres away and asserted against it. Now it asks for the boxes
+called `barn`, requires there to be five of them, and takes the westmost face.
+
+**"No exclusion zone overlaps another"** flagged four `barn and barn` pairs, and
+it was right to: the walls of a room are within half a unit of each other by
+construction, and no geometry for an enclosed building can satisfy that check.
+The invariant was written when every solid was a separate object, and "there is
+no reason to have an overlap" was true then. There is a reason now.
+
+Same-id pairs are exempt, and the exemption is worth being careful about,
+because exempting the thing your new feature broke is how a suite stops meaning
+anything. What makes it legitimate here: the concern behind the invariant —
+that two resolvers' answers land inside each other and the player gets stuck —
+is covered directly by the escape test next to it, which walks the whole farm
+and requires every point she can stand on to be one she can get out of. That
+test was **not** relaxed, it runs over the barn's inside corners, and it passes.
+The overlap test is a proxy; the escape test is the property.
+
+### The pasture is bought; the field is not
+
+The crop field comes with the farm, because a farm game that opens with nothing
+to do is not a farm game. The pasture does not. That turns "should I keep
+animals at all?" into a decision with a price on it (120 coins — a little over
+two plot unlocks, well under a small barn) rather than a tab that is simply
+there from the first minute.
+
+The fence is not built until it is paid for, and the ground under it stays flat
+and walkable either way. An unbought pasture is a corner of the farm with
+nothing on it, not a hole she falls into — making it impassable would mean a
+player who wanders east before buying hits an invisible wall for reasons the
+game never explained.
+
+The gate is checked twice on purpose: the buy button is disabled *and*
+`buyAnimal` refuses. The button is a courtesy to the player; the check in the
+action is the rule, because a keyboard, a stale render or a queued walk can all
+reach the action without passing through a button drawn a moment ago. The
+button also says **"needs a pasture"** rather than showing a price — a greyed
+-out control displaying a sum the player can plainly afford is a bug report
+waiting to be filed.
+
+### The migration that matters
+
+`pasture` is a new field, so **every save in the wild is missing it, and a
+missing boolean reads as false.** Shipped naively, that takes the pen away from
+somebody mid-game and leaves their herd standing in a field they no longer own.
+Nothing else in the save would be wrong; the cows would simply have nowhere to
+be.
+
+So: anybody whose save shows animals already has a pasture. Anybody with none
+starts without one and buys it, which is the point of the change. Both
+directions have a test, because this is the kind of rule that is easy to write
+and easy to get backwards.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -3319,6 +3489,32 @@ Everything above was checked before it was written:
   numbers beside the ticks. Rewriting the loop also meant the earlier
   "confirmed it fails on the old code" no longer covered the test that
   shipped, so that check was run again against the rewrite.
+
+- §35's three defects were each caught by a screenshot and none by reading
+  the code: a roof splayed open by a sign error, grass growing across the
+  barn floor, and a white trim rectangle hanging in the air with its wall
+  hidden. The pattern is worth naming — geometry built from numbers is
+  exactly the kind of code that reads correctly and draws wrongly.
+- §35's crate cache bug was found by looking at the barn with eighteen wheat
+  in the save and seeing nothing in it, not by suspecting the signature. The
+  fix is one line; the lesson is that a render-skip cache keyed on data that
+  is ready before the meshes are will always skip the first real draw.
+- The pasture migration is asserted in both directions — a pre-existing save
+  with a herd keeps its pen, one without animals does not get a free one.
+  One direction passing proves nothing about the other, and this is a rule
+  that is as easy to write backwards as forwards.
+- §35's barn placement was corrected by a test finding 806 blocked points
+  inside the rectangle the job queue assumes is clear — not by anything
+  visible on screen. The barn looked perfect where it first stood.
+- §35 exempts same-id pairs from the solid-overlap check, which is the kind
+  of change that can quietly gut a suite. It is recorded here so it can be
+  argued with: the property that matters is the escape test beside it, which
+  was not touched, runs over the barn's corners and passes. If that ever
+  starts failing, the exemption is the first thing to look at.
+- One assertion in §35 was corrected rather than the code: the refused-purchase
+  test compared coins against the fixture's 9000 and measured 9100, because a
+  save is reconciled on open. It reads the balance after loading and asserts
+  the refusal changed nothing, which is the claim that was meant.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

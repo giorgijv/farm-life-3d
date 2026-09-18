@@ -21,6 +21,10 @@ function makeSave(overrides = {}) {
     selectedSeed: null,
     unlockedPlots: 8,
     plots: Array.from({ length: PLOT_COUNT }, () => ({ crop: null, plantedAt: null })),
+    /* The pasture is bought now, and a fixture is a farm mid-play rather
+       than a farm on its first morning — so it comes with one. The gate
+       itself has its own describe, which sets this false on purpose. */
+    pasture: true,
     cows: [],
     chickens: [],
     sheep: [],
@@ -5064,13 +5068,21 @@ test.describe('walls she cannot walk through', () => {
     await load(page, makeSave());
     await ready(page);
 
+    /* The barn is five boxes now rather than one, so its west face is the
+       westmost of them rather than the building's bounding box. Looked up by
+       id: the previous version of this asked for `building-type-b`, which
+       the barn no longer is — and there is a second one of those standing in
+       the market village sixty metres south, so the query did not fail, it
+       quietly measured the wrong building. */
     const { boxes } = await page.evaluate(() => window.Farm3DScene.solids());
-    const barn = boxes.find((b) => b.id.includes('building-type-b'));
+    const walls = boxes.filter((b) => b.id === 'barn');
+    expect(walls.length).toBe(5);
+    const westFace = Math.min(...walls.map((b) => b.minX));
 
     const end = await shove(page, 1, 0);
     expect(end.inside).toBe(false);
-    expect(end.at.x).toBeLessThan(barn.minX);
-    expect(barn.minX - end.at.x).toBeLessThan(0.4);
+    expect(end.at.x).toBeLessThan(westFace);
+    expect(westFace - end.at.x).toBeLessThan(0.4);
   });
 
   test('she comes out of the orchard rather than sticking to a trunk', async ({ page }) => {
@@ -5118,7 +5130,18 @@ test.describe('walls she cannot walk through', () => {
       /* Solids against each other as well. Two overlapping walls are a
          milder problem than a wall overlapping the water — she is never
          pushed *into* one, so she cannot end up inside the pocket — but
-         they are still a concave seam, and there is no reason to have one. */
+         they are still a concave seam, and there is no reason to have one
+         between two separate things.
+
+         Between two walls of the *same* thing there is every reason: a
+         building with an inside is made of walls that meet at corners, and
+         four walls enclosing a room are within half a unit of each other by
+         construction. No geometry satisfies this check for such a building,
+         so the check is not asked of it. What protects the player at those
+         corners is not this test but the escape test below, which walks the
+         whole farm and requires every point she can stand on to be a point
+         she can get out of — and that one is asked of the barn's corners
+         like everywhere else. */
       const boxes = s.solids().boxes;
       const pairs = [];
       const m = 0.25; // the farmer's own half-width, as the collider uses it
@@ -5126,6 +5149,7 @@ test.describe('walls she cannot walk through', () => {
         for (let j = i + 1; j < boxes.length; j += 1) {
           const a = boxes[i];
           const b = boxes[j];
+          if (a.id === b.id) continue;
           if (a.minX - m < b.maxX + m && a.maxX + m > b.minX - m
             && a.minZ - m < b.maxZ + m && a.maxZ + m > b.minZ - m) pairs.push(`${a.id} and ${b.id}`);
         }
@@ -6008,6 +6032,225 @@ test.describe('the shop is at the market', () => {
     await page.evaluate(() => buyBarn('small'));
     expect((await readSave(page)).barn).toBeNull();
   });
+});
+
+test.describe('the barn is a place, not a prop', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+    await page.evaluate(() => window.Farm3DScene.stockReady());
+  };
+  const barn = (page) => page.evaluate(() => window.Farm3DScene.barn());
+
+  /* Walks her to a point and stops when she gets there, rather than driving
+     for a guessed number of seconds — the same shape the market errand uses,
+     and for the same reason: how long the walk takes depends on what she has
+     to go round. */
+  const walkTo = (page, tx, tz, ms = 12_000) => page.evaluate(async ([x, z, cap]) => {
+    const s = window.Farm3DScene;
+    const t0 = performance.now();
+    await new Promise((done) => {
+      const tick = () => {
+        const a = s.farmerAt();
+        const dx = x - a.x;
+        const dz = z - a.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 0.35 || performance.now() - t0 > cap) { s.drive(0, 0); done(); return; }
+        s.drive(dx / d, dz / d);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    return s.farmerAt();
+  }, [tx, tz, ms]);
+
+  test('she can walk in through the door, and not through the walls',
+    async ({ page }) => {
+      test.slow();
+      await load(page, makeSave());
+      await ready(page);
+
+      const b = await barn(page);
+      // Five walls, not one bounding box — which is the difference between a
+      // building and a building you can go into.
+      expect(b.walls).toBe(5);
+      expect(b.indoors).toBe(false);
+
+      // In through the doorway, which is the one gap in the south wall.
+      await walkTo(page, b.door.x, b.door.z + 1.5);
+      const inside = await walkTo(page, b.door.x, (b.inside.minZ + b.inside.maxZ) / 2);
+      expect(inside.x).toBeGreaterThan(b.inside.minX);
+      expect(inside.x).toBeLessThan(b.inside.maxX);
+      expect(inside.z).toBeGreaterThan(b.inside.minZ);
+      expect(inside.z).toBeLessThan(b.inside.maxZ);
+      expect((await barn(page)).indoors).toBe(true);
+
+      /* And now the half of the claim that is easy to lose: the walls still
+         stop her. Hiding a wall so the camera can see in, and then finding
+         she can stroll out through the hidden one, would be a worse bug than
+         not being able to see in at all — so she is driven hard at the back
+         wall and has to still be indoors afterwards. */
+      await walkTo(page, b.door.x, b.inside.minZ - 4, 4000);
+      const after = await page.evaluate(() => window.Farm3DScene.farmerAt());
+      expect(after.z).toBeGreaterThan(b.inside.minZ - 0.6);
+      expect((await barn(page)).indoors).toBe(true);
+    });
+
+  test('the roof and the near walls get out of the way once she is inside',
+    async ({ page }) => {
+      test.slow();
+      await load(page, makeSave());
+      await ready(page);
+
+      const outside = await barn(page);
+      expect(outside.roofVisible).toBe(true);
+      expect(outside.wallsDrawn).toBe(6);
+
+      const b = outside;
+      await walkTo(page, b.door.x, b.door.z + 1.5);
+      await walkTo(page, b.door.x, (b.inside.minZ + b.inside.maxZ) / 2);
+
+      const indoors = await barn(page);
+      expect(indoors.indoors).toBe(true);
+      expect(indoors.roofVisible).toBe(false);
+      /* Some walls hidden, but not all of them: hiding the lot leaves a roof
+         floating over a floor, and the far walls are what make the inside
+         read as a room. */
+      expect(indoors.wallsDrawn).toBeGreaterThan(0);
+      expect(indoors.wallsDrawn).toBeLessThan(6);
+    });
+
+  test('the stores are standing in it, and follow what is actually in the save',
+    async ({ page }) => {
+      await load(page, makeSave({
+        inventory: { wheat: 18, corn: 0, carrot: 0, pumpkin: 0, milk: 0, egg: 0, wool: 0 },
+      }));
+      await ready(page);
+
+      /* Eighteen wheat at three to a crate is six crates, which is also the
+         cap — so this is the full bay, and nothing else is in store. */
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.barnStock()),
+        { timeout: 10_000 }).toBe(6);
+
+      // Sell the lot and the bay empties. This is the half that makes it a
+      // barn rather than a decorated wall: it answers to the save.
+      await page.evaluate(() => { state.inventory.wheat = 0; saveState(); });
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.barnStock()),
+        { timeout: 10_000 }).toBe(0);
+
+      await page.evaluate(() => { state.inventory.milk = 4; saveState(); });
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.barnStock()),
+        { timeout: 10_000 }).toBe(2);
+    });
+
+  test('nothing grows on the threshing floor', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+
+    /* The barn's solids are five walls, so the room between them is open
+       ground as far as the foliage scatter is concerned — it sowed grass
+       across the whole floor on the first build. */
+    const b = await barn(page);
+    const inside = await page.evaluate(([box]) => window.Farm3DScene.props()
+      .filter((p) => p.x > box.minX && p.x < box.maxX && p.z > box.minZ && p.z < box.maxZ)
+      .length, [b.inside]);
+    expect(inside).toBe(0);
+  });
+});
+
+test.describe('the pasture is bought, the crop field is not', () => {
+  const animalsTab = async (page) => {
+    await page.getByRole('button', { name: /Animals/ }).click();
+  };
+
+  test('a new farm has a field and no pasture', async ({ page }) => {
+    await load(page, makeSave({ pasture: false }));
+    await animalsTab(page);
+
+    // The field is there from the first morning: plots can be planted.
+    expect((await readSave(page)).unlockedPlots).toBeGreaterThan(0);
+
+    /* The pasture is not, and the button says so rather than showing a price
+       the player can afford beside a control that will not work. */
+    await expect(page.locator('#buyCowBtn')).toBeDisabled();
+    await expect(page.locator('#buyCowBtn')).toHaveText(/needs a pasture/i);
+    await expect(page.locator('#buyPastureBtn')).toBeVisible();
+  });
+
+  test('buying it costs coins, fences the pasture and opens the herd',
+    async ({ page }) => {
+      await load(page, makeSave({ pasture: false, coins: 400 }));
+      await animalsTab(page);
+
+      await page.locator('#buyPastureBtn').click();
+
+      const save = await readSave(page);
+      expect(save.pasture).toBe(true);
+      expect(save.coins).toBe(280);
+      await expect(page.locator('#buyCowBtn')).toHaveText(/Buy Cow/);
+      await expect(page.locator('#buyPastureBtn')).toBeHidden();
+    });
+
+  test('the rule holds even when the button is gone round', async ({ page }) => {
+    await load(page, makeSave({ pasture: false, coins: 9000 }));
+
+    /* The disabled button is a courtesy; the check inside the action is the
+       rule. A keyboard, a stale render or a console can all reach buyAnimal
+       without passing the button that was drawn a moment ago. */
+    // Read after loading rather than taken from the fixture: the save is
+    // reconciled on open (offline time, the day roll) and the figure that
+    // comes out is not always the one that went in. What is being asserted
+    // is that the refused purchase changed nothing, not what the balance is.
+    const before = await coins(page);
+    await page.evaluate(() => buyAnimal('cow'));
+    const save = await readSave(page);
+    expect(save.cows).toEqual([]);
+    expect(save.coins).toBe(before);
+  });
+
+  test('the fence is only up in the world once it has been paid for',
+    async ({ page }) => {
+      await load(page, makeSave({ pasture: false, coins: 400 }));
+      await page.waitForFunction(() => !!window.Farm3DScene);
+      await page.evaluate(() => window.Farm3DScene.solidsReady());
+
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.pastureFenced()),
+        { timeout: 10_000 }).toBe(false);
+
+      await page.getByRole('button', { name: /Animals/ }).click();
+      await page.locator('#buyPastureBtn').click();
+      /* Back to the farm before asking what the world looks like. The scene
+         deliberately skips every drawing-side sync while the player is on
+         another tab — the walk keeps running, the visuals do not — so asking
+         from the Animals tab is asking about a frame that was never drawn.
+         This is also the order a player does it in. */
+      await page.getByRole('button', { name: /Farm/ }).click();
+
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.pastureFenced()),
+        { timeout: 10_000 }).toBe(true);
+    });
+
+  test('a save from before the pasture existed keeps the herd it already had',
+    async ({ page }) => {
+      /* The migration that matters. This field is new, so every save in the
+         wild is missing it, and a missing boolean reads as false — which
+         would take the pen away from somebody mid-game and leave their cows
+         standing in a field they no longer own. */
+      const withHerd = makeSave({ cows: [{ id: 1, state: 'hungry', feedAt: null }] });
+      delete withHerd.pasture;
+      await load(page, withHerd);
+      expect((await readSave(page)).pasture).toBe(true);
+    });
+
+  test('a save from before it existed with no animals starts unfenced',
+    async ({ page }) => {
+      // The other side of the same rule: nothing to strand, so nothing given.
+      const empty = makeSave();
+      delete empty.pasture;
+      await load(page, empty);
+      expect((await readSave(page)).pasture).toBe(false);
+    });
 });
 
 test.describe('the car is a car', () => {
