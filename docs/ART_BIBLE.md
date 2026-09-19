@@ -3024,6 +3024,116 @@ and easy to get backwards.
 
 ---
 
+## 36. Two lanes, and somewhere to want
+
+The farm has always had two endings — a country house at twenty thousand and a
+grand villa at forty — and until now they were cards. You saved for years and
+bought one sight unseen. This gives each of them a road, a place at the end of
+it, and a rule: you cannot buy a house you have never been to see.
+
+### Three roads where there was one
+
+The road was a single Catmull-Rom curve with a module-level `roadSamples`
+array, and every question about tarmac went through it. It is now a list of
+routes built by one `makeRoute`, and the interesting part is which callers
+wanted which question:
+
+| Question | Answers from |
+|---|---|
+| Is there tarmac here? (grip, foliage) | **any** route |
+| How far along the errand am I? | the **market** route only |
+
+That split is not tidiness. `nearestOnRoad` returns an `along` that the car's
+steering reads, and a car sitting on a T-junction is within a few centimetres
+of two routes at once — so a "nearest of the three" answer would have handed
+the steering an `along` belonging to whichever branch won by a hair, and swung
+it onto the wrong lane at the junction. The market route keeps its own
+function; `nearestOnAnyRoad` is the new one, and only the surface questions
+use it.
+
+Both lanes start on a waypoint the market road already passes through, so they
+meet it as T-junctions and the whole network is drivable from the pull-in. A
+branch that starts anywhere else is a ribbon lying in a field.
+
+### Where the buildings could go, measured twice
+
+Both placements were wrong first time, both in the same way, and the way is
+worth stating because it will happen again: **a kit building's collision box is
+much bigger than it looks.**
+
+The villa is `building-type-b` at 7.5 units tall. Measured, its box is **13.5
+across by 10.2 deep** — roughly twice what the eye gives it from the road. The
+cottage lane's last few metres ran *inside* the cottage's box, so the car would
+have hit a wall at the end of its own drive, and the villa's fountain was first
+placed where the house's box already was.
+
+The fix in both cases was the same: measure the box, then decide. The cottage
+moved back and its lane stops short; the villa's lane was shortened to open a
+five-unit forecourt, and the fountain sits in it.
+
+### The fountain, and a claim I had to withdraw
+
+No kit in the mirror has a fountain, and the villa's card has promised one
+since long before there was anywhere to stand and look for it — so it is built:
+a basin, a plinth, an upper bowl, water in both.
+
+The first version's comment said the water used the pond's own shader, "so it
+ripples on the same clock". **It did not, and it should not.** The pond's
+material is a `ShaderMaterial` whose uniforms are bound to that mesh's own
+radial geometry and centre; reusing it here would mean a second set of uniforms
+and a second centre to keep in step, for ripples on a disc two and a half
+metres across seen from the far side of a turning circle. It is a plain
+standard material, the comment now says so, and the trade is recorded rather
+than left looking like the pond shader failing to reach it.
+
+Two other things the first fountain got wrong, both caught by screenshot:
+it had **no collider**, so the car parked inside the basin and out the other
+side; and its upper bowl was half the width of the basin on a short plinth,
+which from the drive read as a parasol.
+
+### The rule: nobody buys a house sight unseen
+
+This is what makes the lanes part of the game rather than scenery you may
+optionally drive down.
+
+Each dream card gains a viewing state. Unseen, it carries the directions to the
+place and its button reads **"🚗 Drive out and see it first"**, disabled. Seen,
+it carries a line about what she found there and the ordinary buy button
+returns. Driving the car inside the site's radius is what records it.
+
+The button is deliberately not a greyed-out "Buy the Grand Villa" beside a
+price the player has just earned — that reads as a bug, and they would be right
+to think so. It says what is actually in the way.
+
+Checked twice, as every gate in this codebase is: the button is a courtesy
+drawn from a render that may be stale, and the refusal inside `buyDreamHome` is
+the rule. This one earns the belt and braces more than most — it is the
+purchase that ends the run, and it is irreversible.
+
+### No amnesty, and why that is not inconsistent
+
+`seenHomes` is a new save field, and unlike the pasture in §35 there is **no
+migration granting it to existing saves**. The difference is what is at stake.
+
+The pasture migration exists because shipping it naively would have *taken
+something away* — a herd left standing in a field its owner no longer owned.
+This takes nothing away. Both properties are still for sale at the same prices;
+what is new is a drive, to a place that did not exist before, ending at a
+building that did not exist before. Asking a player who was about to buy to go
+and look at it first **is the feature**, not a regression of it.
+
+### One thing the tests had to learn
+
+The walk helper in the new tests rotates its world direction into camera space
+before it touches the stick, and nothing else in the suite does. That is
+because §34 made the stick camera-relative, and this is the only walk in the
+file that happens *after a drive* — which leaves the camera swung round behind
+the car rather than at its default yaw of zero. Fed a raw world direction, she
+sets off at whatever angle the shot happens to be at. The older helpers are
+correct only because the camera has not moved when they run.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -3515,6 +3625,36 @@ Everything above was checked before it was written:
   test compared coins against the fixture's 9000 and measured 9100, because a
   save is reconciled on open. It reads the balance after loading and asserts
   the refusal changed nothing, which is the claim that was meant.
+
+- §36's building placements were both corrected by measurement, not by eye.
+  The villa's collision box is 13.5 by 10.2 at the scale it is placed —
+  about twice what it reads as from the road — and the cottage lane's last
+  metres were inside the cottage's own box until that was measured.
+- §36's road layout was checked on a plan view rendered from the scene's own
+  route samples, not from a screenshot. Three attempts at an in-game
+  overhead shot all ended with the camera at ground level, because dragging
+  the orbit vertically lowers it; plotting the polylines answered the
+  question in one go and answered it exactly.
+- A comment in §36 claimed the fountain used the pond's water shader. It did
+  not. The claim was removed and replaced with the reason not to, which is
+  the only honest repair for a comment that describes code that was never
+  written.
+- §36 broke seven existing tests and every one was repaired by stating a
+  fact rather than by relaxing an assertion: six `dream homes` fixtures now
+  say both properties have been viewed (those tests are about the purchase
+  and the ending, not the gate), and the "nothing is adrift" check had the
+  two new places added to its list of places. That check's own comment says
+  adrift means "in none of the places" — so the repair for a new somewhere
+  is to name it, never to widen the margin until the hills count as the farm.
+- The villa's grounds are 13 units where the cottage's are 9, and that
+  asymmetry was forced by measurement: the villa block's middle sits 10.06
+  from where its lane puts you down, so at radius 10 the villa stood outside
+  its own grounds. Found by the adrift test, which is exactly the job it was
+  written for.
+- §36's purchase gate has no migration, and that is a deliberate asymmetry
+  with §35's pasture rather than an oversight — recorded because the two
+  sit next to each other in the save and the inconsistency would otherwise
+  look like one of them was forgotten.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

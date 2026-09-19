@@ -322,12 +322,26 @@ const DREAM_HOMES = {
     tagline: 'A warm stone cottage at the top of the meadow.',
     describe: 'The sensible dream. Reachable in one good farming run, with a '
       + 'porch that looks out over every plot you ever unlocked.',
+    /* Where it is and what you find when you get there. Both properties
+       stand at the end of a lane of their own now, so the card can say how
+       to go and see it — and, once you have, say what you saw instead of
+       what it costs. */
+    directions: 'Take the market road out of the yard and turn west at the '
+      + 'first junction. The lane climbs the meadow for fifty metres.',
+    seen: 'Stone walls gone gold in the afternoon, a bush garden running down '
+      + 'to the gate, and one apple tree. The door is locked — it is not '
+      + 'yours yet.',
   },
   villa: {
     name: 'Grand Villa', emoji: '🏰', cost: 40000,
     tagline: 'Cypress avenue, fountain, the lot.',
     describe: 'Twice the price and twice the bragging rights. Holding out for '
       + 'this one means a much longer haul — and passing up the cottage.',
+    directions: 'Follow the market road to the long eastern bend and keep '
+      + 'straight on where it turns south.',
+    seen: 'Six cypresses down the drive and a fountain on the turning circle, '
+      + 'running. The house behind it is the biggest thing for miles. The '
+      + 'gates do not open for a farmer with mud on her boots.',
   },
 };
 
@@ -404,6 +418,11 @@ function freshState() {
     unlockedPlots: INITIAL_UNLOCKED_PLOTS,
     plots: Array.from({ length: PLOT_COUNT }, emptyPlot),
     pasture: false,
+    /* Which of the two properties she has actually driven out to look at.
+       Not a purchase and not an achievement — just a record that she has
+       been, which is what the Market tab reads before it will sell her
+       one. */
+    seenHomes: {},
     cows: [],
     chickens: [],
     sheep: [],
@@ -770,6 +789,24 @@ function migrateSave(parsed) {
       // A producing animal with no feed time would never finish.
       .map((a) => (a.state === 'producing' && a.feedAt === null ? becomeHungry(a) : a));
   });
+
+  /* Which properties have been visited. A plain object of booleans, sieved
+     rather than trusted, because it comes out of localStorage like
+     everything else here.
+
+     No amnesty for old saves, and that is a deliberate difference from the
+     pasture below. The pasture migration exists because shipping it naively
+     would have *taken something away* — a herd with nowhere to live. This
+     takes nothing away: the properties are still for sale at the same
+     prices, and what is new is a drive that did not exist before, to a
+     place that did not exist before. Asking a player who was about to buy
+     to go and look at it first is the feature, not a regression. */
+  merged.seenHomes = {};
+  if (parsed.seenHomes && typeof parsed.seenHomes === 'object') {
+    for (const key of DREAM_ORDER) {
+      if (parsed.seenHomes[key] === true) merged.seenHomes[key] = true;
+    }
+  }
 
   /* The pasture, and the one migration rule that matters: anybody who
      already has an animal already has a pasture.
@@ -2431,6 +2468,24 @@ window.Farm3DBridge = {
     return sold.length;
   },
   announce: showToast,
+  /* Called by the scene when the car pulls up outside one of the two
+     properties. Idempotent and cheap to call repeatedly: driving out to
+     look at the villa a second time is a thing a player does, and it should
+     say something both times without writing the save twice. */
+  visitDreamHome: (key) => {
+    const home = DREAM_HOMES[key];
+    if (!home) return false;
+    const first = !state.seenHomes[key];
+    if (first) {
+      state.seenHomes[key] = true;
+      saveState();
+      render();
+    }
+    showToast(first
+      ? `${home.emoji} You've seen the ${home.name}. Now you know what you are saving for.`
+      : `${home.emoji} The ${home.name}, still there, still not yours.`);
+    return first;
+  },
   /* The scene telling the shop whether she is standing in it. See marketOpen
      for why this is a setter the scene pushes rather than something the
      interface asks for. */
@@ -3941,8 +3996,12 @@ function renderDream() {
     const affordable = !owned && state.coins >= home.cost;
     const percent = Math.min(100, Math.floor((state.coins / home.cost) * 100));
 
+    const seen = Boolean(state.seenHomes[key]);
     const status = isOwned ? 'owned' : forfeited ? 'forfeited' : affordable ? 'ready' : 'saving';
-    const sig = `${status}:${status === 'saving' ? percent : ''}`;
+    // The viewing rides in the signature, or driving out to look at a
+    // property would leave its card saying "not yet seen" until something
+    // else happened to change it.
+    const sig = `${status}:${seen}:${status === 'saving' ? percent : ''}`;
     if (card.dataset.sig !== sig) {
       card.className = `dream-card ${status}`;
       card.innerHTML = '';
@@ -3967,6 +4026,18 @@ function renderDream() {
       desc.className = 'dream-desc';
       desc.textContent = home.describe;
       card.appendChild(desc);
+
+      /* What the card says about the place itself, which changes once she
+         has been. Before: where the lane is, so "go and look at it" is an
+         instruction rather than a riddle. After: what she found when she
+         got there, which is the reward for the drive and the thing that
+         makes the property feel like somewhere rather than a price. */
+      if (!forfeited) {
+        const visit = document.createElement('p');
+        visit.className = `dream-visit ${seen ? 'seen' : 'unseen'}`;
+        visit.textContent = seen ? `✅ Seen it. ${home.seen}` : `📍 ${home.directions}`;
+        card.appendChild(visit);
+      }
 
       const price = document.createElement('div');
       price.className = 'dream-price';
@@ -3994,6 +4065,13 @@ function renderDream() {
       } else if (forfeited) {
         btn.textContent = 'No longer available';
         btn.disabled = true;
+      } else if (!seen) {
+        /* Not disabled-with-a-price: the button says what is actually
+           standing between the player and the purchase. A greyed-out "Buy
+           the Grand Villa" beside forty thousand coins they have just
+           earned would read as a bug, and they would be right to think so. */
+        btn.textContent = `🚗 Drive out and see it first`;
+        btn.disabled = true;
       } else {
         btn.textContent = `Buy the ${home.name}`;
         btn.disabled = !affordable;
@@ -4017,6 +4095,15 @@ function renderDream() {
 function buyDreamHome(key) {
   const home = DREAM_HOMES[key];
   if (!home || state.dreamHome) return;
+  /* Nobody buys a house sight unseen — and mechanically, this is what the
+     two new lanes are *for*. Checked here as well as on the button for the
+     reason every gate in this file is checked twice: the button is drawn
+     from a render that may be stale, and the action is the rule. */
+  if (!state.seenHomes[key]) {
+    SFX.error();
+    showToast(`Drive out and see the ${home.name} first.`);
+    return;
+  }
   if (state.coins < home.cost) {
     SFX.error();
     showToast('Not enough coins!');

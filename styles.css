@@ -2715,6 +2715,34 @@ body {
   color: var(--text-soft);
 }
 
+/* The viewing line. Two states, distinguished by colour rather than by
+   layout, so a card does not change height the moment she drives out to
+   look at it — the two properties sit side by side and a jump in one would
+   shunt the other. `unseen` is the same warm amber the rest of the game
+   uses for "there is something to do here"; `seen` is the green it uses for
+   done. */
+.dream-visit {
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.dream-visit.unseen {
+  border: 1px dashed var(--accent, #d98324);
+  background: rgba(217, 131, 36, 0.09);
+  color: var(--accent, #d98324);
+}
+
+.dream-visit.seen {
+  border: 1px solid rgba(58, 138, 78, 0.35);
+  background: rgba(58, 138, 78, 0.10);
+  color: #2f6b3d;
+}
+
 .dream-price {
   margin-bottom: 9px;
   font-size: 1.15rem;

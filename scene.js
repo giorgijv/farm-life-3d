@@ -2045,7 +2045,47 @@ ${shader.fragmentShader.replace(
     [26, 34.5], [23, 39], [16.5, 41.5], [9, 41], [3.2, 37.8],
   ];
 
+  /* Two more lanes, and they are branches rather than separate roads: each
+     one starts on a waypoint the market road already passes through, so the
+     three meet as T-junctions and the whole network is reachable from the
+     pull-in by the stall. Starting them anywhere else would have drawn two
+     ribbons that begin in a field.
+
+     They go somewhere the game has always talked about and never shown. The
+     country house and the villa are the two endings the whole farm saves
+     towards, and until now they existed only as cards on the Market tab —
+     you bought one sight unseen. Now each is a place at the end of a lane
+     you can drive out to and look at.
+
+     The cottage lane leaves the road just south of the farm and climbs
+     north-west up the meadow, passing the farm's western edge; the villa's
+     runs east off the long bend and out across the open ground. Both are
+     deliberately longer than the run to market: these are the far ends of
+     the map, and the drive out to one is meant to feel like going to see
+     something rather than running an errand. */
+  const HOUSE_WAYPOINTS = [
+    [4.9, 14], [0.5, 13.6], [-6, 13.2], [-12, 11.4], [-15.6, 7], [-17.4, 1],
+    [-19, -6], [-21.5, -13], [-23.8, -17.2], [-25.6, -20.4],
+  ];
+  const VILLA_WAYPOINTS = [
+    [19, 25], [24, 22.5], [28.5, 19.5], [32.5, 15], [35, 10.5], [36.2, 5.6],
+  ];
+
   const MARKET = { x: 3.2, z: 37.8 };
+  /* The two viewing places. Radius is what counts as "you are here" — the
+     same double duty MARKET_RADIUS does below: how close the car has to get
+     for the visit to count, and how far she may wander once she is out. */
+  const DREAM_SITES = {
+    /* Not the same size, because the two places are not. The cottage is a
+       house and a garden and nine units holds all of it; the villa is a
+       forecourt, a fountain and a block thirteen and a half across, whose
+       own middle sits 10.06 from where the lane puts you down. A radius of
+       10 left the villa itself outside its own grounds — caught by the test
+       that every prop must be *somewhere*, which is exactly the job that
+       test was written for. */
+    house: { x: -27.2, z: -22.4, radius: 9 },
+    villa: { x: 36.8, z: 3.0, radius: 13 },
+  };
   /* How close to the square counts as having arrived, and — the same number
      doing a second job — how far out the market's own props are allowed to
      stand before the "nothing has drifted into the hills" test calls them
@@ -2064,26 +2104,29 @@ ${shader.fragmentShader.replace(
      on the wrong side of it. */
   const MARKET_WALK_RADIUS = MARKET_RADIUS - 0.5;
 
-  const roadCurve = new THREE.CatmullRomCurve3(
-    ROAD_WAYPOINTS.map(([x, z]) => new THREE.Vector3(x, 0, z)),
-    false,
-    'catmullrom',
-    0.5,
-  );
-
   /* Sampled densely enough that the bends read as curves rather than as a
-     polyline. Every sample is a rung of the ladder the ribbon is built from,
-     so this is also what decides how closely the road hugs the hills. */
+     polyline. Every sample is a rung of the ladder a ribbon is built from,
+     so this is also what decides how closely a road hugs the hills. Held at
+     a fixed count per route rather than per unit of length: the two lanes
+     are longer than the market road but they are also straighter, so the
+     same budget buys the same smoothness where it is actually needed. */
   const ROAD_STEPS = 320;
-  const roadSamples = [];
-  {
+
+  function makeRoute(id, waypoints) {
+    const curve = new THREE.CatmullRomCurve3(
+      waypoints.map(([x, z]) => new THREE.Vector3(x, 0, z)),
+      false,
+      'catmullrom',
+      0.5,
+    );
+    const samples = [];
     const p = new THREE.Vector3();
     const t = new THREE.Vector3();
     for (let i = 0; i <= ROAD_STEPS; i += 1) {
       const u = i / ROAD_STEPS;
-      roadCurve.getPointAt(u, p);
-      roadCurve.getTangentAt(u, t);
-      roadSamples.push({
+      curve.getPointAt(u, p);
+      curve.getTangentAt(u, t);
+      samples.push({
         x: p.x,
         z: p.z,
         // Perpendicular, in the ground plane: the tangent turned a quarter
@@ -2092,41 +2135,77 @@ ${shader.fragmentShader.replace(
         nz: -t.x,
       });
     }
+    return { id, curve, samples };
   }
 
-  /* How far along the road a point is, and how far off it — answered by
-     walking the samples. Used by the scatter, to keep trees out of the
-     carriageway, and by the drive, to know when the car has arrived.
+  const marketRoute = makeRoute('market', ROAD_WAYPOINTS);
+  const ROUTES = [
+    marketRoute,
+    makeRoute('house', HOUSE_WAYPOINTS),
+    makeRoute('villa', VILLA_WAYPOINTS),
+  ];
+  // Kept under their old names: everything that means *the road to market*
+  // specifically — how far along the errand is, where the ribbon starts and
+  // ends — still means that, and did not have to learn about the branches.
+  const roadCurve = marketRoute.curve;
+  const roadSamples = marketRoute.samples;
+
+  /* How far along a route a point is, and how far off it — answered by
+     walking the samples.
 
      A linear scan of 321 points is not clever and does not need to be: the
      scatter asks a few thousand times at load, and the drive asks once a
      frame. Anything smarter here would be a grid index to save a tenth of a
-     millisecond nobody is waiting on. */
-  function nearestOnRoad(x, z) {
+     millisecond nobody is waiting on. Three routes makes it three times
+     that, which is still a tenth of a millisecond nobody is waiting on. */
+  function nearestOnRoute(route, x, z) {
     let best = Infinity;
     let at = 0;
-    for (let i = 0; i < roadSamples.length; i += 1) {
-      const s = roadSamples[i];
+    for (let i = 0; i < route.samples.length; i += 1) {
+      const s = route.samples[i];
       const d = (s.x - x) ** 2 + (s.z - z) ** 2;
       if (d < best) { best = d; at = i; }
     }
-    return { distance: Math.sqrt(best), along: at / ROAD_STEPS };
+    return { distance: Math.sqrt(best), along: at / ROAD_STEPS, route: route.id };
+  }
+
+  /* Progress along the road to market, which is what "how far along" means
+     to the errand and to the tests that drive it. Deliberately not the
+     nearest of the three: a car sitting on the junction would otherwise
+     report an `along` belonging to whichever branch happened to be a
+     centimetre closer, and the steering that reads it would swing onto the
+     wrong lane. */
+  function nearestOnRoad(x, z) {
+    return nearestOnRoute(marketRoute, x, z);
+  }
+
+  /* The nearest tarmac of any kind, which is the question the surface asks:
+     the grip under the wheels and the rule that nothing grows in a
+     carriageway care that there is a road here, not which one. */
+  function nearestOnAnyRoad(x, z) {
+    let best = null;
+    for (const route of ROUTES) {
+      const hit = nearestOnRoute(route, x, z);
+      if (!best || hit.distance < best.distance) best = hit;
+    }
+    return best;
   }
 
   const ROAD_CLEARANCE = ROAD_WIDTH / 2 + 1.6; // verge, plus room not to brush a wing mirror
-  const offRoad = (x, z) => nearestOnRoad(x, z).distance > ROAD_CLEARANCE;
+  const offRoad = (x, z) => nearestOnAnyRoad(x, z).distance > ROAD_CLEARANCE;
 
-  function buildRoadMesh() {
+  function buildRoadMesh(route = marketRoute) {
     const position = [];
     const uv = [];
     const index = [];
     const halves = [ROAD_WIDTH / 2, -ROAD_WIDTH / 2];
     let run = 0;
 
-    for (let i = 0; i < roadSamples.length; i += 1) {
-      const s = roadSamples[i];
+    const samples = route.samples;
+    for (let i = 0; i < samples.length; i += 1) {
+      const s = samples[i];
       if (i > 0) {
-        const p = roadSamples[i - 1];
+        const p = samples[i - 1];
         run += Math.hypot(s.x - p.x, s.z - p.z);
       }
       for (let k = 0; k < 2; k += 1) {
@@ -2202,8 +2281,12 @@ ${shader.fragmentShader.replace(
   roadMaterial.map = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
   roadMaterial.map.needsUpdate = true;
 
-  const road = new THREE.Mesh(buildRoadMesh(), roadMaterial);
-  scene.add(catches(road));
+  /* One mesh per route, all sharing the one material — so the markings
+     shader, the colour and the finish are decided once and every lane in the
+     county is surfaced the same way. */
+  for (const route of ROUTES) {
+    scene.add(catches(new THREE.Mesh(buildRoadMesh(route), roadMaterial)));
+  }
 
   const PROPS = [
     /* --- the farmhouse, west: the farm's front door, seen across the field ---
@@ -2360,6 +2443,59 @@ ${shader.fragmentShader.replace(
     { id: 'nature/tree_default', x: 9.6, z: 37.6, h: 4.2 },
     { id: 'nature/plant_bush', x: -1.8, z: 34.4 },
     { id: 'nature/plant_bush', x: 6.4, z: 35.4 },
+
+    /* --- the country house, at the top of the meadow ---
+       The cheaper of the two endings, and it has to look like the cheaper
+       one from the car: a cottage, a garden wall of bushes, an apple tree
+       and nothing else. The card calls it "a warm stone cottage at the top
+       of the meadow", so it stands on the rise the lane climbs to rather
+       than on the flat, and its door faces back down the hill toward the
+       farm she is saving it up from.
+
+       Same suburban block the farmhouse is, one size smaller: at 4.2 it
+       reads as a house for one family rather than the working farmstead,
+       which is exactly the difference between the two. */
+    { id: 'city-suburban/building-type-a', x: -30.4, z: -26.8, ry: 0.35, h: 4.2, blocks: 'box' },
+    { id: 'nature/tree_detailed', x: -24.8, z: -26.8, h: 4.4 },
+    /* The garden stands *beside* the lane, not on it. The first version put
+       the bush hedge across the last few metres of tarmac, where it was
+       invisible — swallowed by a road drawn over the top of it — which is
+       the sort of thing that looks like the props failing to load. */
+    { id: 'nature/plant_bush', x: -31.6, z: -21.2 },
+    { id: 'nature/plant_bush', x: -32.2, z: -23.0 },
+    { id: 'nature/plant_bush', x: -31.4, z: -25.2 },
+    { id: 'nature/flower_redA', x: -30.8, z: -19.9 },
+    { id: 'nature/flower_yellowA', x: -32.6, z: -24.2 },
+    { id: 'nature/grass_large', x: -30.6, z: -26.4 },
+    { id: 'nature/rock_smallA', x: -24.6, z: -22.8, ry: 0.5 },
+    { id: 'survival/signpost', x: -22.4, z: -20.6, ry: 0.8 },
+
+    /* --- the grand villa, out east past the long bend ---
+       "Cypress avenue, fountain, the lot" is what the card has always
+       promised, so that is what is built: a double row of pines flanking
+       the last stretch of the lane, and a fountain on the turning circle in
+       front of the steps. The building is the taller suburban block at 7.5
+       — half again the farmhouse, and the biggest thing standing anywhere
+       in the game, which is the point of it.
+
+       The avenue is hand-placed in pairs rather than scattered, because an
+       avenue is the one planting in this game that must not look natural.
+       Trees carry trunk colliders, so the pairs are set wide enough that
+       the gap between them is a lane and not a slalom. */
+    /* Set well back from where the lane stops, which is what leaves room for
+       a forecourt with the fountain on it. At 7.5 this block measures a good
+       seven by eight, so a house placed where it "looked right" from the
+       road had its own bounding box out across the turning circle. */
+    { id: 'city-suburban/building-type-b', x: 39.8, z: -6.6, ry: 2.9, h: 7.5, blocks: 'box' },
+    { id: 'nature/tree_pineDefaultA', x: 31.8, z: 9.6, h: 5.6 },
+    { id: 'nature/tree_pineDefaultA', x: 36.0, z: 11.4, h: 5.6 },
+    { id: 'nature/tree_pineDefaultA', x: 32.6, z: 5.6, h: 6.0 },
+    { id: 'nature/tree_pineDefaultA', x: 39.2, z: 7.0, h: 6.0 },
+    { id: 'nature/tree_pineDefaultA', x: 32.4, z: 1.6, h: 5.8 },
+    { id: 'nature/tree_pineDefaultA', x: 40.4, z: 2.6, h: 5.8 },
+    { id: 'nature/rock_largeA', x: 42.4, z: 6.4, ry: 0.3 },
+    { id: 'nature/plant_bush', x: 34.6, z: -2.6 },
+    { id: 'nature/plant_bush', x: 43.2, z: -1.8 },
 
     /* --- the orchard, north: rows that loosen toward the hills ---
        Two of these were tree_default_fall permanently, for variety, before
@@ -2519,6 +2655,77 @@ ${shader.fragmentShader.replace(
   let carObject = null;
   let carParts = null;
   const dressed = dressFarm();
+
+  /* -------------------------------------------------------------- */
+  /* The villa's fountain                                              */
+  /* -------------------------------------------------------------- */
+
+  /* Built rather than loaded, for the plainest possible reason: no kit in
+     the mirror has a fountain, and the villa's card has promised one since
+     long before there was anywhere to stand and look for it. A basin, a
+     plinth, an upper bowl and a disc of water — which at the distance this
+     is seen from is a fountain.
+
+     The water is a plain standard material, not the pond's shader. The
+     pond's is a ShaderMaterial whose uniforms are bound to that mesh's own
+     radial geometry and centre, so reusing it here would mean a second set
+     of uniforms and a second centre to keep in step, for ripples on a disc
+     two and a half metres across that is only ever seen from the far side
+     of a turning circle. A still, slightly reflective surface is the honest
+     trade, and it is recorded here rather than left to look like the pond
+     shader failing to reach it. */
+  /* On the forecourt, in the five units of gap between where the tarmac
+     stops and where the villa's own collision box begins — and both of
+     those had to be measured rather than eyeballed. The block is 13.5
+     across by 10.2 deep at this scale, about twice what it looks, so the
+     first placement had the fountain either inside the house or standing in
+     the carriageway. The lane was shortened to make the room. */
+  const FOUNTAIN = { x: 37.0, z: 1.2 };
+  const FOUNTAIN_R = 1.5;
+  {
+    const ground = terrainHeight(FOUNTAIN.x, FOUNTAIN.z);
+    const stone = new THREE.MeshStandardMaterial({
+      name: 'fountain-stone', color: 0xbdb5a4, roughness: 0.85, metalness: 0, flatShading: true,
+    });
+    stone.toneMapped = false;
+    const pool = new THREE.MeshStandardMaterial({
+      name: 'fountain-water', color: 0x3f7fa6, roughness: 0.18, metalness: 0,
+    });
+    pool.toneMapped = false;
+
+    const piece = (mesh, y) => {
+      mesh.position.set(FOUNTAIN.x, ground + y, FOUNTAIN.z);
+      scene.add(casts(mesh));
+      return mesh;
+    };
+    const drum = (rTop, rBot, h) =>
+      new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 12), stone);
+
+    /* Tiered, and the tiers have to be told apart at a glance or it is a
+       drum with a lid. The first proportions gave it an upper bowl half the
+       width of the basin on a short plinth, which from the drive read as a
+       parasol; the bowl is a third of the basin now and stands clear above
+       it. */
+    piece(drum(FOUNTAIN_R, FOUNTAIN_R + 0.1, 0.68), 0.34);   // the basin wall
+    piece(new THREE.Mesh(new THREE.CircleGeometry(FOUNTAIN_R - 0.18, 16), pool), 0.60)
+      .rotation.x = -Math.PI / 2;                            // the water in it
+    piece(drum(0.26, 0.34, 1.35), 1.28);                     // the plinth
+    piece(drum(0.52, 0.28, 0.2), 2.02);                      // the upper bowl
+    piece(new THREE.Mesh(new THREE.CircleGeometry(0.44, 12), pool), 2.13)
+      .rotation.x = -Math.PI / 2;                            // and water in that
+
+    /* And a collider, because the first build had none and the car parked
+       *inside* the basin — straight through the stonework and out the far
+       side. A fountain is masonry; it stops things. Registered as one box
+       on the same list the buildings use, so the walk, the drive and the
+       foliage all learn about it at once. */
+    SOLIDS.boxes.push({
+      id: 'fountain',
+      minX: FOUNTAIN.x - FOUNTAIN_R, maxX: FOUNTAIN.x + FOUNTAIN_R,
+      minZ: FOUNTAIN.z - FOUNTAIN_R, maxZ: FOUNTAIN.z + FOUNTAIN_R,
+      minY: ground, maxY: ground + 2.2,
+    });
+  }
 
   /* -------------------------------------------------------------- */
   /* The barn — the one building with an inside                        */
@@ -2974,7 +3181,7 @@ ${shader.fragmentShader.replace(
      wide on a bend without ending the drive. */
   const TREE_SETBACK = ROAD_WIDTH / 2 + 4.5;
   const VERGE_SETBACK = ROAD_WIDTH / 2 + 1.2;
-  const nearRoute = (x, z) => nearestOnRoad(x, z).distance;
+  const nearRoute = (x, z) => nearestOnAnyRoad(x, z).distance;
   const notAtMarket = (x, z) => Math.hypot(x - MARKET.x, z - MARKET.z) > MARKET_RADIUS;
   const byTheRoad = (x, z) => {
     const d = nearRoute(x, z);
@@ -4347,14 +4554,36 @@ ${lit}`;
      The region is chosen by where she *is*, not where she is going, so there
      is no edge to cross that could teleport her: whichever one she is in, she
      stays in until she drives out of it. */
+  /* Everywhere she may get out of the car and stand. The farm is a
+     rectangle; the three places at the far ends of the roads are circles,
+     and they are listed together because they are the same rule — one
+     region chosen by where she already is, so parking somewhere and getting
+     out never snaps her back to the farm she drove from.
+
+     The dream homes get the same treatment as the market and for the same
+     reason, even though there is nothing to do at either: she is meant to
+     be able to walk round the outside and look at it. Being teleported home
+     the moment her feet touch the gravel would be the whole feature, undone. */
+  const AWAY = [
+    { x: MARKET.x, z: MARKET.z, radius: MARKET_RADIUS },
+    { x: DREAM_SITES.house.x, z: DREAM_SITES.house.z, radius: DREAM_SITES.house.radius },
+    { x: DREAM_SITES.villa.x, z: DREAM_SITES.villa.z, radius: DREAM_SITES.villa.radius },
+  ];
+
   function clampToWalkable(fromX, fromZ, x, z, out) {
-    if (Math.hypot(fromX - MARKET.x, fromZ - MARKET.z) <= MARKET_RADIUS) {
-      const dx = x - MARKET.x;
-      const dz = z - MARKET.z;
+    for (const place of AWAY) {
+      if (Math.hypot(fromX - place.x, fromZ - place.z) > place.radius) continue;
+      /* Half a unit inside the radius the place is tested at rather than on
+         it — see MARKET_WALK_RADIUS for the float that taught this lesson:
+         a clamp to a radius puts her exactly on the circle, and exactly on
+         the circle rounds to just outside it often enough to matter. */
+      const walk = place.radius - 0.5;
+      const dx = x - place.x;
+      const dz = z - place.z;
       const d = Math.hypot(dx, dz);
-      if (d <= MARKET_WALK_RADIUS) { out.x = x; out.z = z; return; }
-      out.x = MARKET.x + (dx / d) * MARKET_WALK_RADIUS;
-      out.z = MARKET.z + (dz / d) * MARKET_WALK_RADIUS;
+      if (d <= walk) { out.x = x; out.z = z; return; }
+      out.x = place.x + (dx / d) * walk;
+      out.z = place.z + (dz / d) * walk;
       return;
     }
     out.x = Math.max(ROAM.minX, Math.min(ROAM.maxX, x));
@@ -4513,6 +4742,9 @@ ${lit}`;
   let cargo = [];
   let cargoCrates = null;
   let arrived = false;
+  // One flag per viewing place, so arriving at the villa does not disarm the
+  // cottage — they are different journeys and the save records them apart.
+  const atDream = { house: false, villa: false };
 
   /* Handling. These are the numbers the whole thing is judged on, so they
      are named rather than buried: a top speed a little over a brisk run, a
@@ -4537,7 +4769,7 @@ ${lit}`;
      drive on the route rather than making the route a suggestion. */
   const CAR_OFFROAD_TOP = 5.5;
 
-  const carOnRoad = () => nearestOnRoad(carAt.x, carAt.z).distance <= ROAD_WIDTH / 2 + 0.6;
+  const carOnRoad = () => nearestOnAnyRoad(carAt.x, carAt.z).distance <= ROAD_WIDTH / 2 + 0.6;
 
   /* Does the car fit here? Deliberately not keepOutOfSolids, which resolves a
      blocked step by sliding along the obstruction — right for a person's
@@ -4638,6 +4870,23 @@ ${lit}`;
     }
     // Leaving again re-arms the arrival, so a second run sells a second load.
     if (arrived && Math.hypot(carAt.x - MARKET.x, carAt.z - MARKET.z) > MARKET_RADIUS) arrived = false;
+
+    /* And the two viewings. Same shape as the market arrival above — driven
+       into, announced once, re-armed on leaving — but what it does is record
+       rather than sell: the save remembers that she has been, and the Market
+       tab stops asking her to go. Announced every time she comes back, since
+       driving out to look at it again is a thing a player does and being
+       told nothing would read as the game not noticing. */
+    for (const key of Object.keys(DREAM_SITES)) {
+      const site = DREAM_SITES[key];
+      const near = Math.hypot(carAt.x - site.x, carAt.z - site.z);
+      if (!atDream[key] && near <= site.radius * 0.6) {
+        atDream[key] = true;
+        bridge.visitDreamHome?.(key);
+      } else if (atDream[key] && near > site.radius) {
+        atDream[key] = false;
+      }
+    }
   }
 
   /* Sits the car on the ground and leans it into the slope it is crossing.
@@ -5486,6 +5735,39 @@ ${lit}`;
       end: { x: roadSamples[roadSamples.length - 1].x, z: roadSamples[roadSamples.length - 1].z },
     }),
     onRoad: (x, z) => nearestOnRoad(x, z),
+    /* The whole network, as the polylines it is drawn from. A test can ask
+       whether a lane starts on the road it branches from and finishes at the
+       place it is named after, which is the pair of claims that make it a
+       branch rather than a ribbon lying in a field. */
+    roads: () => ROUTES.map((r) => ({
+      id: r.id,
+      length: r.curve.getLength(),
+      start: { x: r.samples[0].x, z: r.samples[0].z },
+      end: {
+        x: r.samples[r.samples.length - 1].x,
+        z: r.samples[r.samples.length - 1].z,
+      },
+      points: r.samples.filter((_, i) => i % 8 === 0).map((q) => [+q.x.toFixed(2), +q.z.toFixed(2)]),
+    })),
+    onAnyRoad: (x, z) => nearestOnAnyRoad(x, z),
+    /* The per-route pair of the two above, so a test can follow any lane the
+       way the market errand already follows its own: ask where you are along
+       it, then ask where it goes next. Without these, driving the branches
+       would mean steering at the destination in a straight line, which is
+       not what the road is for and would prove nothing about whether the
+       lane actually goes there. */
+    onRoute: (id, x, z) => {
+      const route = ROUTES.find((r) => r.id === id);
+      return route ? nearestOnRoute(route, x, z) : null;
+    },
+    routePointAt: (id, along) => {
+      const route = ROUTES.find((r) => r.id === id);
+      if (!route) return null;
+      const i = Math.max(0, Math.min(route.samples.length - 1,
+        Math.round(along * ROAD_STEPS)));
+      return { x: route.samples[i].x, z: route.samples[i].z };
+    },
+    dreamSites: () => JSON.parse(JSON.stringify(DREAM_SITES)),
     /* A point on the route and the way it is heading there, so anything that
        wants to follow the road — a test, a bot — can steer by it rather than
        by aiming at the destination and hoping the road happens to go that

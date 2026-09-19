@@ -90,6 +90,19 @@ The camera stays yours while you drive — drag to look at where you are going
 and it eases back behind the car a moment after you let go. Arrive at the
 market and the load sells itself.
 
+**There are two more lanes, and two places to want.** The country house and
+the grand villa are the two ways the game ends, and each now stands at the end
+of a road of its own. One branch leaves the market road west of the farm and
+climbs the meadow to a stone cottage with a bush garden; the other runs east
+off the long bend to a villa with a cypress avenue and a fountain on the
+forecourt. Drive out, park, get out and walk the grounds — but the doors do
+not open. They are not yours yet.
+
+That is the point of the drive: **you cannot buy a house you have never been
+to see.** Until you have driven out, the Dream tab tells you where the lane
+goes and its button says so instead of offering a price; once you have been,
+the card says what you found there and will sell it to you.
+
 **Selling still works from the farm; buying does not.** Goods leave the farm
 over the same counter at the same prices they always did — a buyer comes to
 you. Upgrades and barns are a shop, and a shop is somewhere you go: their
@@ -401,7 +414,13 @@ what is stacked inside it follows what is actually in the save, that no grass
 grows on its floor, that a new farm has a field and no pasture while buying one
 fences it and opens the herd, that the refusal holds when the disabled button is
 gone round, and that a save from before the pasture existed keeps the herd it
-already had while one with no animals does not get a free field,
+already had while one with no animals does not get a free field, that there
+are three roads rather than one and both new lanes start on the road they
+branch from and finish at the place they are named after, that nothing solid
+stands in either of them, that she can drive the whole way out to each
+property, walk its grounds without being snapped home and still not get
+through its front door, and that neither can be bought until she has been —
+below the button as well as on it,
 that the car's wheels turn with the ground while only the front pair steer and
 its lamps answer the brake and the hour, that up on the stick is away from the
 camera however the shot has been orbited, that no single frame turns her

@@ -3068,7 +3068,16 @@ test.describe('dream homes', () => {
   const VILLA_COST = 40000;
 
   /** Awards pre-unlocked so their coin rewards stay out of the arithmetic. */
-  const dreamSave = (o = {}) => makeSave({ unlockedAchievements: [...ACHIEVEMENT_IDS], ...o });
+  /* A farm at the end of its run: every achievement earned and both
+     properties already driven out to and looked at. The viewing is stated
+     here because this describe is about the purchase and the ending it
+     triggers, not about the rule that you have to go and see one first —
+     that rule has its own describe, which sets these false on purpose. */
+  const dreamSave = (o = {}) => makeSave({
+    unlockedAchievements: [...ACHIEVEMENT_IDS],
+    seenHomes: { house: true, villa: true },
+    ...o,
+  });
 
   const openDream = (page) => page.getByRole('button', { name: /Dream/ }).click();
   const card = (page, i) => page.locator('#dreamList > *').nth(i);
@@ -5004,13 +5013,27 @@ test.describe('the size of the place', () => {
            the ones out in the hills that this is looking for. */
         const onFarm = p.x >= roam.minX - 4 && p.x <= roam.maxX + 4
           && p.z >= roam.minZ - 4 && p.z <= roam.maxZ + 4;
-        /* ...or at the market, which is deliberately out in the hills — it
-           is the place at the end of the road. Checked against the market's
-           own radius rather than waved through by a bigger farm margin, so
-           this still catches a farm prop that has wandered off; "adrift"
-           means "in neither place", not "far from the middle". */
-        const atMarket = Math.hypot(p.x - market.x, p.z - market.z) <= market.radius;
-        if (!onFarm && !atMarket) adrift.push(`${p.id} at (${p.x}, ${p.z})`);
+        /* ...or at one of the places out in the hills, which are deliberately
+           out there — they are what the roads go to. Each is checked against
+           its own radius rather than waved through by a bigger farm margin,
+           so this still catches a farm prop that has wandered off; "adrift"
+           means "in none of the places", not "far from the middle".
+
+           Three of them now rather than one. The list grew when the two
+           properties got lanes of their own, and growing the list is the
+           right repair here — the invariant is "everything is somewhere",
+           and the fix for a new somewhere is to name it, not to widen the
+           margin until the hills count as the farm. */
+        const sites = s.dreamSites();
+        const places = [
+          { x: market.x, z: market.z, radius: market.radius },
+          sites.house,
+          sites.villa,
+        ];
+        const somewhere = places.some(
+          (q) => Math.hypot(p.x - q.x, p.z - q.z) <= q.radius,
+        );
+        if (!onFarm && !somewhere) adrift.push(`${p.id} at (${p.x}, ${p.z})`);
       }
       return { drowned, adrift };
     });
@@ -6031,6 +6054,237 @@ test.describe('the shop is at the market', () => {
     await expect(page.locator('#barnList .barn-card').nth(0).locator('.barn-btn')).toBeDisabled();
     await page.evaluate(() => buyBarn('small'));
     expect((await readSave(page)).barn).toBeNull();
+  });
+});
+
+test.describe('the two properties at the ends of the lanes', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const rich = { coins: 60_000, seenHomes: {} };
+  const dreamTab = (page) => page.getByRole('button', { name: /Dream/ }).click();
+  const card = (page, i) => page.locator('.dream-card').nth(i);
+
+  /* Drives the whole way out, following the market road to the junction and
+     then the branch. The same steering the market errand's helper uses —
+     look a little way ahead, turn towards it, lift off for the bends — with
+     one addition: which route to read is chosen by which one the car is
+     actually near, because a branch is only the right thing to follow once
+     you are on it. */
+  const driveTo = (page, key) => page.evaluate(async (k) => {
+    const s = window.Farm3DScene;
+    const site = s.dreamSites()[k];
+    s.board();
+    const started = performance.now();
+    await new Promise((resolve) => {
+      const tick = () => {
+        const c = s.car();
+        if (Math.hypot(c.x - site.x, c.z - site.z) < site.radius * 0.5
+          || performance.now() - started > 60_000) { s.drive(0, 0); resolve(); return; }
+        const id = s.onRoute(k, c.x, c.z).distance < 6 ? k : 'market';
+        const here = s.onRoute(id, c.x, c.z);
+        const near = s.routePointAt(id, Math.min(1, here.along + 0.03));
+        const far = s.routePointAt(id, Math.min(1, here.along + 0.09));
+        const wrap = (a) => {
+          let v = a;
+          while (v > Math.PI) v -= Math.PI * 2;
+          while (v < -Math.PI) v += Math.PI * 2;
+          return v;
+        };
+        const err = wrap(Math.atan2(near.x - c.x, near.z - c.z) - c.heading);
+        const bend = Math.abs(wrap(Math.atan2(far.x - c.x, far.z - c.z) - c.heading));
+        const pace = bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1);
+        s.drive(Math.max(-1, Math.min(1, -err * 2.4)), c.speed > pace * 12 ? 0.35 : -1);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    return s.car();
+  }, key);
+
+  /* Walks her at a spot on foot. The stick is read in the camera's frame,
+     not the world's, so a world direction has to be rotated into it — which
+     matters here and nowhere else in this file, because this is the only
+     walk that happens after a drive has swung the camera round behind the
+     car. Fed the raw direction, she sets off at whatever angle the shot
+     happens to be at. */
+  const walkAt = (page, tx, tz, ms = 8000) => page.evaluate(async ([x, z, cap]) => {
+    const s = window.Farm3DScene;
+    const t0 = performance.now();
+    await new Promise((done) => {
+      const tick = () => {
+        const a = s.farmerAt();
+        const dx = x - a.x;
+        const dz = z - a.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 0.4 || performance.now() - t0 > cap) { s.drive(0, 0); done(); return; }
+        const yaw = s.cameraYaw();
+        const wx = dx / d;
+        const wz = dz / d;
+        s.drive(wx * Math.cos(yaw) - wz * Math.sin(yaw), wx * Math.sin(yaw) + wz * Math.cos(yaw));
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    return s.farmerAt();
+  }, [tx, tz, ms]);
+
+  test('there are three roads, and the two new ones branch off the first',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+
+      const roads = await page.evaluate(() => window.Farm3DScene.roads());
+      expect(roads.map((r) => r.id).sort()).toEqual(['house', 'market', 'villa']);
+
+      const market = roads.find((r) => r.id === 'market');
+      const sites = await page.evaluate(() => window.Farm3DScene.dreamSites());
+
+      for (const key of ['house', 'villa']) {
+        const lane = roads.find((r) => r.id === key);
+        /* A branch, not a ribbon lying in a field: it starts on the road it
+           leaves, so the network is one thing you can drive around rather
+           than three you have to be teleported between. */
+        const startsOnMarketRoad = Math.min(...market.points.map(
+          ([x, z]) => Math.hypot(x - lane.start.x, z - lane.start.z),
+        ));
+        expect(startsOnMarketRoad).toBeLessThan(1);
+
+        // ...and it finishes at the place it is named after.
+        const site = sites[key];
+        expect(Math.hypot(lane.end.x - site.x, lane.end.z - site.z))
+          .toBeLessThan(site.radius);
+      }
+    });
+
+  test('nothing solid stands in either new lane', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* A tree or a wall in the carriageway is a drive that ends against an
+       invisible obstacle halfway out. The cottage lane was first laid with
+       its last few metres inside the cottage's own collision box, which is
+       exactly this failure at the one point the player is most invested. */
+    const worst = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const { boxes, posts } = s.solids();
+      const out = {};
+      for (const lane of s.roads().filter((r) => r.id !== 'market')) {
+        let nearest = Infinity;
+        for (const [x, z] of lane.points) {
+          for (const b of boxes) {
+            const dx = Math.max(b.minX - x, 0, x - b.maxX);
+            const dz = Math.max(b.minZ - z, 0, z - b.maxZ);
+            nearest = Math.min(nearest, Math.hypot(dx, dz));
+          }
+          for (const p of posts) nearest = Math.min(nearest, Math.hypot(x - p.x, z - p.z) - p.r);
+        }
+        out[lane.id] = nearest;
+      }
+      return out;
+    });
+
+    // Half the road's width plus the car's own radius, and a little over.
+    for (const [lane, d] of Object.entries(worst)) {
+      expect(d, `${lane} lane passes ${d.toFixed(2)} from a solid`).toBeGreaterThan(2.5);
+    }
+  });
+
+  for (const key of ['house', 'villa']) {
+    test(`she can drive out to the ${key}, look at it, and not get in`,
+      async ({ page }) => {
+        test.slow();
+        await load(page, makeSave(rich));
+        await ready(page);
+
+        expect((await readSave(page)).seenHomes[key]).toBeUndefined();
+
+        const car = await driveTo(page, key);
+        const sites = await page.evaluate(() => window.Farm3DScene.dreamSites());
+        const site = sites[key];
+        expect(Math.hypot(car.x - site.x, car.z - site.z)).toBeLessThan(site.radius);
+
+        // Arriving is what records the viewing; nothing else does.
+        await expect.poll(async () => (await readSave(page)).seenHomes[key],
+          { timeout: 10_000 }).toBe(true);
+
+        /* Out of the car and round the grounds. Two things are being held
+           here at once: she may walk about — getting out at a place the
+           farm's own walk box does not cover used to snap her home — and
+           she may not get inside, because the whole promise is that you go
+           and look at what you cannot afford yet. */
+        await page.evaluate(() => window.Farm3DScene.alight());
+        const house = await page.evaluate((k) => {
+          const id = k === 'house' ? 'building-type-a' : 'building-type-b';
+          const s = window.Farm3DScene;
+          const dream = s.dreamSites()[k];
+          return s.solids().boxes
+            .filter((b) => b.id.includes(id))
+            .map((b) => ({ ...b, d: Math.hypot((b.minX + b.maxX) / 2 - dream.x, (b.minZ + b.maxZ) / 2 - dream.z) }))
+            .sort((a, b) => a.d - b.d)[0];
+        }, key);
+
+        const middle = { x: (house.minX + house.maxX) / 2, z: (house.minZ + house.maxZ) / 2 };
+        const at = await walkAt(page, middle.x, middle.z, 9000);
+        expect(Math.hypot(at.x - site.x, at.z - site.z)).toBeLessThan(site.radius + 0.5);
+        const inside = at.x > house.minX && at.x < house.maxX
+          && at.z > house.minZ && at.z < house.maxZ;
+        expect(inside, `she walked into the ${key}`).toBe(false);
+      });
+  }
+
+  test('the card asks her to go and look before it will sell', async ({ page }) => {
+    await load(page, makeSave(rich));
+    await dreamTab(page);
+
+    for (const i of [0, 1]) {
+      await expect(card(page, i).locator('.dream-visit')).toHaveClass(/unseen/);
+      await expect(card(page, i).locator('.dream-btn')).toBeDisabled();
+      await expect(card(page, i).locator('.dream-btn')).toHaveText(/see it first/i);
+    }
+    // The directions are on the card, so "go and look" is an instruction
+    // rather than a riddle.
+    await expect(card(page, 0).locator('.dream-visit')).toContainText(/lane|road/i);
+  });
+
+  test('having seen it, the card sells it and says what she saw', async ({ page }) => {
+    await load(page, makeSave({ ...rich, seenHomes: { house: true } }));
+    await dreamTab(page);
+
+    await expect(card(page, 0).locator('.dream-visit')).toHaveClass(/seen/);
+    await expect(card(page, 0).locator('.dream-btn')).toBeEnabled();
+    await expect(card(page, 0).locator('.dream-btn')).toHaveText(/Buy the Country House/);
+
+    // The other one is untouched: they are separate journeys.
+    await expect(card(page, 1).locator('.dream-visit')).toHaveClass(/unseen/);
+    await expect(card(page, 1).locator('.dream-btn')).toBeDisabled();
+  });
+
+  test('the rule holds when the button is gone round', async ({ page }) => {
+    await load(page, makeSave(rich));
+
+    /* The disabled button is a courtesy; the refusal inside buyDreamHome is
+       the rule. This one matters more than most — it is the purchase that
+       ends the run, and it is irreversible. */
+    const before = await coins(page);
+    await page.evaluate(() => buyDreamHome('villa'));
+    const save = await readSave(page);
+    expect(save.dreamHome).toBeNull();
+    expect(save.coins).toBe(before);
+  });
+
+  test('a save from before the lanes existed has seen neither', async ({ page }) => {
+    /* No amnesty here, unlike the pasture, and the difference is what is at
+       stake: the pasture migration exists because shipping it naively would
+       have taken a herd's home away. This takes nothing away — both
+       properties are still for sale at the same price — and adds a drive to
+       a place that did not exist before. Being asked to go and look is the
+       feature. */
+    const old = makeSave({ coins: 60_000 });
+    delete old.seenHomes;
+    await load(page, old);
+    expect((await readSave(page)).seenHomes).toEqual({});
   });
 });
 
