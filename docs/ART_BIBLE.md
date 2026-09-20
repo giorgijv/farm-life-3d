@@ -3301,6 +3301,86 @@ measured figures at the same time.
 
 ---
 
+## 38. A testing pass, and the three things it found
+
+Not a feature — a deliberate hunt for what the last few passes had broken or
+left open. Most of what was checked was fine: a fresh farm starts correctly
+with six upgrade keys and no pasture, every tab renders, the plant-harvest-sell
+loop pays out, the endings and the game-over both fire, a garbage save
+recovers to a playable farm, no achievement silently depends on the number of
+upgrades, the six-tab row still fits a 360px phone with 51x53 targets and no
+sideways scroll, and a minute of continuous walking with the clock spinning
+leaks nothing — the heap *fell* from 33MB to 16MB and the frame rate held.
+
+Three things were wrong.
+
+### The car could be driven off the edge of the world
+
+`carBlocked` checked the solids and nothing else. Driving due east off every
+road ran to **x 172** against a terrain that stops at 46, and what the player
+saw was a car hanging in an empty blue sky: no ground, no horizon, no clue
+which way home was.
+
+The same gap let her walk off it. The walk circles are hand placed and two of
+them overhang the ground — the market square's reaches z 47.3 and the villa's
+x 49.3. Both were found by arithmetic against `TERRAIN_HALF` rather than by
+looking, which is the only way that sort of thing gets found.
+
+There is now one rule, `WORLD_EDGE`, applied in two places: the car treats it
+as a wall, and every walkable region is clamped to it after the region clamp
+has had its say. Clamping there rather than shrinking the two radii keeps it
+in one place and makes it true of the next place added.
+
+### Parking anywhere but a named place lost the car
+
+The worse of the two, because it is a soft-lock rather than a curiosity.
+
+She could get out of the car anywhere. But the only ground her feet were
+allowed on was the farm and the places at the ends of the roads, so the first
+step from a car parked halfway down the market road teleported her **10.6
+units in one stride** back to the top of the field. The car stayed where it
+was, eleven units outside anywhere she could reach, and on foot it was gone
+for good.
+
+Fixed by giving the parked car a walkable circle of its own — five units,
+enough to walk round it and look at whatever she stopped for — but *only when
+it is parked off the farm*, because on the farm the farm's own box is the
+right answer and a circle round the car would pen her in beside it.
+
+### The tractor turned her legs into a windmill
+
+This one is a defect in a feature two commits old, and it was found by taking
+the project's own recorded standard seriously rather than by looking at it.
+
+The walk cycle is played at the speed she covers ground, so her feet stay
+planted. The tractor makes her up to 45% faster. That means 2.34x playback on
+a one-second, two-step clip: **4.7 steps a second**. §34 measured 5.5 and
+called it a cartoon, and fixed it down to 3.2. Tractor level 3 had put it
+most of the way back.
+
+Past her own pace the rate now follows the square root of the ratio: level 0
+is untouched at 1.62x, level 3 is 1.95x — just under four steps a second —
+and about a fifth of the ground goes under her feet as slide. A little slide
+at a sprint is what every locomotion system accepts; windmilling legs is not.
+It is worth being plain that this knowingly breaks the exact
+feet-match-the-ground rule §34 established, and why: that rule was written
+when her speed was a constant.
+
+### One thing changed that nobody asked for
+
+The city is visible from the farm. Standing in the field and looking north,
+its roofs sit on the horizon above the orchard, fogged but legible. That is a
+side effect of putting a town 15 units past the farm's northern edge on a map
+whose fog starts at 30, and it changes how remote the farm feels.
+
+It is recorded here rather than quietly fixed because it is a judgement call
+and not a defect: nothing is broken, it reads as a town on a hill, and there
+is an argument that seeing where the road goes is a gain. The terrain ends at
+46 and the city's own buildings already reach -45, so there is nowhere much
+further to put it if the answer turns out to be no.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

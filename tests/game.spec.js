@@ -6110,6 +6110,159 @@ test.describe('the shop is at the market', () => {
   });
 });
 
+test.describe('the edges of the world, and the car left in it', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+
+  /* Steers the car at a point in a straight line, ignoring the roads. Used
+     to push at the edges rather than to get anywhere. */
+  const driveAt = (page, tx, tz, ms) => page.evaluate(async ([x, z, cap]) => {
+    const s = window.Farm3DScene;
+    if (!s.atWheel()) s.board();
+    const t0 = performance.now();
+    await new Promise((done) => {
+      const tick = () => {
+        const c = s.car();
+        if (Math.hypot(c.x - x, c.z - z) < 3 || performance.now() - t0 > cap) {
+          s.drive(0, 0); done(); return;
+        }
+        const wrap = (a) => {
+          let v = a;
+          while (v > Math.PI) v -= Math.PI * 2;
+          while (v < -Math.PI) v += Math.PI * 2;
+          return v;
+        };
+        const err = wrap(Math.atan2(x - c.x, z - c.z) - c.heading);
+        s.drive(Math.max(-1, Math.min(1, -err * 2.4)), -1);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    return s.car();
+  }, [tx, tz, ms]);
+
+  test('the car cannot be driven off the edge of the world', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+
+    /* There was nothing stopping it. Driving due east off every road ran
+       to x 172 against a terrain that stops at 46, and what the player saw
+       was a car hanging in an empty blue sky with no ground under it and
+       no clue which way home was. */
+    const edge = await page.evaluate(() => window.Farm3DScene.worldEdge());
+    const car = await driveAt(page, 400, 0, 25_000);
+
+    expect(Math.abs(car.x)).toBeLessThanOrEqual(edge + 0.01);
+    expect(Math.abs(car.z)).toBeLessThanOrEqual(edge + 0.01);
+    // Stopped against it rather than creeping through.
+    expect(Math.abs(car.x)).toBeGreaterThan(edge - 2);
+  });
+
+  test('she cannot walk off it either', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+
+    /* The walk circles are hand placed and two of them overhang the
+       ground: the market square's reaches z 47.3 and the villa's x 49.3.
+       Driving to the market and walking north used to put her feet past
+       the last triangle of terrain. */
+    const edge = await page.evaluate(() => window.Farm3DScene.worldEdge());
+    const market = await page.evaluate(() => window.Farm3DScene.market());
+    await driveAt(page, market.x, market.z, 45_000);
+    await page.evaluate(() => window.Farm3DScene.alight());
+
+    const at = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      // Hard at the far side of the square, for longer than it takes.
+      s.drive(0, -1);
+      await new Promise((r) => setTimeout(r, 4000));
+      s.drive(0, 0);
+      return s.farmerAt();
+    });
+    expect(Math.abs(at.z)).toBeLessThanOrEqual(edge + 0.01);
+  });
+
+  test('parking out in the country does not strand the car', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+
+    /* The trap this closes. She could get out anywhere, but the only
+       ground her feet were allowed on was the farm and the places at the
+       ends of the roads — so one step from a car parked halfway down the
+       market road teleported her ten and a half units back to the field,
+       leaving the car eleven units outside anywhere she could walk. On
+       foot it was gone for good. */
+    await driveAt(page, 16, 22, 30_000);
+    const parked = await page.evaluate(() => window.Farm3DScene.car());
+    expect(await page.evaluate(() => window.Farm3DScene.alight())).toBe(true);
+
+    const walked = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const from = s.farmerAt();
+      const t0 = performance.now();
+      s.drive(0.7, 0.7);
+      await new Promise((r) => setTimeout(r, 1500));
+      s.drive(0, 0);
+      const to = s.farmerAt();
+      return {
+        jumped: Math.hypot(to.x - from.x, to.z - from.z),
+        // What a walk could actually cover in the time it took.
+        couldWalk: s.walkSpeed() * ((performance.now() - t0) / 1000),
+        to,
+      };
+    });
+
+    /* No teleport, stated as the thing that makes it one: she never
+       covered more ground than her own legs could. The bug moved her 10.6
+       units in half a second, which is four times a walk. */
+    expect(walked.jumped).toBeLessThanOrEqual(walked.couldWalk * 1.1);
+    // And she is still beside the car, so she can drive it home.
+    const radius = await page.evaluate(() => window.Farm3DScene.parkedRadius());
+    expect(Math.hypot(walked.to.x - parked.x, walked.to.z - parked.z))
+      .toBeLessThanOrEqual(radius);
+    expect(await page.evaluate(() => window.Farm3DScene.board())).toBe(true);
+  });
+
+  test('the tractor quickens her legs without turning them into a windmill',
+    async ({ page }) => {
+      await load(page, makeSave({ coins: 9000 }));
+      await ready(page);
+      await page.evaluate(() => window.Farm3DBridge.setCityOpen(true));
+
+      const read = () => page.evaluate(async () => {
+        const s = window.Farm3DScene;
+        s.drive(0, -1);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const out = { speed: s.walkSpeed(), rate: s.walkClipRate() };
+        s.drive(0, 0);
+        return out;
+      });
+
+      const before = await read();
+      await page.evaluate(() => {
+        for (let i = 0; i < 3; i += 1) buyUpgrade('tractor');
+      });
+      expect(await page.evaluate(() => state.upgrades.tractor)).toBe(3);
+      const after = await read();
+
+      // She is genuinely faster...
+      expect(after.speed).toBeGreaterThan(before.speed * 1.4);
+      /* ...and her legs go faster too, but not in proportion. The clip is
+         one second of two steps, so the playback rate is steps per second
+         halved: matching the ground exactly at this speed is 2.34, which
+         is 4.7 steps a second, and §34 measured 5.5 and called it a
+         cartoon. Past her own pace the rate follows the square root, which
+         trades a little foot slide for legs that still read as running. */
+      expect(after.rate).toBeGreaterThan(before.rate);
+      expect(after.rate).toBeLessThan(2);
+    });
+});
+
 test.describe('the tool merchants are in the city', () => {
   const ready = async (page) => {
     await page.waitForFunction(() => !!window.Farm3DScene);

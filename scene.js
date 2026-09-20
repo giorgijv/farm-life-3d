@@ -1062,6 +1062,16 @@ function startScene(bridge) {
   const TRANSITION_WIDTH = 5; // how far beyond the flat rectangle the rise ramps in over
   const HILL_AMPLITUDE = 2.2;
   const TERRAIN_HALF = 46; // comfortably past the fog below, so its own edge is never seen
+  /* The last ground there is. Nothing that moves may go past it — not the
+     car, and not her feet — because two units beyond this there is no mesh,
+     and what the player sees is a vehicle hanging in an empty blue sky.
+
+     Measured, not feared: driving due east off every road runs to x 172
+     with nothing to stop it, and the walk circles at the market and the
+     villa reach z 47.3 and x 49.3 respectively, both past the edge. The
+     car's version of the rule is an invisible wall, which is a poor thing
+     in open country and a much better thing than the void. */
+  const WORLD_EDGE = TERRAIN_HALF - 2;
   /* Kept at roughly 1.25 units between vertices, which is what it was before
      the farm grew: raising TERRAIN_HALF alone would have stretched the same
      48 segments over half again the distance and flattened the hills into
@@ -4685,7 +4695,14 @@ ${lit}`;
     { x: DREAM_SITES.villa.x, z: DREAM_SITES.villa.z, radius: DREAM_SITES.villa.radius },
   ];
 
-  function clampToWalkable(fromX, fromZ, x, z, out) {
+  /* How far she may wander from a car parked out in the country. Enough to
+     walk round it and look at what she stopped for; not so far that the
+     open hills become somewhere to explore on foot. */
+  const PARKED_RADIUS = 5;
+
+  /* Which region she is held inside — the farm, one of the places at the
+     end of a road, or a circle round a car parked somewhere else. */
+  function clampToRegion(fromX, fromZ, x, z, out) {
     for (const place of AWAY) {
       if (Math.hypot(fromX - place.x, fromZ - place.z) > place.radius) continue;
       /* Half a unit inside the radius the place is tested at rather than on
@@ -4701,8 +4718,46 @@ ${lit}`;
       out.z = place.z + (dz / d) * walk;
       return;
     }
+
+    /* And wherever else she has left the car, so long as that is not on the
+       farm — where the farm's own box is the right answer and a circle
+       round the car would pen her in beside it.
+
+       Without this, getting out anywhere but a named place was a trap. She
+       steps down beside the car, takes one step, and the fall-through below
+       clamps her into the farm: measured at ten and a half units of
+       teleport in a single stride, from halfway down the market road back
+       to the top of the field. The car stays where it was, eleven units
+       outside anywhere she can walk, and on foot she can never reach it
+       again. Parking to look at something is a thing players do, and it
+       should not lose them the car. */
+    const parkedOff = carAt.x < ROAM.minX || carAt.x > ROAM.maxX
+      || carAt.z < ROAM.minZ || carAt.z > ROAM.maxZ;
+    if (parkedOff && Math.hypot(fromX - carAt.x, fromZ - carAt.z) <= PARKED_RADIUS) {
+      const walk = PARKED_RADIUS - 0.5;
+      const dx = x - carAt.x;
+      const dz = z - carAt.z;
+      const d = Math.hypot(dx, dz);
+      if (d <= walk) { out.x = x; out.z = z; return; }
+      out.x = carAt.x + (dx / d) * walk;
+      out.z = carAt.z + (dz / d) * walk;
+      return;
+    }
+
     out.x = Math.max(ROAM.minX, Math.min(ROAM.maxX, x));
     out.z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, z));
+  }
+
+  /* ...and then the world, over the top of all of it. The regions are hand
+     placed and two of them overhang the ground: the market square's walk
+     circle reaches z 47.3 and the villa's x 49.3 against a terrain that
+     stops at 46. Clamping here rather than shrinking those two radii keeps
+     the rule in one place and makes it true of the next place added as
+     well. */
+  function clampToWalkable(fromX, fromZ, x, z, out) {
+    clampToRegion(fromX, fromZ, x, z, out);
+    out.x = Math.max(-WORLD_EDGE, Math.min(WORLD_EDGE, out.x));
+    out.z = Math.max(-WORLD_EDGE, Math.min(WORLD_EDGE, out.z));
   }
 
   const walkTmp = { x: 0, z: 0 };
@@ -4891,6 +4946,8 @@ ${lit}`;
      shoulder against a wall, wrong for a ton of car, which should stop. So
      this is a plain yes or no and the caller kills the speed on a no. */
   function carBlocked(x, z) {
+    // The edge of the modelled world, before anything in it.
+    if (Math.abs(x) > WORLD_EDGE || Math.abs(z) > WORLD_EDGE) return true;
     for (const b of SOLIDS.boxes) {
       if (b.id === 'car/sedan') continue; // it cannot crash into itself
       if (x > b.minX - CAR_RADIUS && x < b.maxX + CAR_RADIUS
@@ -5468,9 +5525,25 @@ ${lit}`;
 
     /* The walk cycle is played at the speed she is actually covering ground,
        so her feet stay planted instead of skating: the clip is authored for
-       CLIP_WALK_SPEED, and anything else is that much faster or slower. */
+       CLIP_WALK_SPEED, and anything else is that much faster or slower.
+
+       Above her own two feet's pace that stops being the right trade. A
+       real runner going faster lengthens the stride as well as quickening
+       it, and this rig cannot lengthen anything — so matching the ground
+       exactly at tractor speed means 2.34x playback, which on a one-second
+       two-step cycle is 4.7 steps a second. §34 of the art bible measured
+       5.5 and called it a cartoon, and it was right.
+
+       So past the base pace the rate follows the square root of the ratio:
+       unchanged on foot, and at the fastest tractor 1.95x — just under four
+       steps a second — with about a fifth of the ground going under her
+       feet as slide. A little slide at a sprint is what every locomotion
+       system in the business accepts; windmilling legs is not. */
     const walkAction = body.actions[FARMER_CLIP.walking];
-    if (walkAction) walkAction.timeScale = walkSpeed() / CLIP_WALK_SPEED;
+    if (walkAction) {
+      const ratio = walkSpeed() / WALK_SPEED;
+      walkAction.timeScale = (WALK_SPEED / CLIP_WALK_SPEED) * Math.sqrt(ratio);
+    }
 
     body.mixer.update(poseDt);
     farmer.position.set(at.x, terrainGridHeight(at.x, at.z), at.z);
@@ -5808,6 +5881,16 @@ ${lit}`;
        uses. A card that says 15% faster and a farmer who walks at the same
        speed is the failure this catches. */
     walkSpeed: () => walkSpeed(),
+    /* How fast the walk cycle is being played. Paired with walkSpeed so a
+       test can hold the two against each other: the tractor makes her
+       quicker, and the question that matters is whether her legs keep up
+       without turning into a windmill. */
+    walkClipRate: () => {
+      const action = body?.actions?.[FARMER_CLIP.walking];
+      return action ? action.timeScale : null;
+    },
+    worldEdge: () => WORLD_EDGE,
+    parkedRadius: () => PARKED_RADIUS,
     /* Which way the shot is facing. The walk is read through this — the stick
        is rotated into the camera's frame — so a test that wants to prove
        "forward means away from the camera" needs to be able to ask where the
