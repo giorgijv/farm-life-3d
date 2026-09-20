@@ -6132,12 +6132,16 @@ test.describe('the tool merchants are in the city', () => {
     const city = s.city();
     s.board();
     const started = performance.now();
+    // Latched — see the properties' version of this helper for the frame
+    // rate that makes a per-frame decision miss the junction entirely.
+    let onBranch = false;
     await new Promise((resolve) => {
       const tick = () => {
         const c = s.car();
         if (Math.hypot(c.x - city.x, c.z - city.z) < city.radius * 0.5
           || performance.now() - started > 60_000) { s.drive(0, 0); resolve(); return; }
-        const id = s.onRoute('city', c.x, c.z).distance < 6 ? 'city' : 'market';
+        if (!onBranch && s.onRoute('city', c.x, c.z).distance < 8) onBranch = true;
+        const id = onBranch ? 'city' : 'market';
         const here = s.onRoute(id, c.x, c.z);
         const near = s.routePointAt(id, Math.min(1, here.along + 0.03));
         const far = s.routePointAt(id, Math.min(1, here.along + 0.09));
@@ -6315,12 +6319,24 @@ test.describe('the two properties at the ends of the lanes', () => {
     const site = s.dreamSites()[k];
     s.board();
     const started = performance.now();
+    /* Latched, and the latch is the difference between this steering
+       working and it driving to the market by mistake.
+
+       Which route to follow was decided fresh each frame by "am I within
+       six units of the branch". On a software rasteriser managing three
+       frames a second the car covers four to six units *between samples*,
+       so it can be nine units before the junction on one frame and three
+       past it on the next and never once see the branch — then carry
+       serenely on to the market and fail sixty-eight units from where it
+       was sent. Once it has seen the branch it commits. */
+    let onBranch = false;
     await new Promise((resolve) => {
       const tick = () => {
         const c = s.car();
         if (Math.hypot(c.x - site.x, c.z - site.z) < site.radius * 0.5
           || performance.now() - started > 60_000) { s.drive(0, 0); resolve(); return; }
-        const id = s.onRoute(k, c.x, c.z).distance < 6 ? k : 'market';
+        if (!onBranch && s.onRoute(k, c.x, c.z).distance < 8) onBranch = true;
+        const id = onBranch ? k : 'market';
         const here = s.onRoute(id, c.x, c.z);
         const near = s.routePointAt(id, Math.min(1, here.along + 0.03));
         const far = s.routePointAt(id, Math.min(1, here.along + 0.09));
@@ -6769,15 +6785,35 @@ test.describe('the car is a car', () => {
     await page.evaluate(() => window.Farm3DScene.board());
 
     const still = await parts(page);
-    await hold(page, 0, -1, 900);
-    const moving = await parts(page);
+    /* Waited on the speedometer, not the clock. Both numbers checked below
+       are proportional to how fast the car is actually going — the wheels
+       spin at road speed over their radius, and the roll is lateral
+       acceleration, which is speed times yaw rate — so a fixed hold on a
+       contended machine measures a car that has barely moved and reads as
+       a welded wheel and a rigid shell. It flaked exactly that way. */
+    const upToSpeed = (page2, x, z, target) => page2.evaluate(async ([dx, dz, want]) => {
+      const s = window.Farm3DScene;
+      s.drive(dx, dz);
+      const t0 = performance.now();
+      await new Promise((done) => {
+        const tick = () => {
+          if (s.car().speed >= want || performance.now() - t0 > 8000) done();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      return { speed: s.car().speed, ...s.carParts() };
+    }, [x, z, target]);
+
+    const moving = await upToSpeed(page, 0, -1, 5);
+    expect(moving.speed, 'the car never got moving').toBeGreaterThanOrEqual(5);
     /* Turning at all is the whole claim — a welded wheel is the thing the
        eye catches at twelve units a second even though each one is a dozen
        pixels across. */
     expect(moving.spin).not.toBe(still.spin);
 
-    await hold(page, -1, -1, 700);
-    const turning = await parts(page);
+    // Now hold the lock on, still at speed, and let the springs load up.
+    const turning = await upToSpeed(page, -1, -1, 8);
     // The front wheels point where the car is being asked to go; the back
     // pair do not, because that is not how a car works.
     expect(Math.abs(turning.steer)).toBeGreaterThan(0.1);
@@ -6832,10 +6868,45 @@ test.describe('the car is a car', () => {
     const parked = await parts(page);
     expect(parked.headLamp).toBe(0);
 
-    await hold(page, 0, -1, 700);
-    const rolling = await parts(page);
-    await hold(page, 0, 1, 250);
-    const braking = await parts(page);
+    /* Driven until the car is *actually rolling* rather than for a fixed
+       700ms, and then braked while it still is. The fixed hold was a flake
+       waiting to happen and duly happened on a contended runner: a car that
+       has not got up to speed yet is, a quarter of a second after the stick
+       reverses, already crawling backwards — and the brake lamp lights for
+       braking (stick back, still going forward) or for reverse (well under
+       zero), with a dead band between the two where it sits at its resting
+       0.15 and the assertion compares 0.15 against 0.15.
+
+       Waiting on the speed instead removes the guess. Same lesson the walk
+       tests learned: a fixed sleep is a bet on how fast the machine is. */
+    const rolling = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      s.drive(0, -1);
+      const t0 = performance.now();
+      await new Promise((done) => {
+        const tick = () => {
+          if (s.car().speed > 4 || performance.now() - t0 > 8000) done();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      return { speed: s.car().speed, ...s.carParts() };
+    });
+    expect(rolling.speed, 'the car never got moving').toBeGreaterThan(4);
+
+    const braking = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      s.drive(0, 1);
+      // Sampled while it is still going forwards, which is what braking is.
+      await new Promise((done) => {
+        const tick = () => {
+          if (s.car().speed < 1.5 || s.car().speed <= 0) done();
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      return { speed: s.car().speed, ...s.carParts() };
+    });
     expect(braking.brakeLamp).toBeGreaterThan(rolling.brakeLamp);
 
     await page.evaluate(() => { window.Farm3DScene.drive(0, 0); state.dayElapsedMs = 45_000; });

@@ -4954,12 +4954,11 @@ ${lit}`;
 
   function advanceCar(dt) {
     syncShop();
-    /* Before the early return, so a parked car still lights its headlamps
-       after dusk and still settles back onto its springs. A car that only
-       looks like a car while it is being driven is a prop again the moment
-       she gets out of it. */
-    animateCar(dt);
-    if (!inCar || !carObject) return;
+    /* A parked car still lights its headlamps after dusk and still settles
+       back onto its springs — a car that only looks like a car while it is
+       being driven is a prop again the moment she gets out of it. So the
+       animation runs on every path, including this one. */
+    if (!inCar || !carObject) { animateCar(dt); return; }
 
     /* The stick, read as pedals and a wheel. Screen-up is -z, which is
        forward, so the throttle is the negated one. */
@@ -5024,6 +5023,17 @@ ${lit}`;
         atDream[key] = false;
       }
     }
+
+    /* And the animation last, after the speed has been integrated and the
+       car has moved, so the wheels turn at the speed the car has *now*.
+
+       It used to run first, which gave every moving part a one-frame lag.
+       At sixty frames a second that is sixteen milliseconds and invisible.
+       On a software rasteriser managing three, the car can go from standing
+       to five units a second in a single step while its wheels still show
+       zero — which is a third of a second of a car sliding on locked
+       wheels, and it is what made the test for this flake. */
+    animateCar(dt);
   }
 
   /* Sits the car on the ground and leans it into the slope it is crossing.
@@ -5157,11 +5167,19 @@ ${lit}`;
     }
 
     if (!carLamps) return;
-    /* Brake lights on when she is slowing the car with the stick or backing
-       up — not merely when the car is slowing, which would light them every
-       time she lifted off. */
-    const braking = inCar && (drive.z > 0.05) && carSpeed > -0.1;
-    carLamps.rearMat.emissiveIntensity = braking || (inCar && carSpeed < -0.2) ? 2.4 : 0.15;
+    /* Brake lights on when she is asking the car to slow or go backwards —
+       not merely when the car is slowing, which would light them every time
+       she lifted off.
+
+       The two conditions have to *tile*, and the first version's did not:
+       braking wanted `carSpeed > -0.1` and reversing wanted
+       `carSpeed < -0.2`, leaving a tenth of a unit a second between them
+       where the stick is hard back and the lamps are dark. Narrow enough to
+       be invisible at sixty frames a second and wide enough for a car
+       decelerating through it to be sampled there on a slow one, which is
+       how a test caught it. The stick being back is now enough on its own. */
+    const stickBack = inCar && drive.z > 0.05;
+    carLamps.rearMat.emissiveIntensity = stickBack || (inCar && carSpeed < -0.1) ? 2.4 : 0.15;
     // Headlights follow the same night the lamps in the yard do.
     carLamps.frontMat.emissiveIntensity = skyNight > 0.45 ? 2.2 : 0;
   }

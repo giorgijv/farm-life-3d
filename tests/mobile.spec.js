@@ -206,10 +206,10 @@ test.describe('phone portrait', () => {
 
        It is still a thumb on the stick, which is what this test is for:
        every push here is a real pointer press on the real control. */
-    async function pushStick(dy, allowance, plot) {
+    async function pushStick(dx, dy, allowance, plot) {
       await page.mouse.move(centre.x, centre.y);
       await page.mouse.down();
-      await page.mouse.move(centre.x, centre.y + dy);
+      await page.mouse.move(centre.x + dx, centre.y + dy);
       await page.evaluate(([travel, p]) => new Promise((resolve) => {
         const s = window.Farm3DScene;
         const from = s.farmerAt();
@@ -233,8 +233,28 @@ test.describe('phone portrait', () => {
       await page.mouse.up();
     }
 
+    /* Steers on both axes, which it did not used to.
+    
+       It corrected only z, on the reasoning that the tiles she is sent to
+       are north or south of her. That is true of where she is *aimed* and
+       not of where she ends up: the pond sits in the dooryard between the
+       spawn and the south of the field, and walking into it slides her
+       sideways along its rim. She would then arrive at the right latitude
+       about a unit west of the tile, with the helper nudging her north and
+       south forever because that is the only axis it knew about. Measured
+       at (-2.72, 4.34) against a tile at (-1.74, 0.58), and reproduced two
+       runs in four on the commit before this feature existed — it is an
+       old flake that a slower suite simply exposes more often.
+
+       Screen down is +z and screen right is +x, measured rather than
+       assumed: at the default shot the camera's yaw is 0.000 and the stick
+       maps straight onto the world. (An earlier attempt at this rotated
+       the push into camera space on the theory that the yaw drifts as the
+       camera follows her. It does not.) */
     async function driveOnto(plot) {
-      for (let attempt = 0; attempt < 10; attempt += 1) {
+      let previous = Infinity;
+      let sidestepped = false;
+      for (let attempt = 0; attempt < 12; attempt += 1) {
         const state = await page.evaluate((p) => ({
           onIt: window.Farm3DScene.reachable()?.plot === p,
           her: window.Farm3DScene.farmerAt(),
@@ -242,14 +262,37 @@ test.describe('phone portrait', () => {
         }), plot);
         if (state.onIt) return;
 
-        const gap = state.tile.z - state.her.z;
-        // Up the screen is north, which is z decreasing — hence the sign.
-        const far = Math.abs(gap) > 0.8;
-        await pushStick(
-          Math.sign(gap) * (far ? 40 : 9),
-          far ? Math.abs(gap) - 0.3 : 0.35,
-          plot,
-        );
+        const wx = state.tile.x - state.her.x;
+        const wz = state.tile.z - state.her.z;
+        const gap = Math.hypot(wx, wz);
+        if (gap < 0.001) return;
+
+        let dirX = wx / gap;
+        let dirZ = wz / gap;
+
+        /* If a long push got nowhere there is something in the way — the
+           pond is the only candidate on this walk — so turn a quarter turn
+           and go round it, then aim straight again next time.
+
+           Only when far, and never twice running. Close to the tile the
+           pushes are deliberately tiny and often fail to improve the gap
+           by the threshold, so a sidestep that triggers on those walks her
+           away from a tile she had almost reached — which is exactly what
+           the first version of this did, ending eleven units west. */
+        const stalled = gap > previous - 0.15;
+        previous = gap;
+        const far = gap > 0.8;
+        if (stalled && far && !sidestepped) {
+          const turned = dirX;
+          dirX = -dirZ;
+          dirZ = turned;
+          sidestepped = true;
+        } else {
+          sidestepped = false;
+        }
+
+        const push = far ? 40 : 9;
+        await pushStick(dirX * push, dirZ * push, far ? gap - 0.3 : 0.35, plot);
       }
       const where = await page.evaluate(() => window.Farm3DScene.farmerAt());
       throw new Error(

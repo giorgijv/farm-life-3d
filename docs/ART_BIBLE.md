@@ -3854,10 +3854,67 @@ Everything above was checked before it was written:
   partition was verified locally (114 + 114 + 113 = 341) before pushing,
   and one shard was run end to end to confirm sharding does not break
   tests that assume they own the page.
-- Worth stating as a standing cost rather than a one-off: five tests are
-  now carried by `test.slow()`, and every one of them got there because the
-  scene load grew. The next feature that adds props should expect to find a
-  sixth. That is the number to watch, not the job timeout.
+- Five tests were carried by `test.slow()`, each marked as it crossed the
+  line, and the note here predicted a sixth would arrive with the next
+  feature that added props. It arrived immediately — the crops test, which
+  measures 14.2s alone and blew thirty on a contended runner.
+  
+  It was not marked. Marking it would have been the sixth exception to a
+  rule that had stopped describing the suite: almost every test here boots
+  a full 3D scene, which costs twelve to fifteen seconds on a software
+  rasteriser before a single assertion runs, and two-worker contention
+  roughly doubles what is left of a thirty-second budget. The baseline was
+  wrong, not the tests. The global timeout is sixty now, and the safety net
+  moved to the shard ceiling: a hung test costs sixty seconds instead of
+  thirty, and a systemic hang still trips twenty minutes.
+  
+  The existing five marks stay — those are genuinely long drives — but the
+  drip of adding one per feature should stop.
+
+- A flaky car test turned out to be a real ordering wart, found by
+  measuring rather than by re-reading the test. `animateCar` ran at the top
+  of `advanceCar`, before the speed was integrated, so every moving part on
+  the car lagged a frame behind it. At sixty frames a second that is
+  sixteen milliseconds and invisible; on a software rasteriser managing
+  three, the car goes from standing to five units a second in one step with
+  its wheels still showing zero — a third of a second of a car sliding on
+  locked wheels. The probe printed speed and wheel angle per frame and the
+  first sample was (2.63, 0.0000), which is the whole diagnosis on one
+  line. The animation now runs last.
+- The same two car tests were also betting on fixed 700–900ms holds to get
+  the car up to speed, which is the fixed-sleep mistake the walk tests
+  learned about earlier in this document. They wait on the speedometer now.
+  Both numbers they check — wheel spin and body roll — are proportional to
+  speed, so a hold that is long enough on a quiet machine measures a
+  stationary car on a busy one and reads as a welded wheel and a rigid
+  shell.
+
+- The mobile "whole loop" flake is **not** this feature's fault, and that
+  was settled by running the test on the previous commit in a worktree
+  rather than by reasoning about it: two failures in four there, same
+  symptom, same coordinates. The city made the suite slower, which raises
+  the rate; the flake is older.
+- Its cause, once measured, is that `driveOnto` steered only in z. The
+  tiles it aims at are north or south of her, but the *pond* sits between
+  the spawn and the south of the field and slides her sideways along its
+  rim on the way — so she arrives at the right latitude a unit west, and a
+  helper that only knows about z nudges her back and forth forever. It
+  steers both axes now, and goes round once when a long push gets nowhere.
+- Two wrong turns on the way, both worth keeping:
+  
+  The first explanation was that the camera's yaw drifts as it follows her,
+  so a "straight up" push acquires a sideways component. A probe printed
+  the yaw and the resulting world delta for four pushes: **0.000** every
+  time, down maps to +z and right to +x exactly. The theory was wrong and
+  the comment written from it never shipped.
+  
+  The first fix also added a sidestep that fired whenever a push failed to
+  close the gap by a threshold — including the deliberately tiny pushes
+  used near the tile — so it walked her away from tiles she had nearly
+  reached and finished eleven units west. It went from two failures in four
+  to four in four. It was reverted before being diagnosed, which was the
+  right order: a fix that makes things worse and cannot be explained should
+  come out, not get another patch on top.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.
