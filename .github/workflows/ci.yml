@@ -8,8 +8,15 @@ on:
 
 jobs:
   test:
-    name: Playwright tests
+    name: Playwright tests (shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
+    strategy:
+      # Every shard reports. A failure in one says nothing about the other
+      # two, and cancelling them to save a runner-minute means re-running
+      # the lot to find out whether the break was local to one shard.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # Ten was the budget when this was a 2D farm with a small canvas behind
     # it. The suite has grown from 232 tests to 295 and every one of them now
     # boots a scene with terrain, an atmospheric sky, a rigged character and
@@ -28,7 +35,21 @@ jobs:
     # hang would sit here unnoticed, and the run's own duration is the thing
     # to watch: if it climbs toward this again, the answer is to make the
     # suite cheaper, not to raise this a third time.
-    timeout-minutes: 30
+    #
+    # It climbed toward it again. At 341 tests the run took 29m41s of the
+    # thirty and was cancelled mid-stride with nothing failing — the same
+    # worthless red build the note above describes, for the second time.
+    #
+    # So the ceiling is not being raised a third time. The work is split
+    # across three runners instead, which is the thing that actually scales:
+    # each shard carries about a third of the tests and finishes in ten to
+    # twelve minutes, so twenty here is a genuine margin again rather than a
+    # number waiting to be hit. Total compute is unchanged; what changes is
+    # that no single job is anywhere near a wall.
+    #
+    # If a shard ever climbs toward twenty, add a fourth rather than raising
+    # this — the sharding is the lever now.
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -44,12 +65,14 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run tests
-        run: npm test
+        run: npm test -- --shard=${{ matrix.shard }}/3
 
       - name: Upload report on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          # Per shard, or three jobs race to upload one artifact name and
+          # only the first survives.
+          name: playwright-report-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 7

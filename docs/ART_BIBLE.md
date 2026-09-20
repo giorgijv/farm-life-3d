@@ -3844,5 +3844,20 @@ Everything above was checked before it was written:
   being broken is that a documentation-shaped change does not feel like a
   code change until it turns out the help text has a test.
 
+- CI was cancelled at the thirty-minute job timeout for the second time,
+  at 29m41s of a 30-minute budget with nothing failing. The workflow's own
+  comment, written the first time this happened, said what to do about a
+  third occurrence: *"the answer is to make the suite cheaper, not to raise
+  this a third time."* It was not raised. The run is sharded across three
+  runners instead, which is the lever that scales — each shard carries
+  about a third of the tests and the ceiling went **down** to twenty. The
+  partition was verified locally (114 + 114 + 113 = 341) before pushing,
+  and one shard was run end to end to confirm sharding does not break
+  tests that assume they own the page.
+- Worth stating as a standing cost rather than a one-off: five tests are
+  now carried by `test.slow()`, and every one of them got there because the
+  scene load grew. The next feature that adds props should expect to find a
+  sixth. That is the number to watch, not the job timeout.
+
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

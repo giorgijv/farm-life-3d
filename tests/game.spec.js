@@ -5611,16 +5611,25 @@ test.describe('when the browser takes the canvas away', () => {
     await expect.poll(() => calls(page), { timeout: 20_000 }).toBeGreaterThan(0);
     const after = await loaded(page);
 
-    /* Compared as "no less than", not "exactly equal". three.js rebuilds
-       every buffer and texture on restore and the scene really does come back
-       identical — 123 calls and 74,284 triangles either side, measured
-       directly — but a model still arriving while the baseline is taken can
-       only ever push the later number *up*, which is what made the equality
-       version of this flake at 121 against 123. The failure this exists to
-       catch is a scene that comes back with half its props missing, and that
-       shows up as fewer, so the inequality points the right way. */
-    expect(after.calls).toBeGreaterThanOrEqual(healthy.calls);
-    expect(after.triangles).toBeGreaterThanOrEqual(healthy.triangles);
+    /* Compared within a band, not "exactly equal" and no longer "no less
+       than" either. three.js rebuilds every buffer and texture on restore
+       and the scene really does come back identical, but the *count* of
+       what gets drawn does not only depend on that.
+
+       The equality version flaked first, at 121 against 123, because a
+       model still arriving while the baseline was taken pushes the later
+       number up. "No less than" fixed that and held while the world was
+       small. It stopped holding once there was a city, two properties and
+       sixty more props out in the hills: the count is of what survives
+       frustum culling, the camera eases between the two samples, and a
+       shot a degree different draws a couple of things fewer. It failed at
+       205 against 207, which is 1%.
+
+       So the band. What this test exists to catch is a scene that comes
+       back with half its props missing — a 50% drop — and 5% is generous
+       against culling jitter while nowhere near letting that through. */
+    expect(after.calls).toBeGreaterThan(healthy.calls * 0.95);
+    expect(after.triangles).toBeGreaterThan(healthy.triangles * 0.95);
     await expect.poll(() => panel(page), { timeout: 10_000 })
       .toEqual({ shown: false, reload: false });
   });
