@@ -730,7 +730,13 @@ test.describe('difficulty', () => {
     expect(s.unlockedPlots).toBe(8);
     expect(s.cows).toEqual([]);
     expect(s.unlockedAchievements).toEqual([]);
-    expect(s.upgrades).toEqual({ sprinkler: 0, feed: 0, fertiliser: 0, contacts: 0 });
+    /* Every upgrade the build offers, at zero — listed rather than spot
+       checked, so adding a seventh makes this fail until someone confirms
+       a new farm really should start without it. The tractor and the
+       pesticide arrived with the city and did exactly that. */
+    expect(s.upgrades).toEqual({
+      sprinkler: 0, feed: 0, fertiliser: 0, contacts: 0, tractor: 0, pesticide: 0,
+    });
     expect(s.inventory.wheat).toBe(0);
     expect(s.difficulty).toBe('hard'); // the tier survives, as after a collapse
     expect(s.farmer).toBeNull();
@@ -2611,6 +2617,12 @@ test.describe('day cycle', () => {
   });
 
   test('the sun and moon stay on screen across the whole cycle', async ({ page }) => {
+    /* Eight positions, each with a settle and a layout read: sixteen
+       seconds alone and past the default thirty once the rest of the suite
+       is competing for the machine. Nothing here was relaxed — the budget
+       was, the same as for the three scene-loading tests that got there
+       first. */
+    test.slow();
     await load(page, makeSave());
 
     for (const fraction of [0, 0.15, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9]) {
@@ -2912,6 +2924,19 @@ const openShop = async (page) => {
   await page.evaluate(() => window.Farm3DBridge.setMarketOpen(true));
 };
 
+/* The same for the city, whose shop is a different place with a different
+   gate. The tool merchants moved out of the market village when the city
+   was built, so anything testing what an upgrade costs — as opposed to
+   where it may be bought — opens this one instead. */
+const openCity = async (page) => {
+  await page.waitForFunction(
+    () => window.Farm3DScene && window.Farm3DScene.atCity() !== null,
+    null,
+    { timeout: 15_000 },
+  );
+  await page.evaluate(() => window.Farm3DBridge.setCityOpen(true));
+};
+
 /* ------------------------------------------------------------------ */
 /* Upgrades                                                            */
 /* ------------------------------------------------------------------ */
@@ -2922,8 +2947,8 @@ test.describe('upgrades', () => {
 
   test('buying a level charges the cost and records it', async ({ page }) => {
     await load(page, makeSave({ coins: 500 }));
-    await page.getByRole('button', { name: /Market/ }).click();
-    await openShop(page);
+    await page.getByRole('button', { name: /City/ }).click();
+    await openCity(page);
 
     const sprinkler = upgradeCard(page, 'Sprinkler');
     await expect(sprinkler.locator('.upgrade-level')).toHaveText('Level 0 / 3');
@@ -2936,8 +2961,8 @@ test.describe('upgrades', () => {
 
   test('each level costs more than the last', async ({ page }) => {
     await load(page, makeSave({ coins: 10_000 }));
-    await page.getByRole('button', { name: /Market/ }).click();
-    await openShop(page);
+    await page.getByRole('button', { name: /City/ }).click();
+    await openCity(page);
 
     const sprinkler = upgradeCard(page, 'Sprinkler');
     const costs = [];
@@ -2955,8 +2980,8 @@ test.describe('upgrades', () => {
 
   test('a level cannot be bought without the coins', async ({ page }) => {
     await load(page, makeSave({ coins: 10 }));
-    await page.getByRole('button', { name: /Market/ }).click();
-    await openShop(page);
+    await page.getByRole('button', { name: /City/ }).click();
+    await openCity(page);
 
     await expect(upgradeCard(page, 'Sprinkler').getByRole('button')).toBeDisabled();
     await expect.poll(async () => (await readSave(page)).upgrades.sprinkler).toBe(0);
@@ -3007,6 +3032,10 @@ test.describe('upgrades', () => {
       upgrades: { sprinkler: 0, feed: 0, fertiliser: 0, contacts: 3 },
       inventory: { wheat: 0, corn: 0, carrot: 0, pumpkin: 0, milk: 2, egg: 0, wool: 0 },
     }));
+    /* The Market tab, not the City one: this test buys nothing — the
+       fixture already owns three levels of contacts — and what it reads is
+       the sell list, which is the market's. The blanket retarget of this
+       describe to the city caught it by accident. */
     await page.getByRole('button', { name: /Market/ }).click();
     await openShop(page);
 
@@ -5027,6 +5056,7 @@ test.describe('the size of the place', () => {
         const sites = s.dreamSites();
         const places = [
           { x: market.x, z: market.z, radius: market.radius },
+          s.city(),
           sites.house,
           sites.villa,
         ];
@@ -5930,28 +5960,30 @@ test.describe('the shop is at the market', () => {
     });
   });
 
-  test('nothing can be bought from the farm', async ({ page }) => {
-    await load(page, makeSave(rich));
+  test("the market's own goods cannot be bought from the farm", async ({ page }) => {
+    /* This used to be about the upgrades, which is what the market sold
+       when it was the only shop. They are the city's now, and this describe
+       is about the market, so the subject is the barn — the thing the
+       market village still sells. The upgrades' version of the same rule
+       lives in the city's describe. */
+    await load(page, makeSave({ ...rich, coins: 20_000 }));
     await ready(page);
     await market(page);
 
     expect(await page.evaluate(() => window.Farm3DScene.atMarket())).toBe(false);
-    await expect(upgradeBtn(page)).toBeDisabled();
-    // The price is still shown. A shut shop should say "not here", not
-    // "not for you" — the drive is a decision, and it needs a number.
-    await expect(upgradeBtn(page)).toContainText('120');
-    await expect(page.locator('#shopNote')).toBeVisible();
+    const barnBtn = page.locator('#barnList .barn-card').nth(0).locator('.barn-btn');
+    await expect(barnBtn).toBeDisabled();
 
     /* And the rule holds below the button, which is the half that matters:
        a disabled attribute is a hint to a mouse, not a guarantee.
 
-       Compared before and after rather than against the fixture's 9000: the
-       save's achievements pay out on load, so the number by the time this
-       runs is its own business. What is being asserted is that the attempt
-       changed nothing, which is the actual claim. */
+       Compared before and after rather than against the fixture: the save's
+       achievements pay out on load, so the number by the time this runs is
+       its own business. What is being asserted is that the attempt changed
+       nothing, which is the actual claim. */
     const before = await page.evaluate(() => state.coins);
-    await page.evaluate(() => buyUpgrade('sprinkler'));
-    expect(await page.evaluate(() => state.upgrades.sprinkler)).toBe(0);
+    await page.evaluate(() => buyBarn('small'));
+    expect((await readSave(page)).barn).toBeNull();
     expect(await page.evaluate(() => state.coins)).toBe(before);
   });
 
@@ -5976,7 +6008,16 @@ test.describe('the shop is at the market', () => {
        running beside it. The assertions are not the slow part and none of
        them have been relaxed — the budget has. */
     test.slow();
-    await load(page, makeSave(rich));
+    /* Barn money, which the describe's usual 9,000 is not: the small barn
+       is 10,000. When this test bought a sprinkler it did not need it, and
+       a button disabled for the price reads exactly like a button disabled
+       for the distance — which is the thing being tested.
+
+       And a hand on the confirmation, which an upgrade did not have either:
+       buying a barn asks first, and an unhandled dialog is dismissed, so
+       the click went through and nothing happened. */
+    page.on('dialog', (d) => d.accept());
+    await load(page, makeSave({ ...rich, coins: 20_000 }));
     await ready(page);
 
     await page.evaluate(() => window.Farm3DScene.board());
@@ -5985,11 +6026,14 @@ test.describe('the shop is at the market', () => {
       .toBe(true);
 
     await market(page);
-    await expect(upgradeBtn(page)).toBeEnabled();
-    await expect(page.locator('#shopNote')).toBeHidden();
+    /* A barn rather than an upgrade: what this test is for is that arriving
+       opens the market's counter, and the market's counter sells barns now
+       that the tools have moved to the city. */
+    const barnBtn = page.locator('#barnList .barn-card').nth(0).locator('.barn-btn');
+    await expect(barnBtn).toBeEnabled();
 
-    await upgradeBtn(page).click();
-    expect(await page.evaluate(() => state.upgrades.sprinkler)).toBe(1);
+    await barnBtn.click();
+    await expect.poll(async () => (await readSave(page)).barn, { timeout: 5000 }).toBe('small');
 
     /* Away again. It is a market, not a licence — leaving the square has to
        take the shop with it, or "arrive once" becomes "arrive ever".
@@ -6054,6 +6098,191 @@ test.describe('the shop is at the market', () => {
     await expect(page.locator('#barnList .barn-card').nth(0).locator('.barn-btn')).toBeDisabled();
     await page.evaluate(() => buyBarn('small'));
     expect((await readSave(page)).barn).toBeNull();
+  });
+});
+
+test.describe('the tool merchants are in the city', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+    await page.waitForFunction(
+      () => window.Farm3DScene.atCity() !== null, null, { timeout: 15_000 },
+    );
+  };
+  const rich = { coins: 9000 };
+  const cityTab = (page) => page.getByRole('button', { name: /City/ }).click();
+  /* By data-tab rather than by name: the City tab's own list contains a
+     "Market Contacts" upgrade, so a /Market/ role query matches two things
+     the moment this tab has been rendered once. */
+  const marketTab = (page) => page.locator('.tab-btn[data-tab="market"]').click();
+  const toolBtn = (page, name) => page.locator('#upgradeList .upgrade-item')
+    .filter({ hasText: name }).getByRole('button');
+
+  const driveToCity = (page) => page.evaluate(async () => {
+    const s = window.Farm3DScene;
+    const city = s.city();
+    s.board();
+    const started = performance.now();
+    await new Promise((resolve) => {
+      const tick = () => {
+        const c = s.car();
+        if (Math.hypot(c.x - city.x, c.z - city.z) < city.radius * 0.5
+          || performance.now() - started > 60_000) { s.drive(0, 0); resolve(); return; }
+        const id = s.onRoute('city', c.x, c.z).distance < 6 ? 'city' : 'market';
+        const here = s.onRoute(id, c.x, c.z);
+        const near = s.routePointAt(id, Math.min(1, here.along + 0.03));
+        const far = s.routePointAt(id, Math.min(1, here.along + 0.09));
+        const wrap = (a) => {
+          let v = a;
+          while (v > Math.PI) v -= Math.PI * 2;
+          while (v < -Math.PI) v += Math.PI * 2;
+          return v;
+        };
+        const err = wrap(Math.atan2(near.x - c.x, near.z - c.z) - c.heading);
+        const bend = Math.abs(wrap(Math.atan2(far.x - c.x, far.z - c.z) - c.heading));
+        const pace = bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1);
+        s.drive(Math.max(-1, Math.min(1, -err * 2.4)), c.speed > pace * 12 ? 0.35 : -1);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    return s.car();
+  });
+
+  test('the city road runs there, and the square has a street of its own',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+
+      const { roads, city, market } = await page.evaluate(() => ({
+        roads: window.Farm3DScene.roads(),
+        city: window.Farm3DScene.city(),
+        market: window.Farm3DScene.market(),
+      }));
+
+      const lane = roads.find((r) => r.id === 'city');
+      const marketRoad = roads.find((r) => r.id === 'market');
+      // It branches off the market road rather than starting in a field...
+      expect(Math.min(...marketRoad.points.map(
+        ([x, z]) => Math.hypot(x - lane.start.x, z - lane.start.z),
+      ))).toBeLessThan(1);
+      // ...and it finishes in the square.
+      expect(Math.hypot(lane.end.x - city.x, lane.end.z - city.z))
+        .toBeLessThan(city.radius);
+      /* The longest drive in the game — measured as the journey, not as the
+         branch. The lane alone is 59 units against the market road's 64, so
+         comparing those two says the opposite of the truth: the lane starts
+         a third of the way down the market road, and what the player drives
+         is the sum. */
+      const junction = await page.evaluate(
+        ([x, z]) => window.Farm3DScene.onRoute('market', x, z).along,
+        [lane.start.x, lane.start.z],
+      );
+      const toCity = marketRoad.length * junction + lane.length;
+      expect(toCity).toBeGreaterThan(marketRoad.length);
+
+      // The cross street is inside the square, not a road to anywhere.
+      const street = roads.find((r) => r.id === 'city-street');
+      for (const end of [street.start, street.end]) {
+        expect(Math.hypot(end.x - city.x, end.z - city.z)).toBeLessThan(city.radius);
+      }
+      // And the city is somewhere else entirely from the market.
+      expect(Math.hypot(city.x - market.x, city.z - market.z))
+        .toBeGreaterThan(city.radius + market.radius);
+    });
+
+  test('the tools are on the City tab and shut from the farm', async ({ page }) => {
+    await load(page, makeSave(rich));
+    await ready(page);
+    await cityTab(page);
+
+    expect(await page.evaluate(() => window.Farm3DScene.atCity())).toBe(false);
+
+    const btn = toolBtn(page, 'Sprinkler');
+    await expect(btn).toBeDisabled();
+    // The price is still shown. A shut shop should say "not here", not "not
+    // for you" — the drive is a decision and it needs a number.
+    await expect(btn).toContainText('120');
+    await expect(page.locator('#cityNote')).toBeVisible();
+
+    // And the rule holds below the button, which is the half that matters.
+    const before = await page.evaluate(() => state.coins);
+    await page.evaluate(() => buyUpgrade('sprinkler'));
+    expect(await page.evaluate(() => state.upgrades.sprinkler)).toBe(0);
+    expect(await page.evaluate(() => state.coins)).toBe(before);
+  });
+
+  test('the two shops are separate places', async ({ page }) => {
+    /* The whole point of the split. Standing in one square must not open the
+       other's counter — otherwise there are two tabs and one shop, and the
+       drive to either is decoration. */
+    test.slow();
+    await load(page, makeSave(rich));
+    await ready(page);
+
+    await driveToCity(page);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.atCity()),
+      { timeout: 10_000 }).toBe(true);
+    expect(await page.evaluate(() => window.Farm3DScene.atMarket())).toBe(false);
+
+    // The tools are for sale here...
+    await cityTab(page);
+    await expect(toolBtn(page, 'Sprinkler')).toBeEnabled();
+    await expect(page.locator('#cityNote')).toBeHidden();
+    await toolBtn(page, 'Sprinkler').click();
+    expect(await page.evaluate(() => state.upgrades.sprinkler)).toBe(1);
+
+    // ...and the barns, which are the market's, are not.
+    await marketTab(page);
+    await expect(page.locator('#barnList .barn-card').nth(0).locator('.barn-btn'))
+      .toBeDisabled();
+  });
+
+  test('the tractor makes her faster and the pesticide keeps crops longer',
+    async ({ page }) => {
+      await load(page, makeSave(rich));
+      await ready(page);
+
+      /* Both of these are cards that claim a number, and a card claiming a
+         number the game does not apply is the easiest bug in a shop to
+         ship. Each is measured against the thing it says it changes. */
+      const before = await page.evaluate(() => ({
+        walk: window.Farm3DScene.walkSpeed(),
+        spoil: cropSpoilMs(),
+      }));
+
+      await page.evaluate(() => window.Farm3DBridge.setCityOpen(true));
+      await page.evaluate(() => { buyUpgrade('tractor'); buyUpgrade('pesticide'); });
+
+      const after = await page.evaluate(() => ({
+        walk: window.Farm3DScene.walkSpeed(),
+        spoil: cropSpoilMs(),
+        tractor: state.upgrades.tractor,
+        pesticide: state.upgrades.pesticide,
+      }));
+
+      expect(after.tractor).toBe(1);
+      expect(after.pesticide).toBe(1);
+      // 15% per level on the walk, 25% on the keeping.
+      expect(after.walk).toBeCloseTo(before.walk * 1.15, 3);
+      expect(after.spoil).toBeCloseTo(before.spoil * 1.25, 3);
+    });
+
+  test('a save from before the city has the new tools at zero', async ({ page }) => {
+    /* No migration needed and none written — the sanitiser walks
+       UPGRADE_ORDER, so a key the save has never heard of defaults to zero
+       on its own. This is here to hold that true rather than to fix
+       anything. */
+    const old = makeSave({ coins: 500 });
+    old.upgrades = { sprinkler: 2, feed: 1, fertiliser: 0, contacts: 0 };
+    await load(page, old);
+
+    const saved = (await readSave(page)).upgrades;
+    expect(saved.tractor).toBe(0);
+    expect(saved.pesticide).toBe(0);
+    // ...and the levels that were there are untouched.
+    expect(saved.sprinkler).toBe(2);
+    expect(saved.feed).toBe(1);
   });
 });
 
@@ -6136,7 +6365,11 @@ test.describe('the two properties at the ends of the lanes', () => {
       await ready(page);
 
       const roads = await page.evaluate(() => window.Farm3DScene.roads());
-      expect(roads.map((r) => r.id).sort()).toEqual(['house', 'market', 'villa']);
+      /* Five ribbons: the market road, three lanes branching off it, and
+         the city's own cross street, which goes nowhere by design — it is a
+         street inside a town rather than a road to one. */
+      expect(roads.map((r) => r.id).sort())
+        .toEqual(['city', 'city-street', 'house', 'market', 'villa']);
 
       const market = roads.find((r) => r.id === 'market');
       const sites = await page.evaluate(() => window.Farm3DScene.dreamSites());
@@ -6170,6 +6403,8 @@ test.describe('the two properties at the ends of the lanes', () => {
       const s = window.Farm3DScene;
       const { boxes, posts } = s.solids();
       const out = {};
+      /* Every ribbon but the market road, whose own clearance is zero by
+         design — the car is parked on it at the pull-in. */
       for (const lane of s.roads().filter((r) => r.id !== 'market')) {
         let nearest = Infinity;
         for (const [x, z] of lane.points) {

@@ -103,13 +103,30 @@ to see.** Until you have driven out, the Dream tab tells you where the lane
 goes and its button says so instead of offering a price; once you have been,
 the card says what you found there and will sell it to you.
 
+**There is a city, and it sells different things from the market.** North
+past the orchard, at the end of the longest road in the game, is a town —
+buildings taller than anything on the farm, a square with a cross street
+running through it, and the tool merchants. The two shops are deliberately
+not the same shop:
+
+- **The market village**, south, trades farming goods. It buys your harvest
+  and it sells the barns you keep it in.
+- **The city**, north, sells the equipment that makes the farm better —
+  sprinklers, feed, fertiliser, contacts, and two things you can only get in
+  town: a **tractor** that takes 15% a level off the time it takes to cross
+  the farm, and **pesticide** that keeps a ripe crop standing 25% a level
+  longer before it spoils.
+
+Going is optional. You can farm the whole game without ever driving north —
+the tools just make it easier, and each one costs a trip as well as coins.
+
 **Selling still works from the farm; buying does not.** Goods leave the farm
 over the same counter at the same prices they always did — a buyer comes to
-you. Upgrades and barns are a shop, and a shop is somewhere you go: their
-buttons show what they would cost and stay greyed out until she is standing in
-the market square, which means the car and the road. Everything else on that
-tab — difficulty, farmer, sound, save data — is a setting rather than a
-purchase and is reachable wherever she is.
+you. Barns are the market's and tools are the city's, and both show what they
+would cost while staying greyed out until she is standing in the right square,
+which means the car and the road. Everything else on the Market tab —
+difficulty, farmer, sound, save data — is a setting rather than a purchase and
+is reachable wherever she is.
 
 It is a farm at human scale. The farmhouse stands more than three times her
 height and the barn nearly four, the orchard is grown trees rather than
@@ -415,12 +432,18 @@ grows on its floor, that a new farm has a field and no pasture while buying one
 fences it and opens the herd, that the refusal holds when the disabled button is
 gone round, and that a save from before the pasture existed keeps the herd it
 already had while one with no animals does not get a free field, that there
-are three roads rather than one and both new lanes start on the road they
-branch from and finish at the place they are named after, that nothing solid
+are five ribbons rather than one — the market road, three lanes branching off
+it and the city's own cross street — that each lane starts on the road it
+branches from and finishes at the place it is named after, that nothing solid
 stands in either of them, that she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
-below the button as well as on it,
+below the button as well as on it, that the market and the city are two
+separate shops so standing in one square never opens the other's counter,
+that the tools are shut from the farm below the button as well as on it, that
+the tractor really does change how fast she walks and the pesticide really
+does change how long a crop keeps, that a save from before the city defaults
+the two new tools to zero without disturbing the levels it already had,
 that the car's wheels turn with the ground while only the front pair steer and
 its lamps answer the brake and the hour, that up on the stick is away from the
 camera however the shot has been orbited, that no single frame turns her

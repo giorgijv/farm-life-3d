@@ -2070,11 +2070,44 @@ ${shader.fragmentShader.replace(
   const VILLA_WAYPOINTS = [
     [19, 25], [24, 22.5], [28.5, 19.5], [32.5, 15], [35, 10.5], [36.2, 5.6],
   ];
+  /* And the longest of the four: the road to the city.
+
+     It leaves the market road at the bend before the villa's turning, runs
+     up the east side of the farm — outside the flat ground, so it never
+     crosses anything the walk-to-work queue needs clear — and carries on
+     north past the orchard into open country. The branch is 59 units on its
+     own and it leaves the market road a third of the way along, so the
+     drive into town is about 75 against the market's 64 — the longest in
+     the game, which is the point: the city sells the things that make the
+     farm better, and they should cost a journey as well as coins. */
+  const CITY_WAYPOINTS = [
+    [13, 22.5], [15.5, 17], [16.8, 10], [16.6, 2], [16, -7], [14.8, -15],
+    [12.5, -21], [7, -24], [3, -27], [2, -30],
+  ];
 
   const MARKET = { x: 3.2, z: 37.8 };
   /* The two viewing places. Radius is what counts as "you are here" — the
      same double duty MARKET_RADIUS does below: how close the car has to get
      for the visit to count, and how far she may wander once she is out. */
+  /* The city square, where the tool shops are. Same double duty the market's
+     radius does: how close the car has to get for the shops to open, and how
+     far she may walk once she is out of it. Bigger than the market's ten
+     because the place itself is bigger. */
+  /* A second street, crossing the first in the square. This is the one
+     thing that separates a town from four houses in a field, and it is
+     cheaper than any amount of extra masonry: buildings arranged around a
+     crossroads read as a place with a plan, and the same buildings with one
+     road running past them read as a hamlet. Built from the same ribbon
+     machinery as the roads out, so it is surfaced, marked and drivable
+     rather than painted on. */
+  const CITY_STREET_WAYPOINTS = [
+    [-2.0, -30.2], [2, -29.4], [5, -29.0], [7, -28.6],
+  ];
+
+  const CITY = { x: 2, z: -30 };
+  const CITY_RADIUS = 13;
+  const CITY_WALK_RADIUS = CITY_RADIUS - 0.5;
+
   const DREAM_SITES = {
     /* Not the same size, because the two places are not. The cottage is a
        house and a garden and nine units holds all of it; the villa is a
@@ -2143,6 +2176,8 @@ ${shader.fragmentShader.replace(
     marketRoute,
     makeRoute('house', HOUSE_WAYPOINTS),
     makeRoute('villa', VILLA_WAYPOINTS),
+    makeRoute('city', CITY_WAYPOINTS),
+    makeRoute('city-street', CITY_STREET_WAYPOINTS),
   ];
   // Kept under their old names: everything that means *the road to market*
   // specifically — how far along the errand is, where the ribbon starts and
@@ -2443,6 +2478,58 @@ ${shader.fragmentShader.replace(
     { id: 'nature/tree_default', x: 9.6, z: 37.6, h: 4.2 },
     { id: 'nature/plant_bush', x: -1.8, z: 34.4 },
     { id: 'nature/plant_bush', x: 6.4, z: 35.4 },
+
+    /* --- the city, north past the orchard ---
+       The market is a hamlet: four buildings seen through fog at the end of
+       a drive. This has to read as somewhere else from the same two
+       suburban blocks, and what does it is height and mass rather than
+       count. Everything here is 6.2 to 7 units against the market's 4.8 and
+       5.4, so the smallest building in town is taller than the farmhouse.
+
+       Four buildings and not the seven the first draft had, and the reason
+       is measurement rather than taste. These blocks are far bigger than
+       they look — type-b at 7 units tall measures 11 by 7, type-a at 6.6
+       measures 8 by 10 — so seven of them on a ring around a square either
+       overlapped each other or ran off the edge of the terrain, and the
+       road went straight through one. Four, well spaced, with the stalls
+       and crates filling the square between them, reads as a town; seven
+       overlapping ones read as a bug.
+
+       Nothing stands east of the square, because that is the sector the
+       road arrives through. */
+    { id: 'city-suburban/building-type-b', x: -8.5, z: -27.5, ry: Math.PI / 2, h: 7.0, blocks: 'box' },
+    { id: 'city-suburban/building-type-a', x: -6.5, z: -39.5, ry: 0, h: 6.2, blocks: 'box' },
+    { id: 'city-suburban/building-type-b', x: 6.5, z: -41.5, ry: 0, h: 6.8, blocks: 'box' },
+    { id: 'city-suburban/building-type-a', x: 14.5, z: -32.0, ry: -Math.PI / 2, h: 6.6, blocks: 'box' },
+
+    /* The square: the tool shops, as stalls, because the kit has no
+       shopfront and a stall with crates outside it reads as a trade counter
+       where an unmarked wall does not. */
+    /* Set back off the kerb rather than on it. A stall is a collider, and
+       one standing within the road's own half-width is something the car
+       clips on the way into the square — the test that nothing solid stands
+       in a lane catches it at 2.14 against a carriageway 2.2 wide. */
+    /* The stalls sit in the band between the street and the buildings
+       behind it, and that band is four and a half units wide — a stall is
+       three across and has to keep half a unit off the masonry and two and
+       a half off the carriageway. The first layout had them clipping a
+       building at each end of the square; the street moved north to make
+       the room rather than the stalls being squeezed into a gap that was
+       not there. */
+    { id: 'fantasy-town/stall-green', x: 1.0, z: -34.0, ry: 0.5, h: 2.7, blocks: 'box' },
+    { id: 'fantasy-town/stall-green', x: 6.0, z: -33.8, ry: -1.2, h: 2.7, blocks: 'box' },
+    { id: 'survival/signpost', x: 8.4, z: -26.0, ry: -0.5 },
+    { id: 'survival/barrel', x: -0.8, z: -33.0, ry: 0.4 },
+    { id: 'survival/barrel', x: -0.2, z: -33.6, ry: -0.8 },
+    { id: 'survival/barrel', x: 3.6, z: -34.6, ry: 1.1 },
+    { id: 'survival/box', x: -2.6, z: -27.2, ry: 0.2 },
+    { id: 'survival/box', x: -2.0, z: -26.6, ry: 1.1 },
+    { id: 'survival/box', x: 8.0, z: -32.0, ry: -0.4 },
+    { id: 'survival/chest', x: 4.6, z: -32.6, ry: 0.6 },
+    /* Two trees and nothing else green. A city planted like the farm is a
+       village with taller houses. */
+    { id: 'nature/tree_default', x: -3.6, z: -25.4, h: 4.4 },
+    { id: 'nature/tree_default', x: 9.0, z: -35.8, h: 4.2 },
 
     /* --- the country house, at the top of the meadow ---
        The cheaper of the two endings, and it has to look like the cheaper
@@ -2974,6 +3061,14 @@ ${shader.fragmentShader.replace(
        them is open ground as far as SOLIDS is concerned, and the first build
        grew a fine crop of grass across the threshing floor. */
     if (insideBarn(x, z)) return true;
+    /* The city square, for a different reason: nothing is wrong with the
+       ground there, but the hillside fringe reaches thirteen units past the
+       farm — to z -28, where the city starts at -22 — so it sowed pines
+       between the buildings and turned the town back into a village with
+       taller houses. The market and the two properties are all outside the
+       fringe's own bounds and need no such line; the city is the one place
+       that is in them. */
+    if (Math.hypot(x - CITY.x, z - CITY.z) <= CITY_RADIUS + 2) return true;
     const m = FOLIAGE_CLEARANCE;
     for (const b of SOLIDS.boxes) {
       if (x >= b.minX - m && x <= b.maxX + m && z >= b.minZ - m && z <= b.maxZ + m) return true;
@@ -4040,7 +4135,26 @@ ${lit}`;
      answer, do it; different answer, drop it. That way a walk can be wasted,
      but a player is never charged for something they did not ask for. */
 
-  const WALK_SPEED = 4.2;                       // world units per second
+  const WALK_SPEED = 4.2;                       // world units per second on foot
+  /* What she actually covers ground at, which is no longer a constant: the
+     city sells a tractor, and a tractor that did not change how fast the
+     farm gets crossed would be a number on a card.
+
+     Read fresh rather than cached, because the upgrade can be bought while
+     the scene is running — she drives to the city, buys it, and the walk
+     home is the first thing that should feel different. Three levels at 15%
+     each tops out a little over half again, which is noticeable without
+     turning the yard into a corridor she overshoots.
+
+     Everything that moves her on foot goes through this, and so does the
+     walk cycle's playback rate — those two agreeing is what keeps her feet
+     planted instead of skating, so a tractor that sped up one and not the
+     other would look worse than no tractor at all. */
+  const TRACTOR_STEP = 0.15;
+  function walkSpeed() {
+    const level = bridge.getState().upgrades?.tractor ?? 0;
+    return WALK_SPEED * (1 + TRACTOR_STEP * level);
+  }
   const CROUCH_MS = 450;                        // the beat at the tile before the crop pops
   const STAND_OFF = 0.66;                       // she stops this far south of a tile's centre
   /* How much ground the cycle covers at 1x, in the same units as WALK_SPEED.
@@ -4210,7 +4324,7 @@ ${lit}`;
     const dz = tz - fromZ;
     const dist = Math.hypot(dx, dz);
     if (dist < 0.001) return true;
-    const step = Math.min(WALK_SPEED * dt, dist);
+    const step = Math.min(walkSpeed() * dt, dist);
     moveWithCollision(
       fromX, fromZ, fromX + (dx / dist) * step, fromZ + (dz / dist) * step, at, false,
     );
@@ -4566,6 +4680,7 @@ ${lit}`;
      the moment her feet touch the gravel would be the whole feature, undone. */
   const AWAY = [
     { x: MARKET.x, z: MARKET.z, radius: MARKET_RADIUS },
+    { x: CITY.x, z: CITY.z, radius: CITY_RADIUS },
     { x: DREAM_SITES.house.x, z: DREAM_SITES.house.z, radius: DREAM_SITES.house.radius },
     { x: DREAM_SITES.villa.x, z: DREAM_SITES.villa.z, radius: DREAM_SITES.villa.radius },
   ];
@@ -4627,7 +4742,7 @@ ${lit}`;
 
   function steer(dt) {
     const mag = Math.min(1, Math.hypot(drive.x, drive.z));
-    const step = WALK_SPEED * mag * dt;
+    const step = walkSpeed() * mag * dt;
     const fromX = at.x;
     const fromZ = at.z;
 
@@ -4805,14 +4920,36 @@ ${lit}`;
      until she drove to the market and back. The default there exists for
      builds with no scene at all; this is the scene taking ownership of it. */
   let shopOpen = null;
+  /* Starts null for the same reason shopOpen does: false is also the real
+     state at the farm gate, so a false start would match and push nothing,
+     leaving the city's shop trading until she had driven there and back. */
+  let cityOpen = null;
+  /* Two shops now, in two different places, asked the same question: is the
+     car here and is she here with it? Both are needed — the car alone means
+     she walked off and left it, and her alone means she got out somewhere
+     and the car is elsewhere, which cannot happen but is cheap to hold.
+
+     Written once and called twice rather than copied, because the two gates
+     have to answer identically or the difference will be a bug nobody finds
+     until a player is standing in one of them wondering why the buttons are
+     grey. */
+  function atPlace(place, radius) {
+    const carThere = Math.hypot(carAt.x - place.x, carAt.z - place.z) <= radius;
+    const sheIsThere = inCar || Math.hypot(at.x - place.x, at.z - place.z) <= radius;
+    return carThere && sheIsThere;
+  }
+
   function syncShop() {
-    const carThere = Math.hypot(carAt.x - MARKET.x, carAt.z - MARKET.z) <= MARKET_RADIUS;
-    const sheIsThere = inCar
-      || Math.hypot(at.x - MARKET.x, at.z - MARKET.z) <= MARKET_RADIUS;
-    const open = carThere && sheIsThere;
-    if (open === shopOpen) return;
-    shopOpen = open;
-    bridge.setMarketOpen?.(open);
+    const open = atPlace(MARKET, MARKET_RADIUS);
+    if (open !== shopOpen) {
+      shopOpen = open;
+      bridge.setMarketOpen?.(open);
+    }
+    const cityNow = atPlace(CITY, CITY_RADIUS);
+    if (cityNow !== cityOpen) {
+      cityOpen = cityNow;
+      bridge.setCityOpen?.(cityNow);
+    }
   }
 
   function advanceCar(dt) {
@@ -5315,7 +5452,7 @@ ${lit}`;
        so her feet stay planted instead of skating: the clip is authored for
        CLIP_WALK_SPEED, and anything else is that much faster or slower. */
     const walkAction = body.actions[FARMER_CLIP.walking];
-    if (walkAction) walkAction.timeScale = WALK_SPEED / CLIP_WALK_SPEED;
+    if (walkAction) walkAction.timeScale = walkSpeed() / CLIP_WALK_SPEED;
 
     body.mixer.update(poseDt);
     farmer.position.set(at.x, terrainGridHeight(at.x, at.z), at.z);
@@ -5644,6 +5781,15 @@ ${lit}`;
     alight: () => leaveCar(),
     atWheel: () => inCar,
     atMarket: () => shopOpen,
+    /* The city's counterpart, and the pair being separate is the claim
+       worth testing: standing in one square must not open the other's
+       shop. */
+    atCity: () => cityOpen,
+    city: () => ({ x: CITY.x, z: CITY.z, radius: CITY_RADIUS }),
+    /* What the tractor is actually doing to her, in the units the walk
+       uses. A card that says 15% faster and a farmer who walks at the same
+       speed is the failure this catches. */
+    walkSpeed: () => walkSpeed(),
     /* Which way the shot is facing. The walk is read through this — the stick
        is rotated into the camera's frame — so a test that wants to prove
        "forward means away from the camera" needs to be able to ask where the

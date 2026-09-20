@@ -3134,6 +3134,173 @@ correct only because the camera has not moved when they run.
 
 ---
 
+## 37. The city, and one shop becoming two
+
+The farm's shop sold everything: your harvest went over the same counter the
+sprinklers came back across, and both were in the market village. That is one
+shop with two jobs, and the drive to it meant the same thing whichever you
+were doing. Now there are two places, and they sell different things.
+
+| | Where | Sells |
+|---|---|---|
+| **Market village** | south, 64 units of road | farming goods — it buys the harvest, it sells barns |
+| **The city** | north, about 75 units | tools and chemicals — every productivity upgrade |
+
+### One gate function, called twice
+
+`syncShop` used to ask one question. It asks the same question of two places
+now, and the check is written once and called twice rather than copied:
+
+```js
+function atPlace(place, radius) {
+  const carThere = ...;
+  const sheIsThere = inCar || ...;
+  return carThere && sheIsThere;
+}
+```
+
+Two copies would have drifted, and the way that failure shows up is a player
+standing in a square wondering why the buttons are grey. `cityOpen` starts
+`null` in the scene and `true` in the page for exactly the reasons `shopOpen`
+and `marketOpen` do — see §33; the argument is unchanged and now load-bearing
+in two places.
+
+### Making it read as a city, with two building models
+
+The market hamlet and the city are built from the same two suburban blocks,
+and the first draft of the city was the same composition at a different
+address: four buildings, two stalls, some crates. It read as another village.
+
+Three things changed that, and only one of them is masonry.
+
+**Height.** Everything in town is 6.2 to 7.0 against the market's 4.8 and 5.4,
+so the smallest building in the city is taller than the farmhouse.
+
+**A cross street.** This is the one that did the work, and it is the cheapest
+thing in the section: a second ribbon through the square, built with the same
+machinery as the roads out. Buildings around a crossroads read as a place with
+a plan; the same buildings with one road past them read as a hamlet. Standing
+in the street with buildings crowding both sides is the first view of the city
+that actually looked like one.
+
+**Fewer buildings than the draft wanted.** Seven became four, and the reason
+is measurement. These blocks are much larger than they look — type-b at 7
+units tall measures 11 by 7, type-a at 6.6 measures 8 by 10 — so seven of them
+on a ring either overlapped each other or ran off the edge of the terrain, and
+the road went straight through one. Four well-spaced buildings with the stalls
+filling the square between them reads as a town; seven overlapping ones read
+as a bug.
+
+### The pines in the square
+
+The hillside fringe scatters trees up to thirteen units past the farm, which
+reaches z −28. The city starts at −22. So the first build sowed pines between
+the buildings and turned the town straight back into a village with taller
+houses — caught by looking at it, and fixed by adding the city's radius to the
+clearing test the barn floor already uses.
+
+Worth noting which places needed this and which did not: the market and both
+properties sit outside the fringe's own bounds and need no such line. The city
+is the only one inside them. A blanket "no trees near any destination" rule
+would have been three-quarters dead code.
+
+### Two new things to buy, and why they hook into old numbers
+
+The city could have been the upgrades tab at a new address. Two new items make
+it a place worth the drive, and both were chosen because the game already had
+the number they change:
+
+- **🚜 Tractor** — 15% a level off the time it takes to cross the farm. This
+  turned `WALK_SPEED` from a constant into `walkSpeed()`, read fresh every
+  step so buying one in town makes the walk home different. Both the movement
+  *and the walk cycle's playback rate* read it — those two agreeing is what
+  keeps her feet planted, and a tractor that sped up one and not the other
+  would look worse than no tractor at all.
+- **🧴 Pesticide** — 25% a level onto the window a ripe crop has before it
+  spoils, multiplied into `cropSpoilMs()` alongside the difficulty's own
+  factor. Multiplicative because a chemical that helped more on Relaxed than
+  on Hard would be an odd thing to sell.
+
+No save migration was needed and none was written: the upgrade sanitiser walks
+`UPGRADE_ORDER`, so a key an old save has never heard of defaults to zero on
+its own. There is a test holding that true rather than fixing anything. The
+*default state* did need a change — it listed the four upgrade keys by hand,
+which would have left the two new ones undefined, so it is derived from
+`UPGRADE_ORDER` now.
+
+### Three tests that had to move rather than bend
+
+The upgrades were the market's, so the market's describe tested them. They are
+the city's now, and the tests followed the subject rather than being relaxed
+where they stood:
+
+- The `upgrades` describe opens the **City** tab and a new `openCity` helper,
+  the exact mirror of `openShop`.
+- *"Nothing can be bought from the farm"* was about upgrades in a describe
+  called "the shop is at the market". It now tests the barn — the thing the
+  market still sells — and the upgrades' version of the same rule lives in
+  the city's describe.
+- *"Driving there opens the shop"* bought a sprinkler to prove the counter had
+  opened. It buys a barn now, for the same reason.
+
+### Five more tests the city broke, and what each was really saying
+
+None was relaxed; each was repaired by correcting a fact that had changed.
+
+**The reset test listed four upgrades.** `expect(s.upgrades).toEqual({...})`
+on a new farm. It now lists six, and listing them is the right shape: adding
+a seventh should fail this until somebody confirms a new farm really does
+start without it. That is precisely what it did here.
+
+**The "adrift" check needed the city.** Same repair as the two properties in
+§36, for the same reason: the invariant is "everything is somewhere", and a
+new somewhere is named rather than excused.
+
+**The solid-overlap check found three real clashes** among the city's own
+props — two stalls clipping the buildings behind them and the two eastern
+blocks 0.45 apart against a 0.5 margin. The square is four and a half units
+between the street and the buildings, and a stall is three across needing
+half a unit off masonry and two and a half off tarmac. The street moved north
+to make the room rather than the stalls being squeezed into a gap that was
+not there.
+
+**"Driving there opens the shop" failed twice, for two different reasons that
+looked identical.** It used to buy a sprinkler; retargeted to a barn, the
+button was disabled — because the describe's fixture has 9,000 coins and a
+small barn is 10,000. *A button disabled for the price reads exactly like a
+button disabled for the distance*, which is the thing the test exists to
+check. Then, with money, the click did nothing: buying a barn asks for
+confirmation and an unhandled dialog is dismissed. An upgrade never asked.
+
+**The sun-and-moon test started timing out**, and it is not broken: sixteen
+seconds alone against a thirty-second budget, over the line once the rest of
+the suite is competing. The city's props made every scene load a little
+heavier and this was the test with the least headroom. Marked slow, like the
+three before it. Worth saying plainly: that is now five tests carried by
+`test.slow()`, and the next feature to add props should expect to find a
+sixth rather than treat it as a surprise.
+
+### A locator that became ambiguous
+
+`getByRole('button', { name: /Market/ })` had been the way to click the Market
+tab all through the suite. The City tab's list contains a **Market Contacts**
+upgrade, so that query matches two elements the moment the City tab has been
+rendered once — which only happens in the tests that visit both. Those use
+`.tab-btn[data-tab="market"]`. The rest are untouched and safe, because
+`#upgradeList` is empty until the City tab is opened.
+
+### A claim measured after being asserted
+
+The first version of the road test said the city lane should be longer than
+the market road, and it is not: 59 units against 64. The lane *branches off*
+the market road a third of the way along, so the journey is the sum — about
+75 — and comparing the branch to the whole road says the opposite of the
+truth. The test computes the junction's position along the market road and
+adds. The code comment had guessed "forty-odd units" and was corrected to the
+measured figures at the same time.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -3655,6 +3822,27 @@ Everything above was checked before it was written:
   with §35's pasture rather than an oversight — recorded because the two
   sit next to each other in the save and the inconsistency would otherwise
   look like one of them was forgotten.
+
+- §37's city layout was measured into place, not composed by eye. A probe
+  reported every city prop's collision box and its clearance from both
+  streets in one table, and four iterations of that table are what moved the
+  buildings off the road, the stalls off the kerb and the count from seven
+  to four.
+- §37's "longest drive" claim was asserted before it was measured and was
+  false as first written — the branch is shorter than the market road; the
+  journey is longer. Both the test and the code comment now carry the
+  measured figures.
+- The pines growing in the city square were caught by looking at a
+  screenshot, not by reasoning about scatter bounds. The bounds were obvious
+  once the trees were there and invisible beforehand.
+
+- One process mistake in §37, and the third of its kind in this document:
+  the help panel was edited while a full suite run was in flight, so some
+  tests ran against the old page and some against the new one. The run was
+  killed rather than read. The rule that keeps being relearned is simply
+  *finish every edit before starting the run*, and the reason it keeps
+  being broken is that a documentation-shaped change does not feel like a
+  code change until it turns out the help text has a test.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

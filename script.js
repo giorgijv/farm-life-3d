@@ -116,7 +116,12 @@ function difficulty() {
 
 /* Every tunable the tiers touch reads through one of these, so a tier is a
    row in the table above rather than a change scattered through the rules. */
-function cropSpoilMs()      { return CROP_SPOIL_MS * difficulty().patience; }
+/* How long a ripe crop keeps. Difficulty scales it and so does the
+   pesticide, multiplicatively — a chemical that helps more on Relaxed than
+   on Hard would be an odd thing to sell. */
+function cropSpoilMs() {
+  return CROP_SPOIL_MS * difficulty().patience * (1 + 0.25 * upgradeLevel('pesticide'));
+}
 function animalStarveMs()   { return ANIMAL_STARVE_MS * difficulty().patience; }
 function farmerMealMs()     { return FARMER_MEAL_MS * difficulty().patience; }
 function farmerCollapseMs() { return FARMER_COLLAPSE_MS * difficulty().patience; }
@@ -308,9 +313,23 @@ const UPGRADES = {
     name: 'Market Contacts', emoji: '🤝', maxLevel: 3, baseCost: 250, costGrowth: 2.2,
     describe: (lvl) => `Goods sell for ${Math.round(lvl * 10)}% more`,
   },
+  /* Two the city added, and they are the reason it is worth the drive
+     rather than a relabelled tab. Both hook into a number the game already
+     had rather than inventing a system: the tractor scales the speed the
+     scene walks her at, and the pesticide scales the window a ripe crop has
+     before it spoils. Priced above the four older ones because they are
+     what you go to town for. */
+  tractor: {
+    name: 'Tractor', emoji: '🚜', maxLevel: 3, baseCost: 300, costGrowth: 2,
+    describe: (lvl) => `Cross the farm ${Math.round(lvl * 15)}% faster`,
+  },
+  pesticide: {
+    name: 'Pesticide', emoji: '🧴', maxLevel: 3, baseCost: 280, costGrowth: 2.1,
+    describe: (lvl) => `Ripe crops keep ${Math.round(lvl * 25)}% longer`,
+  },
 };
 
-const UPGRADE_ORDER = ['sprinkler', 'feed', 'fertiliser', 'contacts'];
+const UPGRADE_ORDER = ['sprinkler', 'feed', 'fertiliser', 'contacts', 'tractor', 'pesticide'];
 
 /* The two grand goals the whole farm builds towards. They are deliberately
    either/or: buying one takes the other off the market for good, so the run
@@ -434,7 +453,11 @@ function freshState() {
     inventory: { wheat: 0, corn: 0, carrot: 0, pumpkin: 0, milk: 0, egg: 0, wool: 0 },
     stats: { totalHarvested: 0, totalCoinsEarned: 0 },
     unlockedAchievements: [],
-    upgrades: { sprinkler: 0, feed: 0, fertiliser: 0, contacts: 0 },
+    /* Derived from the order rather than listed, so the day a seventh
+       upgrade is added it cannot be added here and forgotten there. The
+       tractor and the pesticide were added to UPGRADE_ORDER alone and a
+       hand-written list would have defaulted them to undefined. */
+    upgrades: Object.fromEntries(UPGRADE_ORDER.map((key) => [key, 0])),
     subsidiesPaid: 0,
     hurricanesSeen: 0,
     hurricaneWarned: false,
@@ -1195,6 +1218,7 @@ function setActiveTab(tab) {
   document.getElementById('farmTab').classList.toggle('hidden', tab !== 'farm');
   document.getElementById('animalsTab').classList.toggle('hidden', tab !== 'animals');
   document.getElementById('marketTab').classList.toggle('hidden', tab !== 'market');
+  document.getElementById('cityTab').classList.toggle('hidden', tab !== 'city');
   document.getElementById('achievementsTab').classList.toggle('hidden', tab !== 'achievements');
   document.getElementById('dreamTab').classList.toggle('hidden', tab !== 'dream');
   render();
@@ -1501,8 +1525,21 @@ function helpSections() {
       lines: [
         'Sell produce for coins, and check what you are holding. Prices are fixed '
         + 'unless you buy Market Contacts.',
-        'Four permanent upgrades give late-game coins somewhere to go: faster crops, '
-        + 'faster animals, bigger harvests and better prices, each with three levels.',
+        'The market village also sells barns. Selling works from the farm — a buyer '
+        + 'comes to you — but buying means driving there.',
+      ],
+    },
+    {
+      emoji: '🏙️', title: 'City',
+      lines: [
+        'North past the orchard, at the end of the longest road on the map, is a '
+        + 'town with the tool merchants in it. Going is optional; the whole game '
+        + 'can be farmed without ever driving up there.',
+        `${UPGRADE_ORDER.length} permanent upgrades give late-game coins somewhere to go: `
+        + 'faster crops, faster animals, bigger harvests, better prices, a tractor '
+        + 'that gets you round the farm quicker and pesticide that keeps a ripe crop '
+        + 'standing longer. Three levels each, and every one of them is bought in '
+        + 'the city rather than at the market.',
       ],
     },
     {
@@ -2489,6 +2526,15 @@ window.Farm3DBridge = {
   /* The scene telling the shop whether she is standing in it. See marketOpen
      for why this is a setter the scene pushes rather than something the
      interface asks for. */
+  /* The city's counterpart to setMarketOpen. Re-renders on the City tab for
+     the same reason the market one does: the buttons carry the reason they
+     are disabled, and a tab the player is already looking at when the car
+     rolls into the square has to change under them. */
+  setCityOpen(open) {
+    if (open === cityOpen) return;
+    cityOpen = open;
+    if (activeTab === 'city') render();
+  },
   setMarketOpen(open) {
     if (open === marketOpen) return;
     marketOpen = open;
@@ -3217,7 +3263,7 @@ function buyUpgrade(key) {
      a stale render, a keyboard activating a control mid-drive, or anything
      else reaching this function directly would otherwise walk straight past
      a disabled attribute. */
-  if (!marketOpen) { shopRefusal(); return; }
+  if (!cityOpen) { cityRefusal(); return; }
 
   const cost = upgradeCost(key);
   if (state.coins < cost) {
@@ -3250,14 +3296,40 @@ function buyUpgrade(key) {
    standing this second, and a reloaded farm starts her at the gate. */
 let marketOpen = true;
 
-/* What the player is told when it is shut, in one place: the buttons say it
-   short, the toast says it whole, and both would otherwise drift. */
+/* The city's gate, which is the market's gate again for a different place.
+
+   The two shops sell different things and stand twenty-five units apart:
+   the market village trades farming goods — it buys your harvest, and it
+   sells the barns you keep it in — and the city sells the tools and
+   chemicals that make the farm better. Splitting them is what makes either
+   worth driving to; one counter selling everything is a menu with a
+   distance in front of it.
+
+   Same default as marketOpen, and load-bearing for the same reason: a build
+   where the scene never starts leaves both shops open rather than locking
+   the player out of half the game. */
+let cityOpen = true;
+
+/* What the player is told when one is shut, in one place per shop: the
+   buttons say it short, the toast says it whole, and both would otherwise
+   drift. Two pairs rather than one parameterised pair, because the second
+   halves say genuinely different things — the market's mentions that
+   selling still works from the farm, which is not true of anything the city
+   sells. */
 const SHUT_SHORT = '🚗 At the market';
 const SHUT_LONG = 'Drive the car to the market to buy this — selling works from the farm.';
+const CITY_SHORT = '🏙️ In the city';
+const CITY_LONG = 'Drive the car to the city to buy this — the tool merchants are there, '
+  + 'not at the farm.';
 
 function shopRefusal() {
   SFX.error();
   showToast(SHUT_LONG);
+}
+
+function cityRefusal() {
+  SFX.error();
+  showToast(CITY_LONG);
 }
 
 function renderUpgrades() {
@@ -3304,11 +3376,11 @@ function renderUpgrades() {
       /* The price is shown either way. A shut shop should say "not here",
          not "not for you" — a player deciding whether the drive is worth
          making needs to know what it would cost when they arrive. */
-      btn.textContent = marketOpen ? `Upgrade (${cost}💰)` : `${SHUT_SHORT} · ${cost}💰`;
-      btn.disabled = !marketOpen || state.coins < cost;
-      btn.setAttribute('aria-label', marketOpen
+      btn.textContent = cityOpen ? `Upgrade (${cost}💰)` : `${CITY_SHORT} · ${cost}💰`;
+      btn.disabled = !cityOpen || state.coins < cost;
+      btn.setAttribute('aria-label', cityOpen
         ? `Upgrade ${def.name} to level ${level + 1} for ${cost} coins`
-        : `${def.name}, level ${level + 1}, ${cost} coins. ${SHUT_LONG}`);
+        : `${def.name}, level ${level + 1}, ${cost} coins. ${CITY_LONG}`);
     }
   });
 
@@ -3316,10 +3388,10 @@ function renderUpgrades() {
      for. Without it the whole section reads as broken rather than as shut:
      "disabled" is not a reason, and a button that has never worked for this
      player has no history to infer one from. */
-  const note = document.getElementById('shopNote');
+  const note = document.getElementById('cityNote');
   if (note) {
-    note.textContent = marketOpen ? '' : SHUT_LONG;
-    note.hidden = marketOpen;
+    note.textContent = cityOpen ? '' : CITY_LONG;
+    note.hidden = cityOpen;
   }
 }
 
@@ -3328,7 +3400,6 @@ function renderUpgrades() {
 /* ------------------------------------------------------------------ */
 
 function renderMarket() {
-  renderUpgrades();
   renderSoundSettings();
 
   const goods = Object.entries(GOODS);
@@ -4153,6 +4224,8 @@ function render() {
     renderBarns();
     renderDifficultyChoice('difficultyChoice');
     renderFarmerChoice();
+  } else if (activeTab === 'city') {
+    renderUpgrades();
   } else if (activeTab === 'achievements') {
     renderAchievements();
   } else if (activeTab === 'dream') {

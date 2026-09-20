@@ -46,6 +46,7 @@
       <button class="tab-btn active" data-tab="farm"><span class="tab-icon">🌾</span> Farm</button>
       <button class="tab-btn" data-tab="animals"><span class="tab-icon">🐄</span> Animals</button>
       <button class="tab-btn" data-tab="market"><span class="tab-icon">🛒</span> Market</button>
+      <button class="tab-btn" data-tab="city"><span class="tab-icon">🏙️</span> City</button>
       <button class="tab-btn" data-tab="achievements"><span class="tab-icon">🏆</span> Awards</button>
       <button class="tab-btn" data-tab="dream"><span class="tab-icon">🏡</span> Dream</button>
     </nav>
@@ -152,15 +153,22 @@
     </section>
 
     <!-- MARKET TAB -->
-    <section id="marketTab" class="tab-screen hidden">
-      <h2 class="group-title">🔧 Upgrades</h2>
+    <!-- CITY TAB — the tool merchants, twenty-five units north of the farm.
+         Separate from the Market because they sell different things: the
+         market village buys the harvest and sells barns, the city sells the
+         equipment that makes the farm better. -->
+    <section id="cityTab" class="tab-screen hidden">
+      <h2 class="group-title">🔧 Tools &amp; Chemicals</h2>
       <!-- Why the buy buttons are greyed out, shown only when they are. A
            live region because it appears and disappears as she drives in and
            out of the square, and a screen reader that never sees the buttons
            change colour has nothing else to go on. -->
-      <p class="shop-note" id="shopNote" role="status" aria-live="polite" hidden></p>
+      <p class="shop-note" id="cityNote" role="status" aria-live="polite" hidden></p>
       <div class="upgrade-list" id="upgradeList"></div>
+      <div class="night-veil"></div>
+    </section>
 
+    <section id="marketTab" class="tab-screen hidden">
       <h2 class="group-title">Sell Goods</h2>
       <div class="market-list" id="sellList"></div>
       <h2 class="group-title">Inventory</h2>
