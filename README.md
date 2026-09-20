@@ -90,6 +90,12 @@ The camera stays yours while you drive — drag to look at where you are going
 and it eases back behind the car a moment after you let go. Arrive at the
 market and the load sells itself.
 
+You can stop anywhere along the way, get out and walk a few paces round the
+car — to look at something, or just to stand in a field. The car waits, and
+you can always get back in. What you cannot do is drive off the edge of the
+world: the ground runs out a little way past the farthest road, and the car
+stops at it.
+
 **There are two more lanes, and two places to want.** The country house and
 the grand villa are the two ways the game ends, and each now stands at the end
 of a road of its own. One branch leaves the market road west of the farm and
@@ -443,7 +449,11 @@ separate shops so standing in one square never opens the other's counter,
 that the tools are shut from the farm below the button as well as on it, that
 the tractor really does change how fast she walks and the pesticide really
 does change how long a crop keeps, that a save from before the city defaults
-the two new tools to zero without disturbing the levels it already had,
+the two new tools to zero without disturbing the levels it already had, that
+neither the car nor the farmer can leave the modelled ground, that stopping
+the car out in the country lets her walk round it and get back in rather
+than snapping her home and stranding it, that the tractor makes her
+measurably quicker without her legs turning into a windmill,
 that the car's wheels turn with the ground while only the front pair steer and
 its lamps answer the brake and the hour, that up on the stick is away from the
 camera however the shot has been orbited, that no single frame turns her
