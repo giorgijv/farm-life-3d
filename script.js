@@ -8,15 +8,24 @@ const PLOT_COUNT = 16;
 const INITIAL_UNLOCKED_PLOTS = 8;
 const PLOT_UNLOCK_BASE_COST = 30;
 const PLOT_UNLOCK_INCREMENT = 25;
-/* The pasture: the farm's second field, and the one you have to buy.
-   
+/* Stocking the stable: the farm's second working space, and the one you
+   have to buy.
+
    The crop field comes with the farm because a farm game that opens with
-   nothing to do is not a farm game. The pasture does not, which turns
-   "should I keep animals at all?" into a decision with a price on it rather
-   than a tab that is simply there from the first minute. 120 is a little
-   over two plot unlocks and well under a small barn, so it lands as the
-   thing you save for after the first proper harvest — which is also the
-   point at which feeding animals stops being a gamble. */
+   nothing to do is not a farm game. Somewhere to keep animals does not,
+   which turns "should I keep animals at all?" into a decision with a price
+   on it rather than a tab that is simply there from the first minute. 120
+   is a little over two plot unlocks and well under a small barn, so it
+   lands as the thing you save for after the first proper harvest — which is
+   also the point at which feeding animals stops being a gamble.
+
+   The state key is still `pasture`, and it is staying that way. It named a
+   fenced rectangle east of the field; the livestock lives in the stable now
+   and the fence is gone, but every save in the wild has this field in it
+   under this name, and renaming it would mean a migration that buys nothing
+   — the flag means the same thing it always did: you have somewhere to keep
+   animals. What the player is sold is named in the UI, which is where names
+   are for reading. */
 const PASTURE_COST = 120;
 const DAY_LENGTH_MS = 90 * 1000; // one in-game day
 /* Both games are served from giorgijv.github.io, and localStorage is scoped to
@@ -818,7 +827,7 @@ function migrateSave(parsed) {
      everything else here.
 
      No amnesty for old saves, and that is a deliberate difference from the
-     pasture below. The pasture migration exists because shipping it naively
+     stable below. That migration exists because shipping it naively
      would have *taken something away* — a herd with nowhere to live. This
      takes nothing away: the properties are still for sale at the same
      prices, and what is new is a drive that did not exist before, to a
@@ -831,18 +840,18 @@ function migrateSave(parsed) {
     }
   }
 
-  /* The pasture, and the one migration rule that matters: anybody who
-     already has an animal already has a pasture.
+  /* Somewhere to keep animals, and the one migration rule that matters:
+     anybody who already has an animal already has somewhere to keep it.
 
-     This field did not exist before this build, so every save in the wild
-     is missing it, and a missing field reads as false — which would take the
-     pen away from a player mid-game and leave a herd standing in a field
-     they no longer own. Nothing else in the save would be wrong; the cows
-     would simply have nowhere to be. So the pen is granted to anyone whose
-     save shows they were using it, which is the same judgement the plot
-     migration above makes when it decides a short grid means an old save
-     rather than a broken one. New farms, which have no animals, start
-     without it and buy it — which is the point of the change. */
+     This field did not exist before the build that added it, so saves in
+     the wild are missing it, and a missing field reads as false — which
+     would take the place away from a player mid-game and leave a herd
+     standing somewhere they no longer own. Nothing else in the save would
+     be wrong; the cows would simply have nowhere to be. So it is granted to
+     anyone whose save shows they were using it, which is the same judgement
+     the plot migration above makes when it decides a short grid means an
+     old save rather than a broken one. New farms, which have no animals,
+     start without it and buy it — which is the point of the change. */
   if (typeof parsed.pasture === 'boolean') merged.pasture = parsed.pasture;
   else merged.pasture = ANIMAL_ORDER.some((kind) => merged[ANIMALS[kind].stateKey].length > 0);
 
@@ -1454,8 +1463,8 @@ function helpSections() {
         + 'lays eggs, a cow eats corn and gives milk, a sheep eats carrots and gives wool.',
         'Feed one to start it producing, then collect when the timer fills. Every '
         + 'cycle returns more than the feed cost.',
-        `Feeding and collecting send ${farmerPronouns().them} out to the pen beside `
-        + 'the field, the same as tending a crop — tap here, watch there.',
+        `Feeding and collecting send ${farmerPronouns().them} across the yard into `
+        + 'the stable, the same as tending a crop — tap here, watch there.',
         'An animal you no longer want can be sold back for half its base price. '
         + 'Selling asks first, since buying a replacement costs more than the refund.',
       ],
@@ -3125,7 +3134,7 @@ function buyAnimalCost(kind) {
   return def.buyBaseCost + owned * def.costIncrement;
 }
 
-/* The pasture gate. Every buy button on this tab reads through it, and so
+/* The stable gate. Every buy button on this tab reads through it, and so
    does buyAnimal itself — the button's disabled state is a courtesy to the
    player and the check in the action is the rule, because a keyboard, a
    queued walk or a stale render can all reach the action without going
@@ -3139,7 +3148,7 @@ function renderBuyButtons() {
       // Says what is missing rather than what it costs. A greyed-out button
       // showing a price the player can afford is a bug report waiting to be
       // filed.
-      btn.textContent = `${def.name} — needs a pasture`;
+      btn.textContent = `${def.name} — needs a stable`;
       btn.disabled = true;
       btn.onclick = null;
       return;
@@ -3155,7 +3164,7 @@ function renderBuyButtons() {
   btn.hidden = Boolean(state.pasture);
   note.hidden = Boolean(state.pasture);
   if (!state.pasture) {
-    btn.textContent = `Fence the pasture (${PASTURE_COST}💰)`;
+    btn.textContent = `Stock the stable (${PASTURE_COST}💰)`;
     btn.disabled = state.coins < PASTURE_COST;
     btn.onclick = buyPasture;
   }
@@ -3171,7 +3180,7 @@ function buyPasture() {
   state.coins -= PASTURE_COST;
   state.pasture = true;
   SFX.buy();
-  showToast('🌱 The pasture is fenced — the herd has somewhere to live.');
+  showToast('🌱 The stable is bedded down — the herd has somewhere to live.');
   saveState();
   render();
 }
@@ -3181,7 +3190,7 @@ function buyAnimal(kind) {
   const cost = buyAnimalCost(kind);
   if (!state.pasture) {
     SFX.error();
-    showToast('Fence the pasture first — there is nowhere to keep it.');
+    showToast('Stock the stable first — there is nowhere to keep it.');
     return;
   }
   if (state.coins < cost) {

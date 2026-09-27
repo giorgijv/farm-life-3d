@@ -20,7 +20,8 @@
  *   - the farmer, and the queue that walks her to a plot before the rules
  *     for that plot run at all. That is the one part of this file the rest
  *     of the game can feel, and it has a long comment of its own below;
- *   - a pen beside the field with the herd in it, on the same walk queue;
+ *   - a stable west of the field with the herd standing in its stalls,
+ *     on the same walk queue;
  *   - the sun and a real atmospheric sky, on the same clock the 2D sky
  *     reads, and a camera the player can orbit and pan by hand.
  *
@@ -42,6 +43,11 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
 import { loadModel, loadMeshes, preload, overrideKitColor, overrideKitFinish } from './assets.js';
 import { buildFarmer, FARMER_HEIGHT } from './farmer.js';
 import { buildBarn, BARN_WIDTH, BARN_DEPTH } from './barn.js';
+import {
+  buildStable, STABLE_WIDTH, STABLE_DEPTH,
+  STABLE_INSIDE as STABLE_INSIDE_LOCAL,
+  STABLE_STALLS as STABLE_STALLS_LOCAL,
+} from './stable.js';
 
 const bridge = window.Farm3DBridge;
 
@@ -134,7 +140,7 @@ function startScene(bridge) {
 
      The scene already knows how to answer that question separately for the
      two kinds of machine. rendererIsSoftware() gates the whole
-     post-processing chain, the foliage density, the pen's head count and the
+     post-processing chain, the foliage density, the stalls' head count and the
      rain; a shadow map is the same sort of cost and belongs behind the same
      gate. On hardware it is the single biggest thing this scene was
      missing — without it every building, tree and animal floats a little,
@@ -170,8 +176,9 @@ function startScene(bridge) {
   // top of it.
   scene.fog = new THREE.Fog(0xbfe4f5, 30, 64);
 
-  // Aimed once the pen's position is known, below — it needs to frame both
-  // the field and the pen at once, off to one side of this constructor.
+  // Aimed once the farm's own bounds are known, below: the opening shot is
+  // centred on the middle of the farm rather than on this constructor's
+  // origin, and those four numbers are declared a long way down.
   /* Far plane at 200 rather than the 100 that served while the world was
      small: the terrain now reaches 46 units out and the orbit camera can
      stand 26 back from a target that is itself off-origin, which puts the
@@ -538,8 +545,8 @@ function startScene(bridge) {
 
   /* -------------------------------------------------------------- */
   /* Fence — static dressing, built once. The ground itself is built    */
-  /* further down, once the pen's extent is known too: it needs both     */
-  /* the field's and the pen's footprint to know where "flat" ends.      */
+  /* further down, from the farm's own bounds: it has to reach the       */
+  /* stable, the field, the orchard and the dooryard alike.              */
   /* -------------------------------------------------------------- */
 
   const fenceMat = new THREE.MeshStandardMaterial({ color: 0x8a6135, roughness: 0.9 });
@@ -548,13 +555,18 @@ function startScene(bridge) {
   const postGeo = new THREE.BoxGeometry(0.14, 0.7, 0.14);
   const m4 = new THREE.Matrix4();
 
-  /* One rectangular fence, reused for the field and (below) the pen: four
-     rails scaled to the box's width or depth, a post InstancedMesh at each
-     corner. `cx`/`cz` is the box's centre, not the world origin — the pen
-     sits well off to one side of it. */
-  /* Returns what it built, which the crop field's caller ignores and the
-     pasture's does not: the pasture is bought, so its fence has to be able
-     to not be there. */
+  /* One rectangular fence: four rails scaled to the box's width or depth, a
+     post InstancedMesh at each corner. `cx`/`cz` is the box's centre rather
+     than the world origin, which is a generality nothing currently uses —
+     it was written for the animal pen, which stood off to the east and is
+     now a building on the other side of the farm. Kept rather than inlined
+     because a fence around something is a thing this farm is likely to want
+     again, and the parameters cost nothing.
+
+     It also returns what it built, for the same historical reason: the
+     pen's fence had to be able to not be there until it was paid for. The
+     crop field's caller ignores the return, and for now it is the only
+     caller there is. */
   function buildFence(cx, cz, halfX, halfZ) {
     const built = [];
     [
@@ -955,69 +967,118 @@ function startScene(bridge) {
   }
 
   /* -------------------------------------------------------------- */
-  /* The pen — animals beside the field                                */
+  /* The stalls — where the livestock stands                           */
   /* -------------------------------------------------------------- */
 
-  /* A second, smaller fenced rectangle east of the field, close enough that
-     both read as one yard rather than two separate scenes — the camera
-     below is framed to hold both, which is the only reason it no longer
-     matches the field-only shot steps 4-7 tuned. Each of the five kinds gets
-     one row, oldest animal in the leftmost column, so buying and selling
-     shuffles the row rather than the animal you were looking at jumping
-     somewhere new (a small, accepted imperfection — worth it against the
-     cost of tracking stable per-animal slots for something purely visual).
+  /* This used to be a fenced rectangle east of the field, and for most of
+     the game's life that was the right shape for it: a pen is what a farm
+     with four cows in it has. What it never was, though, was a *place*. The
+     barn had already shown what the difference buys — walking in and seeing
+     eighteen wheat stacked against the back wall is a different kind of
+     knowing from reading "18" on a tab — and the animals had no equivalent.
+     They stood in a rectangle of the same grass as everything around them.
 
-     The pen is deep rather than wide on purpose. Width costs the camera —
-     every extra unit of PEN_HALF_X pushes the frame that has to hold both
-     fences wider still, shrinking the farmer and the crops along with it —
-     but depth is close to free, because the camera already pulls back far
-     enough to fit the field's own depth. Given the choice, the five rows
-     get that free dimension: keeping them apart is what makes a cow read
-     as a cow and not a paler chicken standing next to it.
+     So the pen moved indoors, into the stable that now stands where the
+     farmhouse did, and the fence came down. The layout below is the pen's,
+     almost unchanged, because the layout was never the problem: each of the
+     five kinds still gets one row, oldest animal in the leftmost column, so
+     buying and selling shuffles the row rather than making the animal you
+     were looking at jump somewhere new. What changed is that the rows are
+     stalls now, with a roof over them and three walls around them.
 
-     That trade was made when the farm was fifteen units across and the
-     camera had to hold all of it. It is looser now: the ground grew to
-     twenty-five units and the camera pulled back to suit, so the pen can
-     afford some of the width it was denied — a cow is 0.86 across and six
-     of them in a 2.1-unit pen stood shoulder to shoulder. */
-  const PEN_GAP = 0.4;
-  const PEN_HALF_X = 1.5;
-  const PEN_HALF_Z = 2.9;
-  const PEN_CX = yardHalf + PEN_GAP + PEN_HALF_X;
-  /* Shown per kind; a bigger herd just crowds the last column. Each visible
-     animal is its own model with its own AnimationMixer now, not one shared
-     instance draw the way the tile grid and the old boxes were — see the pen
-     below — so this is also the software rasteriser's usual say in how much
-     it has to keep up with, same as FOLIAGE_SCALE and the post-processing
-     tier read the same rendererIsSoftware() signal for the same reason. */
-  const PEN_CAP = rendererIsSoftware() ? 3 : 6;
+     Width got better, and by less than the building's size suggests. The
+     old note here recorded the pen's central trade honestly — every unit of
+     PEN_HALF_X pushed the camera back and shrank the farmer — and measured
+     the cost: a cow is 0.86 across and six of them in a 3.0-unit band stood
+     0.54 apart, which is shoulder to shoulder. The stable's interior is
+     5.7, but the stalls do not get all of it: 0.3 is the west wall, 0.96 is
+     the walkway she comes down, and 0.35 is the margin that keeps an animal
+     off the back wall. What is left is 4.39, so six cows stand 0.82 apart.
+     Half again the room they had, and still not room enough to call it
+     spacious — worth writing down as the number rather than as "much
+     better", because the next person to look at this will want to know how
+     much of the building the animals actually occupy before they try to fix
+     it. Depth went the same way but less far: 5.1 across the five rows
+     against the pen's 4.9.
 
-  /* The pasture's fence, which is only up once it has been paid for. Held
-     rather than dropped so syncPasture below can show it the moment the
-     purchase goes through, without rebuilding anything.
+     Getting to a genuine unit apart means a wider building, and that was
+     costed rather than dismissed: 6.8 across would do it, and it would put
+     the stable's east wall 0.55 from the path spine and swallow most of the
+     yard between the building and the field. Not worth it for 0.18 of a
+     unit between cows.
 
-     Only the fence, and only its visibility. The ground under it stays flat
-     and walkable either way: an unbought pasture is a corner of the farm
-     with nothing on it, not a hole she falls into, and making it impassable
-     would mean a player who walks east before buying it hits an invisible
-     wall for reasons the game never explained. */
-  const penFence = buildFence(PEN_CX, 0, PEN_HALF_X, PEN_HALF_Z);
-  let pastureShown = null;
-  function syncPasture() {
-    const owned = Boolean(bridge.getState().pasture);
-    if (owned === pastureShown) return;
-    pastureShown = owned;
-    for (const part of penFence) part.visible = owned;
+     One constraint got tighter. The gable walls are solid, where a fence
+     was not. The job queue stops her STAND_OFF short of whatever she was
+     sent to, and the southernmost row plus that stand-off now has to land
+     on floor she can stand on rather than simply outside a rail. That is
+     what PEN_ROW_MARGIN below is sized against. */
+  const STABLE_AT = { x: -8.6, z: 1.4 };
+
+  /* The interior in world space, from the building's own exported rectangle
+     rather than a second copy of its wall arithmetic. Needed here, a long
+     way above where the stable is actually added to the scene, because
+     everything from the animals' grid to the foliage scatter is laid out in
+     this part of the file. */
+  const STABLE_INSIDE = {
+    minX: STABLE_INSIDE_LOCAL.minX + STABLE_AT.x, maxX: STABLE_INSIDE_LOCAL.maxX + STABLE_AT.x,
+    minZ: STABLE_INSIDE_LOCAL.minZ + STABLE_AT.z, maxZ: STABLE_INSIDE_LOCAL.maxZ + STABLE_AT.z,
+  };
+
+  function insideStable(x, z) {
+    return x > STABLE_INSIDE.minX && x < STABLE_INSIDE.maxX
+      && z > STABLE_INSIDE.minZ && z < STABLE_INSIDE.maxZ;
   }
 
-  /* The middle of what the player is looking at: halfway between the field's
-     west fence and the pen's east one. Declared here, with the two fences
-     it is derived from, rather than down in the camera section that is its
-     main customer — the rain box wants the same centre, and computing the
-     expression twice would be two places to get it wrong. See the camera
-     section for why this, and not the origin, is what the shot is built
-     around. */
-  const VIEW_CX = (-yardHalf + (PEN_CX + PEN_HALF_X)) / 2;
+  /* The floor the animals get: the stalls, not the whole room, held back
+     from the walls by a margin. An animal flush against a wall is half
+     inside it from this camera's shallow angle, and a third of a unit is
+     what it takes to stop that.
+
+     Three sides, not four. The stalls' east edge already stops short of the
+     open face by the walkway's width, and insetting it a second time was
+     the first build's mistake: 0.45 there, on top of a walkway that was
+     itself too wide, left the animals in a band 3.0 across — which is
+     exactly the width of the pen this replaced, and makes the whole move
+     pointless on the one measure that prompted it. The walkway is the inset
+     on that side. */
+  const PEN_INSET = 0.35;
+  const STALLS = {
+    minX: STABLE_STALLS_LOCAL.minX + STABLE_AT.x + PEN_INSET,
+    maxX: STABLE_STALLS_LOCAL.maxX + STABLE_AT.x,
+    minZ: STABLE_STALLS_LOCAL.minZ + STABLE_AT.z + PEN_INSET,
+    maxZ: STABLE_STALLS_LOCAL.maxZ + STABLE_AT.z - PEN_INSET,
+  };
+  const PEN_CX = (STALLS.minX + STALLS.maxX) / 2;
+  const PEN_CZ = (STALLS.minZ + STALLS.maxZ) / 2;
+  const PEN_HALF_X = (STALLS.maxX - STALLS.minX) / 2;
+  const PEN_HALF_Z = (STALLS.maxZ - STALLS.minZ) / 2;
+
+  /* Shown per kind; a bigger herd just crowds the last column. Each visible
+     animal is its own model with its own AnimationMixer now, not one shared
+     instance draw the way the tile grid and the old boxes were — see the
+     pool below — so this is also the software rasteriser's usual say in how
+     much it has to keep up with, same as FOLIAGE_SCALE and the
+     post-processing tier read the same rendererIsSoftware() signal for the
+     same reason. */
+  const PEN_CAP = rendererIsSoftware() ? 3 : 6;
+
+  const PEN_ROWS = ['cow', 'chicken', 'sheep', 'dog', 'cat'];
+  /* The floor kept clear at each gable end, and the one number in this
+     block that is a measurement rather than a preference. The job queue
+     walks her to STAND_OFF (0.66) south of whatever she was sent to, and
+     her body radius is 0.35, so the last row needs 1.01 of floor behind it
+     or she finishes the errand pressed against the south wall. 1.1 is that
+     with a handspan to spare. It costs the rows about a tenth of a unit of
+     spacing each against a naive split — a trade the pen's old 0.45 never
+     had to make, because a fence is not a wall and she simply stood outside
+     it. */
+  const PEN_ROW_MARGIN = 1.1;
+  const PEN_ROW_STEP = (PEN_HALF_Z * 2 - PEN_ROW_MARGIN * 2) / (PEN_ROWS.length - 1);
+  const PEN_ROW_Z = {};
+  PEN_ROWS.forEach((kind, i) => {
+    PEN_ROW_Z[kind] = PEN_CZ - PEN_HALF_Z + PEN_ROW_MARGIN + i * PEN_ROW_STEP;
+  });
+  const PEN_COL_STEP = (PEN_HALF_X * 2 - 0.3) / (PEN_CAP - 1);
 
   /* -------------------------------------------------------------- */
   /* The ground — flat under the yard, rolling into hills beyond it     */
@@ -1047,8 +1108,8 @@ function startScene(bridge) {
      the walk bounds, the foliage scatter box and the rain box are all
      computed from these four numbers, so this is the only place the farm's
      size is written down. */
-  const FARM_LEFT = -11.9;  // the farmhouse stands out here
-  const FARM_RIGHT = 13.4;  // and the barn out here, past the pasture
+  const FARM_LEFT = -11.9;  // the stable stands out here, where the house did
+  const FARM_RIGHT = 13.4;  // and the barn out here, past the field
   const FARM_NORTH = -15.0; // orchard
   const FARM_SOUTH = 10.5;  // dooryard
 
@@ -1058,6 +1119,28 @@ function startScene(bridge) {
   const FLAT_HALF_X = (FLAT_RIGHT - FLAT_LEFT) / 2;
   const FLAT_CENTER_Z = (FARM_NORTH + FARM_SOUTH) / 2;
   const FLAT_HALF_Z = (FARM_SOUTH - FARM_NORTH) / 2;
+
+  /* The middle of what the player is looking at, which the opening shot, the
+     sun's shadow target and the rain box all want. It used to be the
+     midpoint between the field's west fence and the pen's east one — the
+     two places she had to be — and that expression died with the pen: the
+     animals live at the far west end of the farm now, so the old formula
+     would have framed the field and the stable and pushed the barn a long
+     way out of shot.
+
+     The farm's own centre is the honest replacement, and it is a better
+     shot than the one it replaces rather than a concession. Three things
+     had to be true for that: the frame is about 24 units wide at the
+     target's distance in landscape (48 degrees, 15.2 units back, measured
+     rather than assumed), the farm is 25.3 wide, and the chase camera takes
+     over the moment she moves, so this is the composition the game opens on
+     rather than one it has to hold all session. Opening on the whole farm —
+     stable, field, barn, all three — is exactly what a game that just gave
+     the player three buildings should open on.
+
+     Declared here, with the four numbers it is derived from, rather than
+     down in the camera section that is its main customer. */
+  const VIEW_CX = FLAT_CENTER_X;
 
   const TRANSITION_WIDTH = 5; // how far beyond the flat rectangle the rise ramps in over
   const HILL_AMPLITUDE = 2.2;
@@ -1433,14 +1516,21 @@ ${shader.fragmentShader.replace(
      would have made a carefully checked note quietly false. */
   const PATH_RECTS = [
     { x0: -4.25, x1: -3.15, z0: FARM_NORTH + 1.6, z1: FARM_SOUTH - 1.2 }, // the spine
-    /* One rectangle east rather than two, because the pasture gate and the
-       barn door are on the same line: the branch runs along the pen's
-       southern fence and carries on to the barn's west wall. Its own z
-       stayed exactly where it was for the same reason the spine's east lip
-       did — the pond's comment measures against this rectangle ending at
-       z = 3.95, half a unit short of the water's northern lip at 4.13. */
+    /* One rectangle east rather than two. It was laid when the pasture gate
+       and the barn door were on the same line, and it ran along the pen's
+       southern fence before carrying on to the barn's west wall; the pen is
+       gone and the barn is what it serves now, which changes nothing about
+       where it goes. Its own z stayed exactly where it was for the same
+       reason the spine's east lip did — the pond's comment measures against
+       this rectangle ending at z = 3.95, half a unit short of the water's
+       northern lip at 4.13. */
     { x0: -4.25, x1: 8.9, z0: 3.15, z1: 3.95 },
-    { x0: -6.6, x1: -3.15, z0: 1.1, z1: 1.9 },                            // to the farmhouse door
+    /* West to the stable, which is the walk this branch has always been:
+       the farmhouse's door was on this line too. It stops at the building
+       line rather than running under the eave — the floor inside is swept
+       earth of its own, and a path carrying on into it would have laid one
+       ground texture over another. */
+    { x0: -5.7, x1: -3.15, z0: 1.1, z1: 1.9 },
   ];
 
   function buildPaths() {
@@ -1991,7 +2081,7 @@ ${shader.fragmentShader.replace(
      set dressing read as procedural. The rules for where things went: the
      dooryard faces the path she comes out onto, the orchard thins toward the
      hills so the edge of the flat ground is never a visible line, and nothing
-     stands where she has to walk between the field and the pen.
+     stands where she has to walk between the field and the stable.
 
      Most of this does not collide: she walks through a bush or a barrel if
      she insists, and that is the right answer for ankle-high clutter, which
@@ -2014,9 +2104,10 @@ ${shader.fragmentShader.replace(
      buildings were too big. A 2.3-unit farmhouse beside a 1.45-unit farmer
      is a doll's house: she stands two-thirds the height of her own front
      door. With the ground enlarged the widths fit, so the heights are set
-     from the buildings themselves — the house at 4.8 and the barn at 5.6,
-     3.3 and 3.9 times her, which is what a person next to a house looks
-     like. Both are rotated a quarter turn, so their long axis runs north-
+     from the buildings themselves — the farmhouse at 4.8 and the barn at
+     5.6, 3.3 and 3.9 times her, which is what a person next to a house
+     looks like. (The farmhouse is gone now, replaced in place by the stable
+     at 4.4, which inherited the ratio along with the site.) Both are rotated a quarter turn, so their long axis runs north-
      south and the width the old note worried about is spent on the free
      dimension rather than the crowded one. */
   /* -------------------------------------------------------------- */
@@ -2334,27 +2425,41 @@ ${shader.fragmentShader.replace(
   }
 
   const PROPS = [
-    /* --- the farmhouse, west: the farm's front door, seen across the field ---
-       At 4.8 it measures 5.96 across by 7.52 deep, so it is placed with its
-       west wall hard against the farm's own western edge: the strip behind a
-       building is ground the player can never use and the camera never
-       looks at, and leaving one would only have been paying for the farm to
-       be wider than it plays. The dooryard planting hugs the east wall,
-       between the house and the path spine. */
-    { id: 'city-suburban/building-type-a', x: -8.6, z: 1.4, ry: Math.PI / 2, h: 4.8, blocks: 'box' },
-    { id: 'nature/plant_bush', x: -5.2, z: -0.4 },
-    { id: 'nature/plant_bush', x: -5.1, z: 3.2 },
-    { id: 'nature/flower_redA', x: -5.3, z: 0.4 },
-    { id: 'nature/flower_yellowA', x: -5.15, z: 2.4 },
-    { id: 'survival/box', x: -4.9, z: 4.4, ry: -0.3, h: 0.5 },
+    /* --- the stable, west: the building the livestock lives in ---
+       The farmhouse stood here — `city-suburban/building-type-a` at 4.8,
+       measuring 5.96 by 7.52 — and it is gone, for the reason recorded in
+       stable.js: a kit building is a closed shell, and this side of the
+       farm needed a building you can see into. The stable is built rather
+       than loaded and is placed with the rest of the things that have a
+       wall list instead of a bounding box, so it is no longer in this list
+       either.
+
+       What is in this list is the planting, and it moved. It used to hug
+       the house's east wall between the building and the path spine, at
+       x -5.3 to -4.9, which is one to two thirds of a unit in front of the
+       stable's open face — directly in the sightline the whole building
+       exists to keep clear, and directly across the walk from the field to
+       a stall. It is banked at the two gable ends instead: the same plants,
+       doing the same softening job, out of both the view and the way. */
+    { id: 'nature/plant_bush', x: -10.4, z: -3.9 },
+    { id: 'nature/flower_redA', x: -9.2, z: -3.7 },
+    /* Two of the five went south rather than north, after a shot of the
+       north-west corner showed why: the orchard's own scatter already
+       crowds that gable with conifers taller than the building, and a bush
+       set among them is a bush nobody will ever see. The south end is open
+       ground the dooryard camera looks straight at. */
+    { id: 'nature/plant_bush', x: -7.4, z: 6.3 },
+    { id: 'nature/flower_yellowA', x: -6.3, z: 7.0 },
+    { id: 'survival/box', x: -4.35, z: 5.3, ry: -0.3, h: 0.5 },
     { id: 'nature/stump_round', x: -7.6, z: 7.4, ry: 1.1 },
     { id: 'nature/plant_bush', x: -6.4, z: 8.8 },
     { id: 'nature/grass_large', x: -7.0, z: 8.1 },
 
-    /* --- the barn, east: past the pasture, closing that side of the farm ---
-       Taller than the house, which is what a barn is for, and set far enough
-       east that the path branch can reach its west wall without running
-       under the building. Same edge-hugging logic as the farmhouse. */
+    /* --- the barn, east: closing that side of the farm ---
+       Taller than the stable, which is what a barn is for, and set far
+       enough east that the path branch can reach its west wall without
+       running under the building. Same edge-hugging logic as the stable
+       opposite it. */
     /* The barn itself is no longer in this list. It is built rather than
        loaded (see barn.js) because a kit building is a closed shell and this
        one has to be walked into, and it is placed below with the rest of the
@@ -2494,7 +2599,8 @@ ${shader.fragmentShader.replace(
        a drive. This has to read as somewhere else from the same two
        suburban blocks, and what does it is height and mass rather than
        count. Everything here is 6.2 to 7 units against the market's 4.8 and
-       5.4, so the smallest building in town is taller than the farmhouse.
+       5.4, so the smallest building in town is taller than the barn, which
+       is the tallest thing on the farm.
 
        Four buildings and not the seven the first draft had, and the reason
        is measurement rather than taste. These blocks are far bigger than
@@ -2886,19 +2992,87 @@ ${shader.fragmentShader.replace(
      Only ever visibility. The walls stay in SOLIDS the whole time, so a
      hidden wall still stops her — being able to walk out through a wall you
      cannot see would be a worse bug than not being able to see in. */
-  function revealBarn(showInside) {
-    barn.roof.visible = !showInside;
-    for (const piece of barn.shell) {
+  /* Written against any building with a shell rather than against the barn,
+     because the stable below wants exactly the same treatment and a second
+     copy of the dot product would be a second place for the sign to be
+     wrong. `at` is the building's origin; `building` is whatever buildBarn
+     or buildStable returned. */
+  function revealInterior(building, origin, showInside) {
+    building.roof.visible = !showInside;
+    for (const piece of building.shell) {
       if (!showInside) {
         piece.mesh.visible = true;
         continue;
       }
-      const toCamera = {
-        x: camera.position.x - BARN_AT.x,
-        z: camera.position.z - BARN_AT.z,
-      };
+      /* `origin`, not `at` — which is what this argument was called first
+         time round, and `at` is the farmer's own position two thousand
+         lines up. It read correctly and meant something else. */
+      const toCamera = { x: camera.position.x - origin.x, z: camera.position.z - origin.z };
       piece.mesh.visible = piece.normal.x * toCamera.x + piece.normal.z * toCamera.z <= 0;
     }
+  }
+
+  /* -------------------------------------------------------------- */
+  /* The stable — the building the livestock lives in                  */
+  /* -------------------------------------------------------------- */
+
+  /* Placed here for the same reasons the barn is: it arrives synchronously,
+     it contributes three collision rectangles rather than one bounding box,
+     and the scene keeps hold of its walls and roof so they can get out of
+     the camera's way.
+
+     Where it stands is not a free choice. This is the farmhouse's site,
+     down to the wall line — the farm's flat ground was drawn around that
+     building, FARM_LEFT exists to hold its west wall, and the one path
+     branch on this side of the farm was laid to its door. Replacing it in
+     place meant none of that had to move. STABLE_AT itself is declared a
+     long way up, beside the stall layout, because the animals' grid is
+     derived from this building's interior and is needed early. */
+  const stable = buildStable({
+    rowZ: PEN_ROWS.map((kind) => PEN_ROW_Z[kind] - STABLE_AT.z),
+    /* The partitions go between the rows, in the building's own frame.
+       Derived from the rows rather than spaced evenly on their own, so a
+       change to PEN_ROW_MARGIN moves both together and no animal can end up
+       standing astride a partition. */
+    dividerZ: PEN_ROWS.slice(1).map((kind, i) => (
+      (PEN_ROW_Z[kind] + PEN_ROW_Z[PEN_ROWS[i]]) / 2 - STABLE_AT.z
+    )),
+  });
+  stable.object.position.set(STABLE_AT.x, 0, STABLE_AT.z);
+  stable.object.traverse((obj) => {
+    for (const m of [obj.material ?? []].flat()) m.toneMapped = false;
+  });
+  scene.add(casts(stable.object));
+
+  for (const w of stable.walls) {
+    SOLIDS.boxes.push({
+      id: 'stable',
+      minX: w.minX + STABLE_AT.x, maxX: w.maxX + STABLE_AT.x,
+      minZ: w.minZ + STABLE_AT.z, maxZ: w.maxZ + STABLE_AT.z,
+      minY: 0, maxY: stable.wallTop,
+    });
+  }
+
+  const STABLE_DOOR = {
+    x: stable.opening.x + STABLE_AT.x,
+    z: stable.opening.z + STABLE_AT.z,
+  };
+
+  /* What the purchase buys, in the world rather than on a panel: bedding
+     down and a trough in every stall. This is the fence's old job — see the
+     note in stable.js for why gates were the obvious answer and the wrong
+     one, and why the building itself is never hidden.
+
+     Same shape as the fence's sync it replaces: held rather than rebuilt,
+     and touched only when ownership actually changes. */
+  let stableStocked = null;
+  function syncStable() {
+    const owned = Boolean(bridge.getState().pasture);
+    if (owned !== stableStocked) {
+      stableStocked = owned;
+      stable.bedding.visible = owned;
+    }
+    revealInterior(stable, STABLE_AT, insideStable(at.x, at.z));
   }
 
   /* -------------------------------------------------------------- */
@@ -3020,7 +3194,7 @@ ${shader.fragmentShader.replace(
   }
 
   function syncBarn() {
-    revealBarn(insideBarn(at.x, at.z));
+    revealInterior(barn, BARN_AT, insideBarn(at.x, at.z));
     syncStock();
   }
 
@@ -3062,7 +3236,14 @@ ${shader.fragmentShader.replace(
   const FOLIAGE_CLEARANCE = 0.3; // how far back a tuft stands from a wall or a trunk
   function inFarmClearing(x, z) {
     if (Math.abs(x) <= yardHalf + 0.35 && Math.abs(z) <= yardHalf + 0.35) return true;
-    if (Math.abs(x - PEN_CX) <= PEN_HALF_X + 0.3 && Math.abs(z) <= PEN_HALF_Z + 0.3) return true;
+    /* The stable's floor, for the same reason as the barn's below — three
+       walls, so the room between them is open ground as far as SOLIDS is
+       concerned. Grown by half a unit past the interior on purpose: the
+       floor slab oversails the building line under the eave, and a tuft of
+       grass standing on the threshold is a tuft of grass growing through a
+       floor. The barn has no equivalent because it has no open side. */
+    if (Math.abs(x - STABLE_AT.x) <= STABLE_WIDTH / 2 + 0.5
+      && Math.abs(z - STABLE_AT.z) <= STABLE_DEPTH / 2 + 0.2) return true;
     for (const r of PATH_RECTS) {
       if (x >= r.x0 - 0.35 && x <= r.x1 + 0.35 && z >= r.z0 - 0.35 && z <= r.z1 + 0.35) return true;
     }
@@ -3834,15 +4015,9 @@ ${lit}`;
   controls.screenSpacePanning = true;
   controls.update();
 
-  const PEN_ROWS = ['cow', 'chicken', 'sheep', 'dog', 'cat'];
-  // A wide margin, not the tile grid's tight 0.15-0.16: a short animal in
-  // the end row sitting close to a 0.5-tall rail was getting lost behind
-  // it from this camera's shallow angle, not just crowded by it.
-  const PEN_ROW_MARGIN = 0.45;
-  const PEN_ROW_STEP = (PEN_HALF_Z * 2 - PEN_ROW_MARGIN * 2) / (PEN_ROWS.length - 1);
-  const PEN_ROW_Z = {};
-  PEN_ROWS.forEach((kind, i) => { PEN_ROW_Z[kind] = -PEN_HALF_Z + PEN_ROW_MARGIN + i * PEN_ROW_STEP; });
-  const PEN_COL_STEP = (PEN_HALF_X * 2 - 0.3) / (PEN_CAP - 1);
+  /* The rows themselves are laid out up with the rest of the stable's
+     geometry — the stable has to be built around them, so they cannot wait
+     until here to exist. */
 
   /* Real, animated Kenney models rather than a box or an icosahedron — the
      same Cube Pets kit assets.js already has a target height for. Sheep
@@ -4311,9 +4486,62 @@ ${lit}`;
     return animalSlot(kind, idx === -1 ? 0 : idx);
   }
 
+  /* How far east of the opening she musters before going in, and how far
+     back from the gable ends that muster point is held. The first keeps her
+     clear of the building; the second keeps the leg from the muster point
+     to the stall between the two gable walls, which is what makes that leg
+     a straight line through thin air. */
+  const STABLE_MUSTER = 1.2;
+  const STABLE_JAMB = 0.6;
+
+  /* The one detour the walk-to-work queue makes, and the building that
+     made it necessary.
+
+     The queue walks a straight line and finishes when it has covered the
+     distance — that is the whole of it, and it worked because the field and
+     the pasture were open ground with nothing solid between them. The
+     livestock is inside a building now. A straight line from the dooryard
+     to a stall crosses the stable's south gable, and what she would do is
+     grind along the outside of it until the distance was spent and then
+     crouch down to milk a cow through a wall.
+
+     So an animal job inside the stable is walked in two legs: out to a
+     muster point east of the opening, then west through it. The rule is
+     stateless — recomputed from where she is standing every frame, not
+     latched when the job was queued — because the player can take the stick
+     mid-errand and put her somewhere the first leg no longer makes sense
+     from.
+
+     One case it does not cover, stated rather than hidden: if she is
+     already *west* of the building when the job lands, the walk to the
+     muster point crosses the stable from behind. That strip is 0.3 of a
+     unit between the west wall and the farm's edge, there is nothing out
+     there to walk to, and the cost of being wrong in it is the same shuffle
+     the detour exists to avoid — not worth a third leg. */
   function jobTarget(job) {
     const spot = job.type === 'plot' ? tileWorldPos(job.plot) : animalWorldPos(job.kind, job.id);
-    return { x: spot.x, z: spot.z + STAND_OFF };
+    const target = { x: spot.x, z: spot.z + STAND_OFF };
+    if (!insideStable(target.x, target.z)) return target;
+
+    /* Already through the opening, or lined up square with it: the rest is
+       a straight line and needs no help. "Lined up" is both tests, not just
+       the x one — east of the opening but level with a gable end is exactly
+       the corner the detour is for. */
+    const squareOn = at.x >= STABLE_DOOR.x
+      && at.z > STABLE_INSIDE.minZ + STABLE_JAMB
+      && at.z < STABLE_INSIDE.maxZ - STABLE_JAMB;
+    if (insideStable(at.x, at.z) || squareOn) return target;
+
+    return {
+      x: STABLE_DOOR.x + STABLE_MUSTER,
+      z: Math.min(
+        Math.max(target.z, STABLE_INSIDE.minZ + STABLE_JAMB),
+        STABLE_INSIDE.maxZ - STABLE_JAMB,
+      ),
+      // A leg of the walk, not the destination — advanceFarmer must not let
+      // her crouch down and do the job here.
+      via: true,
+    };
   }
 
   /* The straight line the job queue walks, with the solid props taken out of
@@ -4866,7 +5094,12 @@ ${lit}`;
         return;
       }
       const target = jobTarget(activeJob);
-      if (stepToward(target.x, target.z, dt)) {
+      /* Reaching a waypoint is not arriving. Without this she crouches down
+         at the stable's threshold and milks the cow from the doorway —
+         which is what the first build did, because the arrival test cannot
+         tell one target from another and the detour's muster point is, by
+         construction, somewhere she can reach. */
+      if (stepToward(target.x, target.z, dt) && !target.via) {
         stance = 'crouching';
         crouchLeft = CROUCH_MS;
       } else {
@@ -5961,9 +6194,56 @@ ${lit}`;
       return n;
     },
     stockReady: () => stockModelsReady.then(() => true),
-    /* Whether the pasture is fenced in the world, as opposed to whether the
-       save says it was bought — the two being the same thing is the claim. */
-    pastureFenced: () => pastureShown === true,
+    /* The stable, in the same shape as the barn above and for the same
+       reason. `stalls` is what the stall count really is — the partitions
+       drawn inside — rather than what PEN_ROWS claims it should be, so a
+       row layout that stopped agreeing with the building around it would be
+       caught here. Note `walls`: three, not the barn's five, because the
+       east face is an opening rather than a piercing in a wall. */
+    stable: () => ({
+      opening: { x: STABLE_DOOR.x, z: STABLE_DOOR.z },
+      inside: { ...STABLE_INSIDE },
+      walls: SOLIDS.boxes.filter((b) => b.id === 'stable').length,
+      stalls: stable.stallCount,
+      indoors: insideStable(at.x, at.z),
+      roofVisible: stable.roof.visible,
+      wallsDrawn: stable.shell.filter((piece) => piece.mesh.visible).length,
+    }),
+    /* Whether the stable is bedded down in the world, as opposed to whether
+       the save says the pasture was bought — the two being the same thing is
+       the claim. This is the fence's old `pastureFenced` under a name that
+       describes what the purchase actually puts on screen now. */
+    stableBedded: () => stableStocked === true,
+    /* Every point the job queue can send her to inside the stable, as one
+       rectangle: the stalls' own extent across, and the rows plus the
+       stand-off along.
+
+       Exposed because the obvious thing to sweep instead — the whole
+       interior — asks a question nothing in the game asks. The walls are
+       within a body radius of the room's own edge by construction, so a
+       sweep of the interior reports the strip against each wall as blocked
+       and is right to; it is simply not ground anything ever aims her at.
+       This is. */
+    jobReach: () => ({
+      minX: STALLS.minX,
+      maxX: STALLS.maxX,
+      minZ: PEN_ROW_Z[PEN_ROWS[0]],
+      maxZ: PEN_ROW_Z[PEN_ROWS[PEN_ROWS.length - 1]] + STAND_OFF,
+    }),
+    /* Where each kind's livestock is standing, so a test can ask the one
+       question the whole feature turns on: is the herd you bought inside the
+       building it is meant to be inside? Positions are live — roaming moves
+       them — which is the point; a row that reads as indoors only on its
+       first frame would not be worth much. */
+    penAnimals: () => {
+      const out = {};
+      for (const kind of PEN_ROWS) {
+        out[kind] = animalPool[kind]
+          .filter((slot) => slot.object && slot.object.visible)
+          .map((slot) => ({ x: slot.x, z: slot.z, indoors: insideStable(slot.x, slot.z) }));
+      }
+      return out;
+    },
     car: () => ({ x: carAt.x, z: carAt.z, heading: carHeading, speed: carSpeed, cargo: cargo.length }),
     /* The pond, as numbers. A test cannot look at a canvas and say whether
        that is water, but it can ask whether she is standing in it, and it can
@@ -6467,7 +6747,7 @@ ${lit}`;
     syncAnimals(now);
     poseFarmer(now);
     syncBarn();
-    syncPasture();
+    syncStable();
     syncPrompt();
     /* One camera or the other, never both. followFarmer slides the orbit
        target to wherever she is standing, which while she is sitting in a

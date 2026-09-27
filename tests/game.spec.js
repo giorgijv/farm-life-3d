@@ -1371,7 +1371,7 @@ test.describe('walking to work', () => {
     expect((await readSave(page)).cows[0].state).toBe('hungry');
   });
 
-  test('feeding a hungry animal also sends her to the pen', async ({ page }) => {
+  test('feeding a hungry animal also sends her to the stable', async ({ page }) => {
     await load(page, banked({
       cows: hungryCowFixture(),
       inventory: { wheat: 0, corn: 4, carrot: 0, pumpkin: 0, milk: 0, egg: 0, wool: 0 },
@@ -4378,6 +4378,27 @@ test.describe('driving her yourself', () => {
     await load(page, makeSave());
     await sceneReady(page);
 
+    /* North first, then north-west, where this used to be one diagonal
+       hold. The stable is why it cannot be any more, and the reason is
+       worth keeping: she spawns level with the building's open east face,
+       so holding north-west walks her straight in through it and wedges her
+       in the interior corner at z -2.35 — her body radius off the inside of
+       the north wall. That is correct behaviour and a poor way to ask this
+       question. The farmhouse that stood on this spot was a closed box, so
+       the same hold slid her around its north face and on to the corner;
+       an open-fronted building is a room she can walk into, which is the
+       whole point of it.
+
+       So the first leg runs north until she is clear of the building, and
+       only then does the second turn west. Waited on rather than slept
+       through: at the three frames a second the software rasteriser
+       manages, a fixed hold is a guess about how far she got.
+
+       The claim is unchanged. Hold the stick and she stops at the edge of
+       the flat ground rather than walking off into the hills. */
+    await drive(page, 0, -1);
+    await page.waitForFunction(() => window.Farm3DScene.farmerAt().z < -3.5,
+      null, { timeout: 20_000 });
     await drive(page, -1, -1);
     await page.waitForTimeout(6000);
     await drive(page, 0, 0);
@@ -4426,8 +4447,9 @@ test.describe('driving her yourself', () => {
        still passes but has stopped asking anything. These are set past
        where the old bounds could have reached at all, so the farm shrinking
        back fails here rather than only in a screenshot. The last leg runs
-       west along the dooryard, south of the farmhouse, which is the one
-       line west that no wall stands on. */
+       west along the dooryard, south of the stable, which is the one line
+       west that no wall stands on — and still is, the stable having
+       inherited the farmhouse's footprint along with its site. */
     await drivePast(0, -1, () => window.Farm3DScene.farmerAt().z < -9, 'the orchard');
     await drivePast(0, 1, () => window.Farm3DScene.farmerAt().z > 7, 'the dooryard');
     await drivePast(-1, 0, () => window.Farm3DScene.farmerAt().x < -9, 'the farmhouse');
@@ -4831,8 +4853,33 @@ test.describe('what the scene costs to draw', () => {
        the same, with bloom and SSAO on            479 calls, 121,381 tris
 
      The first two were 168/44,992 and 216/79,116 before the enlargement; the
-     ceilings still clear them both with room to spare, so they are left
-     where they are. What they do not cover, and never did, is the third
+     ceilings cleared them both with room to spare, so they were left where
+     they were.
+
+     Re-measured again when the stable went up, because a second built
+     building is exactly the kind of change these numbers exist to notice,
+     and this time the ceiling had to move. The worst case on the software
+     path is 258 calls now against the 240-odd it was, and the story of that
+     is worth keeping:
+
+       the stable as first built, one mesh per slab       285 calls  (failed)
+       the same building, merged to one mesh per
+         material per hideable group                      258 calls
+
+     The first figure is what this ceiling caught, and catching it was the
+     whole point — forty-seven draw calls for one building is not a budget
+     problem, it is a building problem, and raising the number to fit it
+     would have been arguing with the instrument. Merged, the stable costs
+     fourteen: two per wall, three for the roof, three for the fabric, two
+     for the bedding. See batch() in stable.js.
+
+     What is left is honest growth: the farm has two buildings that the game
+     draws itself where it used to have one, and 258 is what that costs. The
+     ceiling goes to 300, which is the same proportional headroom over the
+     measurement that 260 had over 223 — not a round number chosen to make
+     today pass. If it ever needs to come down again the barn is the place
+     to look: it is still a mesh per slab, about thirty-two of them, and the
+     same merge would take most of that back. What they do not cover, and never did, is the third
      row: SSAO gets its occlusion by rendering the scene a second time, so
      any tier with it switched on costs about twice the scene by
      construction. The earlier note here read as though 260/100,000 covered
@@ -4849,7 +4896,7 @@ test.describe('what the scene costs to draw', () => {
      would blow through the call ceiling immediately, and putting back the
      always-drawn crop instances step 14 removed would put ~30,000 triangles
      back. */
-  const CALL_CEILING = 260;
+  const CALL_CEILING = 300;
   const TRIANGLE_CEILING = 100_000;
 
   const ago = (s) => secondsAgo(s);
@@ -4960,17 +5007,28 @@ test.describe('the size of the place', () => {
     const named = (part) => boxes.find((b) => b.id.includes(part));
 
     /* The complaint this pass answers, as a number: at 2.3 units the
-       farmhouse stood 1.6 times the farmer, so she read as a giant beside
-       her own front door. A person against a house is nearer a third of
-       its height, and a barn is taller than the house it serves. */
-    const house = named('building-type-a');
-    const barn = named('building-type-b');
-    expect(house, 'the farmhouse is placed').toBeTruthy();
+       farmhouse that used to stand on the west side was 1.6 times the
+       farmer, so she read as a giant beside her own front door. A person
+       against a building is nearer a third of its height, and the barn is
+       taller than whatever it shares the farm with.
+
+       Both buildings are measured by id rather than by `named`, and that is
+       not fussiness. The farmhouse this test was written against is gone —
+       the stable stands on its footprint now — but `building-type-a` is
+       still in the scene, twice, out at the city and the cottage. A
+       substring search would have found one of those, measured a building
+       forty metres away, and passed. The same trap caught this suite once
+       already with `building-type-b`. */
+    const height = (b) => b.maxY - b.minY;
+    const tallest = (id) => boxes.filter((b) => b.id === id)
+      .reduce((a, b) => (a && height(a) >= height(b) ? a : b), null);
+    const stable = tallest('stable');
+    const barn = tallest('barn');
+    expect(stable, 'the stable is placed').toBeTruthy();
     expect(barn, 'the barn is placed').toBeTruthy();
 
-    const height = (b) => b.maxY - b.minY;
-    expect(height(house) / her).toBeGreaterThan(2.8);
-    expect(height(barn)).toBeGreaterThan(height(house));
+    expect(height(stable) / her).toBeGreaterThan(1.8);
+    expect(height(barn)).toBeGreaterThan(height(stable));
 
     /* And the stall, which had the opposite problem: at its authored 1.24
        it was shorter than she is, so the awning she stands under sat below
@@ -5098,22 +5156,37 @@ test.describe('walls she cannot walk through', () => {
     return { at, inside: s.blocked(at.x, at.z) };
   }, [x, z, ms]);
 
-  test('walking west stops her at the farmhouse wall, not inside it', async ({ page }) => {
+  test('walking west takes her into the stable and stops at the back wall', async ({ page }) => {
     test.slow();
     await load(page, makeSave());
     await ready(page);
 
     const { boxes } = await page.evaluate(() => window.Farm3DScene.solids());
-    const house = boxes.find((b) => b.id.includes('building-type-a'));
+    /* The west wall, which is the long one: the stable's other two solids
+       are its gable ends. Picked by extent rather than by index so a
+       reordering in stable.js cannot quietly change what is measured. */
+    const walls = boxes.filter((b) => b.id === 'stable');
+    expect(walls, 'the stable is placed').toHaveLength(3);
+    const back = walls.reduce((a, b) => (a.maxZ - a.minZ >= b.maxZ - b.minZ ? a : b));
 
     const end = await shove(page, -1, 0);
     expect(end.inside).toBe(false);
-    /* She spawns level with the house, so driving due west walks her into
-       its east face and nothing else. She should be stopped just outside
-       it — a quarter of a unit, which is what the farmer's body is taken to
-       be — rather than a metre short of it or a metre into it. */
-    expect(end.at.x).toBeGreaterThan(house.maxX);
-    expect(end.at.x - house.maxX).toBeLessThan(0.4);
+    /* This test used to be the opposite claim. She spawns level with what
+       stood here, so driving due west walked her into the farmhouse's east
+       face and stopped her outside it. The stable has no east face — that
+       side is the opening — so the same walk now carries her *through* it
+       and all the way to the far wall, which is the whole point of an
+       open-fronted building and worth asserting rather than assuming.
+
+       Two claims, and the first is the one that would catch a regression:
+       she ends up indoors. The second is the old one, moved a building's
+       width west — stopped just outside the wall she hit, by about the
+       quarter-unit her body is taken to be, rather than short of it or
+       inside it. */
+    const inside = await page.evaluate(() => window.Farm3DScene.stable().indoors);
+    expect(inside, 'she walked in through the open face').toBe(true);
+    expect(end.at.x).toBeGreaterThan(back.maxX);
+    expect(end.at.x - back.maxX).toBeLessThan(0.4);
   });
 
   test('walking east stops her at the barn wall', async ({ page }) => {
@@ -5255,19 +5328,46 @@ test.describe('walls she cannot walk through', () => {
 
     /* The assumption the walk-to-work queue rests on, checked rather than
        asserted in a comment: the queue walks a straight line and finishes
-       when it has covered the distance, so a solid standing on a plot, in
-       the pen, or on the ground between them would be a farmer who arrives
-       somewhere she is not. Every solid is out past those two rooms, and
-       this is what keeps it that way. */
+       when it has covered the distance, so a solid standing on a plot, on a
+       stall, or on the ground between them would be a farmer who arrives
+       somewhere she is not.
+
+       The shape of what has to be clear changed when the livestock moved
+       indoors. It used to be one rectangle — the field and the pasture side
+       by side, nothing solid anywhere in it. It is three now: the field and
+       its surrounds, the stable's floor, and the aisle of open ground
+       between them that the muster point sits in. The stable's own walls
+       stand between the first and the second, which is exactly why
+       jobTarget walks the errand in two legs; what this test holds is that
+       each leg is itself clear. */
     const blocked = await page.evaluate(() => {
       const s = window.Farm3DScene;
+      const inside = s.stable().inside;
+      const reach = s.jobReach();
+      const rooms = [
+        // The field and the ground east of it, as before.
+        { x0: -3.4, x1: 6.5, z0: -3.4, z1: 3.4 },
+        /* Inside the stable, the rectangle the queue can actually target —
+           not the whole floor. The first version of this swept the interior
+           inset by 0.2 and failed on 82 points against the west wall, which
+           was the sweep being wrong rather than the building: BODY_RADIUS
+           is 0.25, so the strip within a quarter of a unit of any wall is
+           blocked by construction, and nothing ever sends her there. The
+           stalls are inset 0.35 for exactly that reason. */
+        { x0: reach.minX, x1: reach.maxX, z0: reach.minZ, z1: reach.maxZ },
+        // The aisle outside the opening, which the walk's first leg ends in.
+        { x0: inside.maxX, x1: inside.maxX + 2.0,
+          z0: inside.minZ + 0.6, z1: inside.maxZ - 0.6 },
+      ];
       const bad = [];
-      for (let x = -3.4; x <= 6.5; x += 0.1) {
-        for (let z = -3.4; z <= 3.4; z += 0.1) {
-          if (s.blocked(x, z)) bad.push([+x.toFixed(1), +z.toFixed(1)]);
+      for (const r of rooms) {
+        for (let x = r.x0; x <= r.x1; x += 0.1) {
+          for (let z = r.z0; z <= r.z1; z += 0.1) {
+            if (s.blocked(x, z)) bad.push([+x.toFixed(1), +z.toFixed(1)]);
+          }
         }
       }
-      return bad;
+      return bad.slice(0, 20);
     });
     expect(blocked).toEqual([]);
   });
@@ -6198,8 +6298,17 @@ test.describe('the edges of the world, and the car left in it', () => {
        leaving the car eleven units outside anywhere she could walk. On
        foot it was gone for good. */
     await driveAt(page, 16, 22, 30_000);
-    const parked = await page.evaluate(() => window.Farm3DScene.car());
     expect(await page.evaluate(() => window.Farm3DScene.alight())).toBe(true);
+    /* Read after alighting, not before, and that ordering is the whole of a
+       flake this test carried from the day it was written. `driveAt` stops
+       steering but does not stop the car — it coasts — so a reading taken
+       before `alight()` is where the car was a round trip ago, not where it
+       came to rest. `leaveCar` zeroes the speed, so from here the figure is
+       final. Measured once at 5.05 against a 5.0 limit: the clamp had held
+       her at 4.5 from the car, correctly, and the car had rolled the other
+       0.55 after being asked. Nothing to do with the radius, which is why
+       widening it would have been the wrong fix. */
+    const parked = await page.evaluate(() => window.Farm3DScene.car());
 
     const walked = await page.evaluate(async () => {
       const s = window.Farm3DScene;
@@ -6826,26 +6935,179 @@ test.describe('the barn is a place, not a prop', () => {
   });
 });
 
-test.describe('the pasture is bought, the crop field is not', () => {
+/* ------------------------------------------------------------------ */
+/* The stable is a building the livestock lives in                      */
+/* ------------------------------------------------------------------ */
+
+/* The barn answered "where is my harvest?" with a room. This answers the
+   same question about the herd, and has to answer it harder: you can be
+   asked to walk into a barn to see your wheat, but the whole reason to buy
+   a cow is watching it be there, so the stable's livestock has to be
+   visible without going anywhere.
+
+   That is what the open east face is for, and it is why the claims below
+   are about *where things are* rather than about how they look. A
+   screenshot is the only thing that can say the building reads as a stable.
+   These say it is a stable: three walls and an opening rather than four
+   walls and a door, five stalls that match the five rows, and every animal
+   the save holds standing on the floor between them. */
+test.describe('the livestock lives in the stable', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const stable = (page) => page.evaluate(() => window.Farm3DScene.stable());
+
+  /* A save with something in every row. The dog and the cat are in here
+     deliberately: they are guardians, they patrol rather than graze, and a
+     patrol that walks out of the building would be the obvious way for this
+     to break. */
+  const fed = (id) => ({ id, state: 'producing', feedAt: secondsAgo(10) });
+  const herdSave = (extra = {}) => makeSave({
+    coins: 400,
+    cows: [fed(1), fed(2)],
+    chickens: [fed(3), fed(4)],
+    sheep: [fed(5)],
+    dogs: [fed(6)],
+    cats: [fed(7)],
+    nextAnimalId: 8,
+    ...extra,
+  });
+
+  test('it is three walls and an opening, where the farmhouse stood', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    const s = await stable(page);
+    /* Three, and the number is the feature. A barn is four walls with a gap
+       cut in one of them; this is a building with a side missing, and the
+       collision list is where that difference is actually made — anything
+       else could be dressing. */
+    expect(s.walls).toBe(3);
+    expect(s.stalls).toBe(5);
+
+    /* On the farmhouse's footprint, to within the handspan the two
+       buildings' dimensions differ by. The farm's flat ground, FARM_LEFT
+       and the west path branch were all drawn around that site, so a stable
+       that drifted off it would take a quiet toll on all three. */
+    expect(s.inside.minX).toBeLessThan(-11);
+    expect(s.inside.maxX).toBeCloseTo(s.opening.x, 5);
+    expect(s.opening.x).toBeGreaterThan(-6.5);
+    expect(s.opening.x).toBeLessThan(-5);
+  });
+
+  test('every animal the save holds is standing inside it', async ({ page }) => {
+    await load(page, herdSave());
+    await ready(page);
+
+    /* Polled rather than read once: the models load asynchronously and the
+       roaming moves them every frame, so "they are in there" has to be true
+       of a live scene rather than of its first drawn frame. */
+    await expect.poll(async () => {
+      const pen = await page.evaluate(() => window.Farm3DScene.penAnimals());
+      return Object.values(pen).flat().length;
+    }, { timeout: 20_000 }).toBeGreaterThanOrEqual(7);
+
+    const pen = await page.evaluate(() => window.Farm3DScene.penAnimals());
+    const outside = Object.entries(pen).flatMap(([kind, list]) => list
+      .filter((a) => !a.indoors)
+      .map((a) => `${kind} at (${a.x.toFixed(2)}, ${a.z.toFixed(2)})`));
+    expect(outside).toEqual([]);
+  });
+
+  test('they stay inside it while they roam', async ({ page }) => {
+    test.slow();
+    await load(page, herdSave());
+    await ready(page);
+    await expect.poll(async () => {
+      const pen = await page.evaluate(() => window.Farm3DScene.penAnimals());
+      return Object.values(pen).flat().length;
+    }, { timeout: 20_000 }).toBeGreaterThanOrEqual(7);
+
+    /* Sampled over several seconds rather than at one instant. Roaming
+       picks a fresh target every few seconds and the guardians walk the
+       building's length; a lane that leaked would leak on one of those
+       turns, not on the frame the test happened to catch. */
+    const escapes = [];
+    for (let i = 0; i < 8; i += 1) {
+      await page.waitForTimeout(700);
+      const pen = await page.evaluate(() => window.Farm3DScene.penAnimals());
+      for (const [kind, list] of Object.entries(pen)) {
+        for (const a of list) {
+          if (!a.indoors) escapes.push(`${kind} at (${a.x.toFixed(2)}, ${a.z.toFixed(2)})`);
+        }
+      }
+    }
+    expect(escapes).toEqual([]);
+  });
+
+  test('nothing grows on the stable floor', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+
+    /* The same trap the barn fell into, and it bites harder here: the
+       stable's solids are three walls, so as far as the scatter is
+       concerned the room between them is open ground — and unlike the barn
+       this one has a side missing, so there is nothing at all on the east
+       to suggest otherwise. */
+    const s = await stable(page);
+    const inside = await page.evaluate(([box]) => window.Farm3DScene.props()
+      .filter((p) => p.x > box.minX && p.x < box.maxX && p.z > box.minZ && p.z < box.maxZ)
+      .length, [s.inside]);
+    expect(inside).toBe(0);
+  });
+
+  test('the roof comes off when she is under it, and the far walls stay up',
+    async ({ page }) => {
+      test.slow();
+      await load(page, makeSave());
+      await ready(page);
+
+      const before = await stable(page);
+      expect(before.indoors).toBe(false);
+      expect(before.roofVisible).toBe(true);
+      expect(before.wallsDrawn).toBe(3);
+
+      /* Straight in through the open face. She spawns level with it, which
+         is the same walk the collision test above makes — there is no door
+         to find here, which is the point. */
+      await page.evaluate(() => window.Farm3DScene.drive(-1, 0));
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.stable().indoors),
+        { timeout: 20_000 }).toBe(true);
+      await page.evaluate(() => window.Farm3DScene.drive(0, 0));
+
+      const inside = await stable(page);
+      expect(inside.roofVisible).toBe(false);
+      /* Not all of them. A building with every wall hidden is a floating
+         roof; what comes down is whichever walls are between the camera and
+         the room, which from any one angle is never the whole shell. */
+      expect(inside.wallsDrawn).toBeGreaterThan(0);
+      expect(inside.wallsDrawn).toBeLessThan(3);
+    });
+});
+
+test.describe('the stable is stocked, the crop field is not', () => {
   const animalsTab = async (page) => {
     await page.getByRole('button', { name: /Animals/ }).click();
   };
 
-  test('a new farm has a field and no pasture', async ({ page }) => {
+  test('a new farm has a field and an empty stable', async ({ page }) => {
     await load(page, makeSave({ pasture: false }));
     await animalsTab(page);
 
     // The field is there from the first morning: plots can be planted.
     expect((await readSave(page)).unlockedPlots).toBeGreaterThan(0);
 
-    /* The pasture is not, and the button says so rather than showing a price
-       the player can afford beside a control that will not work. */
+    /* Somewhere to keep an animal is not, and the button says so rather
+       than showing a price the player can afford beside a control that will
+       not work. */
     await expect(page.locator('#buyCowBtn')).toBeDisabled();
-    await expect(page.locator('#buyCowBtn')).toHaveText(/needs a pasture/i);
+    await expect(page.locator('#buyCowBtn')).toHaveText(/needs a stable/i);
     await expect(page.locator('#buyPastureBtn')).toBeVisible();
   });
 
-  test('buying it costs coins, fences the pasture and opens the herd',
+  test('buying it costs coins, beds the stable down and opens the herd',
     async ({ page }) => {
       await load(page, makeSave({ pasture: false, coins: 400 }));
       await animalsTab(page);
@@ -6876,13 +7138,19 @@ test.describe('the pasture is bought, the crop field is not', () => {
     expect(save.coins).toBe(before);
   });
 
-  test('the fence is only up in the world once it has been paid for',
+  test('the bedding is only down in the world once it has been paid for',
     async ({ page }) => {
       await load(page, makeSave({ pasture: false, coins: 400 }));
       await page.waitForFunction(() => !!window.Farm3DScene);
       await page.evaluate(() => window.Farm3DScene.solidsReady());
 
-      await expect.poll(() => page.evaluate(() => window.Farm3DScene.pastureFenced()),
+      /* The building itself is always standing — it is the farm's west
+         elevation, and hiding it would mean either a hole in the skyline or
+         an invisible wall. What the purchase puts in the world is the straw
+         and the troughs, so that is what this asks about. */
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.stable().walls),
+        { timeout: 10_000 }).toBe(3);
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.stableBedded()),
         { timeout: 10_000 }).toBe(false);
 
       await page.getByRole('button', { name: /Animals/ }).click();
@@ -6894,11 +7162,11 @@ test.describe('the pasture is bought, the crop field is not', () => {
          This is also the order a player does it in. */
       await page.getByRole('button', { name: /Farm/ }).click();
 
-      await expect.poll(() => page.evaluate(() => window.Farm3DScene.pastureFenced()),
+      await expect.poll(() => page.evaluate(() => window.Farm3DScene.stableBedded()),
         { timeout: 10_000 }).toBe(true);
     });
 
-  test('a save from before the pasture existed keeps the herd it already had',
+  test('a save from before the purchase existed keeps the herd it already had',
     async ({ page }) => {
       /* The migration that matters. This field is new, so every save in the
          wild is missing it, and a missing boolean reads as false — which
@@ -6910,7 +7178,7 @@ test.describe('the pasture is bought, the crop field is not', () => {
       expect((await readSave(page)).pasture).toBe(true);
     });
 
-  test('a save from before it existed with no animals starts unfenced',
+  test('a save from before it existed with no animals starts without one',
     async ({ page }) => {
       // The other side of the same rule: nothing to strand, so nothing given.
       const empty = makeSave();

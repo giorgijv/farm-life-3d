@@ -3381,6 +3381,257 @@ further to put it if the answer turns out to be no.
 
 ---
 
+## 39. The house came down and a stable went up
+
+The farm had two buildings that were not really buildings and one that was.
+The barn was a place — you walk into it, the roof gets out of the way, and
+your harvest is stacked against the back wall as crates and barrels rather
+than as a number on a tab. The farmhouse was a kit model with a painted-on
+door. And the livestock was in a fenced rectangle east of the field, which
+is a perfectly good pen and was never anywhere at all.
+
+The ask was to remove the house, put a stable in, and make sure the harvest
+shows in the barn and the bought livestock shows in the stable. The harvest
+half was already true. The other half turned into three decisions, none of
+them obvious in advance.
+
+### Where it goes, and why the east side was wrong
+
+The instinct was to build the stable where the animals already were, since
+that changes least. The numbers said no: the field's east fence is at 2.79
+and the barn's west wall at 7.1, which leaves 4.31 units. A stable in that
+gap would have an interior about 3.4 across — narrower than the pen it
+replaced was tall, and not a building so much as a shed with the animals
+filed into it edgewise.
+
+The farmhouse's site had 6 by 7.5 sitting empty the moment the house came
+down, and three things were already drawn around it: the farm's flat ground,
+`FARM_LEFT`, and the one path branch on the west side, which had been laid
+to the farmhouse door. Building on the footprint meant none of those had to
+move. The stable is 6.0 by 8.6 — the same wall line to within a handspan,
+two thirds of a unit longer, because long is what a stable is.
+
+### The side that isn't there
+
+The barn makes you walk in. That is right for a barn: going in and finding
+out what is in there is the small event the building exists for. It is
+wrong for livestock. The entire reason to spend 220 coins on a cow is
+watching the cow be there, and a building you have to enter to see your herd
+is a tab with extra steps.
+
+So the stable has no east wall. It is a row of posts under the eave — a
+run-in stable, which is a real building type and happens to be exactly the
+one that solves the problem. From the field you are looking straight down
+five open stalls. It also solved a problem nobody had raised yet, which is
+the next section.
+
+Two consequences worth stating. The collision list has three rectangles
+where the barn's has five, and that is where the difference is actually
+made — an open face that is only open to the eye is a wall. And the shape is
+deliberately not the barn's: the barn is tall, red and gambrel, this is long,
+low, limewashed and gabled. Two buildings that read as two buildings from
+across the field is worth more than either being individually prettier.
+
+### The walk that used to be a straight line
+
+The walk-to-work queue walks a straight line to a plot or an animal and
+finishes when it has covered the distance. That is the whole of it, and it
+worked because the field and the pasture were open ground with nothing solid
+in between — a fact the suite has asserted for several passes by sweeping
+the rectangle that holds both and checking nothing is blocked in it.
+
+Moving the animals inside a building breaks that, and the failure is
+specific rather than general. From the field it is fine: the line runs west
+and enters through the opening, because the opening is the whole east face.
+From the dooryard it is not. A line from south of the stable to a stall
+crosses the south gable, and what she would do is grind along the outside of
+it until the distance was spent and then crouch down to milk a cow through a
+wall.
+
+The fix is a two-leg walk: out to a muster point east of the opening, then
+west through it. Three things about how it is written are worth recording
+because each was a choice:
+
+- **Stateless.** The detour is recomputed from where she is standing every
+  frame rather than latched when the job was queued, because the player can
+  take the stick mid-errand and put her somewhere the first leg no longer
+  makes sense from.
+- **The muster point is held back from both gable ends**, not just placed
+  east of the opening. Level with a gable and east of the building is
+  exactly the corner the detour exists for, so being east of the opening is
+  not on its own enough to go direct.
+- **Reaching a waypoint is not arriving.** The arrival test cannot tell one
+  target from another, and the muster point is by construction somewhere she
+  can reach — so the first build had her crouch down at the threshold and do
+  the job from the doorway. The waypoint is flagged and the crouch is
+  suppressed for it.
+
+One case is not covered, and it is stated rather than hidden: if she is
+already west of the building when the job lands, the walk to the muster
+point crosses the stable from behind. That strip is 0.3 of a unit between
+the west wall and the farm's edge, there is nothing out there to walk to,
+and being wrong in it costs the same shuffle the detour exists to avoid.
+Not worth a third leg.
+
+### What the pen took with it, and what it gave back
+
+The pen's layout survived the move almost unchanged — five rows, one per
+kind, oldest animal in the leftmost column — because the layout was never
+the problem. What changed is the numbers around it, and the first version of
+this section claimed more for them than was true.
+
+The old note in `scene.js` had recorded the pen's central trade honestly:
+width cost the camera, so the pen was denied it, and six cows at 0.86 across
+each stood 0.54 apart in a 3.0-unit band — shoulder to shoulder. The
+stable's interior is 5.7, and the obvious thing to write down is that the
+animals therefore got 5.7. They did not. The stalls pay for the west wall
+(0.3), the walkway she comes down (0.96) and the margin that keeps an animal
+off the back wall (0.35), which leaves 4.39 — six cows at 0.82 apart. Half
+again the room they had, and still not spacious.
+
+Worse, the first build gave them 3.00 — exactly what the pen had, so the
+move bought nothing at all on the measure that prompted it. Two numbers were
+wrong: a walkway at 30% of a 6-unit building (1.8, when the farmer is 0.7
+across), and a 0.45 inset applied to the walkway side as well as the three
+walls, which is insetting the same edge twice. Both were caught by working
+the arithmetic out to write this section down, not by looking at the
+screenshot — the screenshot showed animals in stalls, which is what it was
+asked, and six cows is more than any of the test saves held.
+
+Getting to a genuine unit apart means a wider building. That was costed
+rather than dismissed: 6.8 across would do it, and it would put the stable's
+east wall 0.55 from the path spine and swallow most of the yard between the
+building and the field. Not worth 0.18 of a unit between cows.
+
+Depth went the same way but less far — 5.1 across the five rows against the
+pen's 4.9 — because `PEN_ROW_MARGIN` has to give the last row 1.01 of floor
+behind it and that is most of what the extra depth bought.
+
+One constraint got tighter and it is the only measured number in the block.
+The gable walls are solid where a fence was not, and the job queue stops her
+`STAND_OFF` (0.66) short of what she was sent to, with a body radius of
+0.35. So the last row needs 1.01 of floor behind it or she finishes the
+errand pressed against the south wall. `PEN_ROW_MARGIN` is 1.1 — that, with
+a handspan.
+
+### What the purchase buys now
+
+The pasture announced itself by putting a fence up. Something had to take
+that job, because a purchase with no effect on the world is a purchase the
+player has no reason to believe in.
+
+Stall gates were the obvious answer and the wrong one: they would sit across
+the open face, in the one sightline the whole building exists to keep clear,
+and she would walk through them every time she went to milk a cow. What the
+120 coins buy is bedding — straw down and a trough in every stall. The
+building itself is never hidden. It stands on an unbought farm the way an
+empty stable stands on a real one, swept and waiting, and hiding it would
+have meant either an invisible wall where its walls are or a building that
+pops into existence on a button press.
+
+The save key is still `pasture`, and it is staying that way. It named a
+fenced rectangle that no longer exists, but every save in the wild has that
+field under that name and renaming it would buy a migration and nothing
+else: the flag means what it always meant, which is that you have somewhere
+to keep animals. What the player is sold is named in the UI, which is where
+names are for reading.
+
+### Four things a screenshot found that arithmetic had not
+
+The building was measured before it was looked at, and then looked at, and
+the looking changed four things:
+
+- **The troughs were lost in the straw.** At 0.3 tall on a 0.08 floor with
+  0.07 of bedding under them they stood eight centimetres proud and read as
+  lumps in the litter. The arithmetic was there to be done and was not done.
+  They are 0.5 now.
+- **The partitions ran the full depth of the building**, which turned the
+  open face into five separate mouths and left her stepping over a beam
+  every time she walked along it. They stop a third of the way back now,
+  which gives the building what a real stable has — a walkway down the open
+  side with stalls off it — and it is the same walkway the job queue already
+  sends her down. The animals' own x range was pulled back to match, via a
+  second exported rectangle, so nothing stands in the aisle.
+- **The gable ends were blank.** Four and a half metres of limewash facing
+  the shot the game opens on: a building-shaped panel rather than a
+  building. Daub-and-timber hangs its frame outside, so a post and two
+  braces per end is both the honest detail and the cheap one. First attempt
+  centred them in the wall, where a 0.35-deep brace on a 0.3 wall pokes five
+  millimetres through to the inside and z-fights the limewash there — which
+  the next screenshot showed as a diagonal scar across both interiors.
+- **Two of the five moved plants were invisible.** The dooryard planting had
+  hugged the farmhouse's east wall, which is now one to two thirds of a unit
+  in front of the stable's open face — in the sightline and across the walk.
+  Moving it to the gable ends fixed that, and a shot of the north-west
+  corner showed the orchard's own scatter already crowds that end with
+  conifers taller than the building. Two went south instead, where the
+  dooryard camera looks.
+
+### Forty-seven draw calls for one building
+
+The draw-budget test failed at 285 calls against a ceiling of 260, and it
+was right to. The farmhouse was one loaded model; the stable as first built
+was forty-seven separate slabs, each its own mesh and each its own draw.
+Nothing about that was necessary — it was just the shape the code fell into,
+one `slab()` call per thing, the same way `barn.js` is written.
+
+The ceiling's own note says it exists to catch this: "un-instancing the
+foliage or the sixty-odd hand-placed props would blow through the call
+ceiling immediately." Raising it to fit the building would have been arguing
+with the instrument, so the building was fixed instead.
+
+Slabs are now collected into batches and merged, one mesh per material per
+batch, with `BufferGeometryUtils.mergeGeometries` — already vendored and
+already in the service worker's manifest. A batch exists for each thing that
+has to hide on its own and one for everything nailed down:
+
+    three walls, two draws each (limewash, timber frame)    6
+    the roof (slate, ridge timber, gable infill)            3
+    the fabric (floor, posts and beam, partitions)          3
+    the bedding (straw, troughs)                            2
+                                                           --
+                                                           14
+
+The per-slab transform is baked into the geometry at collection time, since
+a merged geometry has nowhere to carry one afterwards. The only thing given
+up is moving or hiding a slab individually, and nothing in this building
+wants to: the walls hide as groups, and a `Group`'s `visible` takes its
+children with it — which is also what now keeps each wall's trim attached to
+it, a thing `barn.js` had to be taught by hand after leaving white trim
+hanging in the air.
+
+Two figures worth keeping. Merged, the worst case is 258, so the stable
+costs about eighteen calls more than the farmhouse it replaced rather than
+forty-seven. And 258 against 260 is not headroom — it is a ceiling that has
+stopped meaning anything — so it was re-measured and set to 300, which is
+the same proportional margin 260 had over the 223 it was set from. The barn
+is still a mesh per slab, about thirty-two of them, and is where to look
+first if that number ever needs to come down again.
+
+### The camera centre, which turned out not to matter much
+
+`VIEW_CX` was the midpoint between the field's west fence and the pen's east
+one — the two places she had to be — and that expression died with the pen.
+The replacement is the farm's own centre, and the arithmetic that made it
+safe is worth writing down because the instinct was that it would not be:
+the frame is about 24 units wide at the target's distance in landscape (48
+degrees, 15.2 units back), the farm is 25.3 wide, so opening on the whole
+farm costs no pull-back at all. The old "it must hold both fences" concern
+dated from a farm 15 units across and a camera much closer.
+
+What the screenshots then showed is that it matters less than any of that
+suggests: the chase camera takes hold within a second of load and the
+opening composition is gone. It is the shot the game opens on, not one it
+has to hold.
+
+A related non-result: on a portrait phone the frame is about 6.2 units wide,
+which means the old formula's "both fences in shot" was already false there
+and had been for some time. Nothing was done about it — the chase camera is
+the answer on a phone — but it is recorded so nobody re-derives the
+constraint from the comment that used to state it.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -3995,6 +4246,86 @@ Everything above was checked before it was written:
   to four in four. It was reverted before being diagnosed, which was the
   right order: a fix that makes things worse and cannot be explained should
   come out, not get another patch on top.
+
+- §39's stable was measured before being looked at and then looked at, and
+  the looking changed four things — troughs lost in the bedding, partitions
+  running the full depth, blank gable ends, and two of five moved plants
+  landing where the orchard's own scatter hides them. Each is recorded in
+  §39 with what the screenshot showed.
+
+- The one thing the screenshots did **not** catch is the one that mattered
+  most: the stalls were 3.00 across, exactly the width of the pen they
+  replaced, so the move bought nothing on its headline measure. A
+  screenshot could not catch it because every test save holds two or three
+  animals and `PEN_CAP` is 3 on the software rasteriser the shots were
+  taken on — six cows never appeared. It was found by doing the arithmetic
+  to write §39 down, which is an argument for writing the section before
+  shipping rather than after.
+
+- The real figure, printed rather than reasoned about: with a 0.96 walkway
+  and a one-sided 0.35 inset the stalls are 4.39 across and six cows stand
+  0.82 apart, against 3.00 and 0.54 in the pen. A table of six
+  walkway/inset combinations was printed and the best one taken; the
+  alternative that reaches a genuine unit apart needs the building 0.8
+  wider, which was costed against the path spine and declined.
+
+- The opening shot's frame is about 24 units wide at the camera's target
+  distance in landscape (48°, 15.2 units back) against a 25.3-unit farm, so
+  recentring `VIEW_CX` on the farm needed no pull-back. The same arithmetic
+  in portrait gives 6.2 units, which means the comment this replaced —
+  "both fences still fit the frame" — had been false on a phone for some
+  time. Nothing was done about that; it is recorded so it is not
+  re-derived.
+
+- A non-result about the same change: it matters much less than any of the
+  above suggests, because the chase camera takes hold within a second of
+  load. Three of the seven screenshots taken to check the opening framing
+  were actually pictures of wherever the farmer happened to be standing.
+
+- The walk-to-work queue's detour through the stable's opening was checked
+  by sweeping three rectangles for blocked ground — the field, the stable's
+  floor, and the aisle outside the opening — rather than the single
+  rectangle the suite had swept since the pen existed. The case the detour
+  does not cover (a job landing while she is behind the building) is stated
+  in §39 rather than left for someone to find.
+
+- One process mistake, and the fourth of its kind in this document: the
+  suite was started and then the spec edited under it, twice in one pass,
+  and both runs were killed and restarted. The second time was worse
+  because it was a source file rather than a test, which changes what the
+  later tests exercise without any sign that it happened.
+
+- The stable's first build cost 285 draw calls against a 260 ceiling, caught
+  by the test that exists to catch it. Merged per material it is 14 calls
+  and the worst case is 258; the ceiling was then re-measured to 300 rather
+  than left at a value it cleared by two. Both figures were printed from a
+  probe using the failing test's own save, not inferred from the failure
+  message.
+
+- Three of the four failures in the first full run after the stable went in
+  were the building telling the truth about itself, and each was fixed at
+  the question rather than the tolerance:
+
+  Holding north-west from spawn now walks her *into* the stable and wedges
+  her in the interior corner at z -2.35 — her body radius off the inside of
+  the north wall. The farmhouse was a closed box and she slid round it. The
+  test that asked whether the farm has an edge was rerouted to go north past
+  the building first, because an open-fronted building is a room, which is
+  the whole point of it.
+
+  A new sweep of mine used a 0.2 margin against a `BODY_RADIUS` of 0.25 and
+  reported 82 blocked points against the west wall. The strip within a body
+  radius of any wall is blocked by construction and nothing ever aims her
+  there; the sweep now covers what the job queue can actually target, which
+  is what its name claimed all along.
+
+- The fourth failure was **not** this feature's, and the diagnosis is worth
+  keeping because the number looked like a tolerance problem: she finished
+  5.05 from a parked car against a 5.0 limit. The clamp had held her at 4.5,
+  correctly. The car had rolled the other 0.55 — `driveAt` stops steering
+  but does not stop the car, and the test sampled the car's position one
+  round trip before `alight()` zeroed its speed. Widening the radius would
+  have hidden a race. Reading the position after alighting removes it.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.

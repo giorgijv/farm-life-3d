@@ -10,7 +10,7 @@ Play it at **https://giorgijv.github.io/farm-life-3d/**
 
 This started as a copy of [Farm Life](https://giorgijv.github.io/farm-game/)
 ([source](https://github.com/giorgijv/farm-game)) and was rebuilt around a 3D
-farm: a farmer you steer to the work, animals in a pen she crosses the yard to
+farm: a farmer you steer to the work, animals in a stable she crosses the yard to
 milk, seasons and weather over the top, and the day/night cycle driving real
 light.
 
@@ -27,10 +27,12 @@ something and the game offers what it is for ("Plant 🌾 Wheat", "Harvest",
 "Collect 🥛"); press that button, or the space bar, and she does it. Clearing
 a ripe field is a round she walks rather than four instant taps.
 
-Beside the field is the pasture, fenced once you have bought it, with the
-herd in it — animated cows,
+West of the field is the stable, bedded down once you have bought it, with the
+herd standing in its stalls — animated cows,
 chickens, sheep, a dog and a cat, each wandering its own lane, a guardian on
-duty trotting the fence line while a hungry one waits it out. The crops are
+duty trotting the length of the building while a hungry one waits it out. Its
+whole east face is open, so you can see who is in there from across the
+field. The crops are
 modelled too, and change shape as they grow rather than just colour. There is
 a pond that shallows into a muddy bank rather than stopping on a line, with
 its own breeze crossing it in patches, an orchard that turns to autumn colour
@@ -44,7 +46,7 @@ parked on a two-lane pull-in by the market stall, and it is the one you drive
 to market (below); the stall beside it is set dressing. The sun
 tracks the same clock the 2D sky strip reads, carrying the yard from daylight
 through a warm dusk into a moonlit night, and on a machine with a GPU it
-casts: the farmhouse lays a long shadow across the field in the afternoon,
+casts: the stable lays a long shadow across the field in the afternoon,
 the orchard dapples the ground it stands on, and the farmer has a shadow of
 her own. A steady wind leans the grass and bends the trees, and picks up in
 the days before a hurricane. The ground is grass in patches rather than one
@@ -61,7 +63,7 @@ collar, cuffs at the sleeve, soles under her boots and brows over her eyes.
 She runs with her arms swinging at the stride she is actually covering ground
 at, bends at the knees to pick a crop, and carries a load in front of her.
 
-**The barn has an inside.** The building east of the pasture is a real barn —
+**The barn has an inside.** The building east of the field is a real barn —
 red boards, white trim, a gambrel roof — and its doorway is a gap you walk
 through rather than a painting on a wall. Go in and the roof and whichever
 walls are between you and the camera step aside, so you can see the room; the
@@ -69,12 +71,19 @@ walls still stop you, so you leave the way you came. What is in there is your
 stores, as things rather than numbers: crops stacked in crates, milk and eggs
 and wool in barrels, growing as you harvest and emptying the week you sell up.
 
-**The pasture is bought; the field is not.** The crop field comes with the
-farm. The pasture east of it is unfenced ground until you pay to fence it, and
-until you do there is nowhere to keep an animal — so the first herd is a
-decision you save for rather than something the Animals tab hands you on the
-first morning. Fence it once and it is yours for good. (A farm from before
-this change keeps the pen it was already using.)
+**The stable is stocked; the field is not.** The crop field comes with the
+farm. The stable is swept and empty until you pay to bed it down, and until
+you do there is nowhere to keep an animal — so the first herd is a decision
+you save for rather than something the Animals tab hands you on the first
+morning. Stock it once and it is yours for good. (A farm from before this
+change keeps the herd it already had.)
+
+**And the stable has an inside too, without asking.** The barn makes you walk
+in; the stable does not, because the point of buying a cow is watching it be
+there. Its east face is a row of posts under the eave rather than a wall, so
+from the field you are looking straight down five open stalls — straw on the
+floor, a trough at the back of each one, and whoever you have bought standing
+in them. Walk in and the roof steps aside the same way the barn's does.
 
 **And there is somewhere to take that load.** A country road leaves the yard
 past the market stall and winds sixty metres over the hills to a market
@@ -134,15 +143,15 @@ which means the car and the road. Everything else on the Market tab —
 difficulty, farmer, sound, save data — is a setting rather than a purchase and
 is reachable wherever she is.
 
-It is a farm at human scale. The farmhouse stands more than three times her
+It is a farm at human scale. The stable stands three times her
 height and the barn nearly four, the orchard is grown trees rather than
 saplings, and the ground is about twenty-five metres square — big enough
 that the buildings standing on it can be building-sized. She cannot walk
-through any of them: the farmhouse, the stall, the car, every orchard trunk
-and all five of the barn's walls stop her and slide her along themselves. The
-canopies do not, so standing under an apple tree is still allowed — and
-neither does the barn's doorway, which is the one gap in the farm that is
-meant to be walked through.
+through any of them: the stall, the car, every orchard trunk, all five of the
+barn's walls and the stable's three stop her and slide her along themselves.
+The canopies do not, so standing under an apple tree is still allowed — and
+neither do the two gaps that are meant to be walked through: the barn's
+doorway, and the whole open face of the stable.
 
 If your browser ever takes the 3D view away — phones short on memory do this,
 and some of them never give it back — the farm no longer just goes blank. The
@@ -434,10 +443,13 @@ that the barn is five walls with a gap in one of them rather than one solid
 block — she walks in through the door, the roof and the near walls get out of
 the camera's way, and the walls she can no longer see still stop her — that
 what is stacked inside it follows what is actually in the save, that no grass
-grows on its floor, that a new farm has a field and no pasture while buying one
-fences it and opens the herd, that the refusal holds when the disabled button is
-gone round, and that a save from before the pasture existed keeps the herd it
-already had while one with no animals does not get a free field, that there
+grows on its floor, that the stable is three walls and an opening rather than
+four and a door — she walks straight in off the field, no gap to thread — that
+every animal the save holds is standing inside it and stays inside it while it
+roams, that a new farm has a field and an empty stable while buying one beds it
+down and opens the herd, that the refusal holds when the disabled button is
+gone round, and that a save from before that purchase existed keeps the herd it
+already had while one with no animals does not get a free one, that there
 are five ribbons rather than one — the market road, three lanes branching off
 it and the city's own cross street — that each lane starts on the road it
 branches from and finishes at the place it is named after, that nothing solid
