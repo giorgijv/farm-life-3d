@@ -47,7 +47,9 @@ import * as THREE from 'three';
    Depth and height are then chosen against her — an interior of 5.7 by 7.8
    is a room two cows and a winter's produce fit in without the camera having
    to squeeze, and 5.8 tall is three and a half times the farmer, which is
-   the ratio the art bible's scale table holds the farmhouse to. */
+   the ratio the art bible's scale table held the farmhouse to. The farmhouse
+   is gone now — see stable.js, which stands on its footprint — and this is
+   still the tallest thing on the farm, which is what a barn should be. */
 export const BARN_WIDTH = 6.3;
 export const BARN_DEPTH = 8.4;
 export const BARN_HEIGHT = 5.8;

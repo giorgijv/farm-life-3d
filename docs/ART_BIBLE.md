@@ -1519,6 +1519,14 @@ before the scale could be fixed, which is why one request had three parts.
 | pen | 2.1 × 4.4 | 3.0 × 5.8 | — |
 | camera | 3.9 up, 9.2 back | 4.8 up, 14.0 back | — |
 
+Two rows of that table have since been overtaken, and it is left as it was
+written because it is the record of what that pass did. The **farmhouse** is
+gone: §39 pulled it down and the stable stands on its footprint at 4.4 tall,
+which is 3.0× the farmer — it inherited the site and, near enough, the
+ratio. The **pen** is gone with it; the livestock stands in the stable's
+stalls, on a floor 4.39 × 5.10. Anything reading this table for a *current*
+figure wants §39 for those two and this table for the rest.
+
 Two of those were not in the request and are here because the same ruler
 condemned them. The **market stall** at its authored 1.24 was shorter than
 the farmer, so she could not stand under her own awning. The **pond**, at
