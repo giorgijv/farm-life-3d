@@ -147,11 +147,21 @@ It is a farm at human scale. The stable stands three times her
 height and the barn nearly four, the orchard is grown trees rather than
 saplings, and the ground is about twenty-five metres square — big enough
 that the buildings standing on it can be building-sized. She cannot walk
-through any of them: the stall, the car, every orchard trunk, all five of the
-barn's walls and the stable's three stop her and slide her along themselves.
-The canopies do not, so standing under an apple tree is still allowed — and
+through any of them: the stall, the car, every tree on the map, all five of
+the barn's walls and the stable's three stop her and slide her along
+themselves. So does anything standing at knee height or above — the
+signposts, the barrels, the crates and the chests. What stays passable is
+measured rather than guessed: grass, flowers, bushes, stumps, logs and the
+flat rocks are all under a third of a unit, and an invisible kerb at every
+tuft of grass would be worse than walking through one. The canopies do not
+stop her either, so standing under an apple tree is still allowed — and
 neither do the two gaps that are meant to be walked through: the barn's
 doorway, and the whole open face of the stable.
+
+The same goes for the car, with its own wider body: a trunk stops it dead
+rather than sliding it along, so the trees along the roads are kept back far
+enough that drifting wide on a bend is a wobble and not the end of the
+drive.
 
 If your browser ever takes the 3D view away — phones short on memory do this,
 and some of them never give it back — the farm no longer just goes blank. The
@@ -477,9 +487,11 @@ that the reload offered when it never is keeps the player's coins — and that
 shadows stay switched off on a machine with no GPU, which is the whole point
 of gating them. **Scale and collision** are tested
 the same way, as
-numbers rather than as screenshots: that the farmhouse really is several
-times the farmer's measured height, that the orchard's trunks stop her while
-its canopies do not, that nothing is left standing in the pond, that driving
+numbers rather than as screenshots: that the stable and the barn really are
+several times the farmer's measured height, that trunks stop her while
+canopies do not, that every tree the scatter plants carries a collider and
+none of them stands close enough to a road to end a drive, that a knee-high
+prop stops her while ankle-high clutter does not, that nothing is left standing in the pond, that driving
 her at a wall puts her against it rather than inside or beyond it, and that
 no wall stands anywhere a queued job could send her — which is the
 assumption the walk-to-work queue rests on — that no two exclusion zones

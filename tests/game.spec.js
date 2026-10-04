@@ -5042,8 +5042,22 @@ test.describe('the size of the place', () => {
 
     const her = await page.waitForFunction(() => window.Farm3DScene.farmerHeight())
       .then((h) => h.jsonValue());
-    const { posts } = await solids(page);
-    expect(posts.length).toBeGreaterThanOrEqual(8);
+    /* The orchard, which since the scatter's trees became solid is no longer
+       the same thing as "every post". The hillside and roadside belts are
+       posts too now, they are 3.4 units and up rather than the orchard's
+       4.2, and they are middle distance — a tree seen across two fields has
+       no business being held to the scale of one she walks under.
+
+       Told apart by where they stand rather than by a flag: `onHillside`
+       requires ground that has begun to rise and ROAM stops her inside the
+       flat, so the trees on the farm are exactly the orchard. */
+    const roam = await page.evaluate(() => window.Farm3DScene.roam());
+    const all = (await solids(page)).posts;
+    const posts = all.filter((t) => t.x > roam.minX && t.x < roam.maxX
+      && t.z > roam.minZ && t.z < roam.maxZ);
+    expect(posts.length, 'the orchard is planted').toBeGreaterThanOrEqual(8);
+    expect(all.length, 'and it is not the only wood on the map')
+      .toBeGreaterThan(posts.length);
 
     for (const t of posts) {
       /* Asked as a height and as a ratio, because on their own each one can
@@ -5131,6 +5145,184 @@ test.describe('the size of the place', () => {
     // says so rather than a screenshot taken on the day.
     expect(bad.drowned).toEqual([]);
     expect(bad.adrift).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Scenery you cannot walk or drive through                             */
+/* ------------------------------------------------------------------ */
+
+/* The farm draws a hundred and fifteen trees and used to stop you at ten.
+
+   The ten were the orchard, hand-placed with `blocks: 'trunk'` on each. The
+   rest — the hillside fringe, both roadside belts, the market's and the
+   city's, the villa avenue — were drawn and never registered, so you walked
+   and drove straight through them. Standing props were in the same state: a
+   signpost a head taller than the farmer, every barrel and crate in the
+   dooryard.
+
+   What these hold is the rule rather than the instances, because the
+   instances move: anything the game draws at knee height or above is
+   something the world stops you at, and anything it draws below that is
+   not. A test that listed positions would have to be rewritten every time
+   a prop shifts a unit; these ask the scene what it drew and what it made
+   solid, and compare the two. */
+test.describe('the scenery is solid', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+  };
+
+  test('every tree the scatter plants carries a collider', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    const { drawn, solid } = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const counts = s.foliageCounts();
+      const posts = s.solids().posts;
+      const isTree = (id) => id.includes('tree_');
+      /* foliageCounts is keyed by model id, and two scatters share each
+         tree model — the hillside's and the roadside's — so the later one
+         overwrites the earlier. It is a floor on what was drawn, not a
+         total, which is all this needs: the colliders must at least cover
+         it, and the hand-placed trees are on the same list besides. */
+      const drawn = Object.entries(counts)
+        .filter(([id]) => isTree(id))
+        .reduce((n, [, c]) => n + c, 0);
+      return { drawn, solid: posts.filter((p) => isTree(p.id)).length };
+    });
+
+    expect(drawn, 'the scatter planted trees at all').toBeGreaterThan(0);
+    /* Strictly greater, not equal: the hand-placed trees are posts too, and
+       foliageCounts under-reports for the reason above. The failure this
+       catches is the one that was real — a whole scatter contributing no
+       colliders at all, which put `solid` at ten against a drawn count in
+       the dozens. */
+    expect(solid).toBeGreaterThan(drawn);
+  });
+
+  test('no tree stands close enough to a road to end a drive', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* The setback that makes solid trees survivable. A trunk the car cannot
+       pass is fine in open country and fatal on a lane, and the margin has
+       to hold for the scattered trees and the hand-placed ones alike — it
+       was the hand-placed ones that failed it, one villa pine standing 1.27
+       from the middle of its own carriageway. */
+    const tooClose = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      // Half the carriageway, the car's radius, and the trunk's own.
+      const need = 2.2 + 1.1;
+      return s.solids().posts
+        .map((p) => ({ p, d: s.onAnyRoad(p.x, p.z).distance }))
+        .filter((o) => o.d < need + o.p.r)
+        .map((o) => `${o.p.id} at (${o.p.x.toFixed(1)}, ${o.p.z.toFixed(1)}) is ${o.d.toFixed(2)} from a road`);
+    });
+    expect(tooClose).toEqual([]);
+  });
+
+  test('a knee-high prop stops her and ankle-high clutter does not',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+
+      /* The line, asserted as a line rather than as a list. Every solid the
+         scene reports must be something worth stopping at, and the things
+         deliberately left passable must still be passable — walking through
+         a barrel is a bug, and an invisible kerb at every tuft of grass is
+         a worse one. */
+      const { solidIds, passableIds } = await page.evaluate(() => {
+        const s = window.Farm3DScene;
+        const { boxes, posts } = s.solids();
+        const solid = new Set([...boxes.map((b) => b.id), ...posts.map((p) => p.id)]);
+        const all = new Set(s.props().map((p) => p.id));
+        return {
+          solidIds: [...solid].sort(),
+          passableIds: [...all].filter((id) => !solid.has(id)).sort(),
+        };
+      });
+
+      // Measured heights against a 1.6-unit farmer; see the note in scene.js.
+      for (const id of ['survival/signpost', 'survival/barrel', 'survival/box',
+        'survival/chest', 'nature/tree_default', 'nature/tree_pineDefaultA',
+        'nature/tree_detailed']) {
+        expect(solidIds, `${id} should stop her`).toContain(id);
+      }
+      for (const id of ['nature/grass_large', 'nature/plant_bush', 'nature/flower_redA',
+        'nature/stump_round', 'nature/log', 'nature/rock_smallA']) {
+        expect(passableIds, `${id} should not be an invisible kerb`).toContain(id);
+      }
+    });
+
+  test('walking into a dooryard prop stops her outside it', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+
+    /* On foot she never meets the scatter at all, and that is worth saying
+       rather than leaving for someone to rediscover: the scattered trees
+       stand where the ground has started to rise, `onHillside` requires it,
+       and ROAM stops her inside the flat. The trees the car hits are
+       scenery she can only ever drive to.
+
+       So what the walk can actually be held to is the other half of the
+       fix — the dooryard, where a barrel is the height of her hip and used
+       to be something she strolled through. Driven rather than asked of
+       `blocked`, because the resolver and the walk are different code and
+       it is the walk the player uses. */
+    const end = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const from = s.farmerAt();
+      const near = s.solids().boxes
+        .filter((b) => b.id.startsWith('survival/'))
+        .map((b) => {
+          const x = (b.minX + b.maxX) / 2;
+          const z = (b.minZ + b.maxZ) / 2;
+          return { b, x, z, d: Math.hypot(x - from.x, z - from.z) };
+        })
+        .sort((a, c) => a.d - c.d)[0];
+      const dx = near.x - from.x;
+      const dz = near.z - from.z;
+      const len = Math.hypot(dx, dz);
+      s.drive(dx / len, dz / len);
+      await new Promise((r) => setTimeout(r, 6000));
+      s.drive(0, 0);
+      await new Promise((r) => requestAnimationFrame(r));
+      const at = s.farmerAt();
+      return { at, box: near.b, id: near.b.id, inside: s.blocked(at.x, at.z) };
+    });
+
+    expect(end.id, 'there is a crate or barrel to walk into').toBeTruthy();
+    // Outside its footprint, and not resolved to somewhere it still overlaps.
+    const { at, box } = end;
+    const inFootprint = at.x > box.minX && at.x < box.maxX
+      && at.z > box.minZ && at.z < box.maxZ;
+    expect(inFootprint, `she ended up inside ${end.id}`).toBe(false);
+    expect(end.inside).toBe(false);
+  });
+
+  test('a tree is something the car cannot pass', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+
+    /* Asked of carBlocked rather than by driving, because driving at a tree
+       takes a route and this is about the tree. The car's test is its own —
+       a wider radius than hers, and a stop rather than a slide. */
+    const verdict = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const trees = s.solids().posts.filter((p) => p.id.includes('tree_'));
+      const atTrunk = trees.filter((p) => s.carBlockedAt(p.x, p.z)).length;
+      // And a clear patch well away from any of them is still drivable.
+      const open = s.carBlockedAt(0, 20);
+      return { trees: trees.length, atTrunk, open };
+    });
+
+    expect(verdict.trees).toBeGreaterThan(20);
+    expect(verdict.atTrunk).toBe(verdict.trees);
+    expect(verdict.open, 'open country is still drivable').toBe(false);
   });
 });
 
@@ -5268,7 +5460,26 @@ test.describe('walls she cannot walk through', () => {
          whole farm and requires every point she can stand on to be a point
          she can get out of — and that one is asked of the barn's corners
          like everywhere else. */
+      /* Dressing against a structure is exempt too, and for a reason the
+         same shape as the one above. A crate stands against a barn wall
+         because that is where crates go; a barrel stands beside a stall for
+         the same reason. Once those props became solid — they are knee
+         height and up, and walking through them was the bug — every one of
+         them formed a seam with whatever it was leaning on. Moving them all
+         a clear unit off every wall would make the farm look like its own
+         props were afraid of it.
+
+         What makes this safe is not an argument, it is the escape test
+         below: it walks the whole farm and requires every point she can
+         stand on to be a point she can get out of, and it passes with all
+         of this dressing in place. That is the property that matters, and
+         it is checked directly rather than approximated here.
+
+         A thing counts as dressing by its footprint. Nothing the game calls
+         a building, a stall or a vehicle is under a unit across; nothing in
+         the survival kit is over one. */
       const boxes = s.solids().boxes;
+      const dressing = (b) => (b.maxX - b.minX) < 1 && (b.maxZ - b.minZ) < 1;
       const pairs = [];
       const m = 0.25; // the farmer's own half-width, as the collider uses it
       for (let i = 0; i < boxes.length; i += 1) {
@@ -5276,6 +5487,7 @@ test.describe('walls she cannot walk through', () => {
           const a = boxes[i];
           const b = boxes[j];
           if (a.id === b.id) continue;
+          if (dressing(a) || dressing(b)) continue;
           if (a.minX - m < b.maxX + m && a.maxX + m > b.minX - m
             && a.minZ - m < b.maxZ + m && a.maxZ + m > b.minZ - m) pairs.push(`${a.id} and ${b.id}`);
         }
@@ -6251,14 +6463,50 @@ test.describe('the edges of the world, and the car left in it', () => {
     /* There was nothing stopping it. Driving due east off every road ran
        to x 172 against a terrain that stops at 46, and what the player saw
        was a car hanging in an empty blue sky with no ground under it and
-       no clue which way home was. */
-    const edge = await page.evaluate(() => window.Farm3DScene.worldEdge());
-    const car = await driveAt(page, 400, 0, 25_000);
+       no clue which way home was.
 
+       Due east used to be the way to ask, and it was the obvious heading
+       because there was nothing in that direction — nothing was in *any*
+       direction, which was the bug being fixed. The trees are solid now,
+       and a ray cast over 72 headings out of the pull-in says **no straight
+       line from here reaches the east or west edge at all**: a trunk stops
+       every one of them. Two headings still reach the southern edge.
+
+       That is a real change to the map and not a thing to paper over, so
+       the test asks the question in two pieces instead of one. The rule is
+       checked where the rule lives — just outside the modelled ground is
+       somewhere the car may not be, on all four sides — and the drive is
+       kept, aimed down one of the two lines that still run out to an edge,
+       to prove the rule holds against a car actually arriving at it.
+
+       The second piece is what the old single assertion was really worth:
+       the car stops *against* the edge rather than creeping through it. */
+    const edge = await page.evaluate(() => window.Farm3DScene.worldEdge());
+
+    const verdict = await page.evaluate((e) => {
+      const s = window.Farm3DScene;
+      return {
+        outside: [[e + 0.6, 0], [-e - 0.6, 0], [0, e + 0.6], [0, -e - 0.6]]
+          .map(([x, z]) => s.carBlockedAt(x, z)),
+        /* And the ground just inside is not blocked by the edge itself —
+           otherwise "blocked past the edge" would pass on a map where
+           everything is blocked. Three of the four, because the fourth has
+           the city standing on it. */
+        inside: [[e - 0.6, 0], [-e + 0.6, 0], [0, e - 0.6]]
+          .map(([x, z]) => s.carBlockedAt(x, z)),
+      };
+    }, edge);
+    expect(verdict.outside, 'past the edge is off limits on every side')
+      .toEqual([true, true, true, true]);
+    expect(verdict.inside, 'but the ground just inside it is not')
+      .toEqual([false, false, false]);
+
+    // South-east, which the ray cast says still runs clear to the edge.
+    const car = await driveAt(page, 230, 336, 25_000);
     expect(Math.abs(car.x)).toBeLessThanOrEqual(edge + 0.01);
     expect(Math.abs(car.z)).toBeLessThanOrEqual(edge + 0.01);
     // Stopped against it rather than creeping through.
-    expect(Math.abs(car.x)).toBeGreaterThan(edge - 2);
+    expect(Math.abs(car.z)).toBeGreaterThan(edge - 2);
   });
 
   test('she cannot walk off it either', async ({ page }) => {

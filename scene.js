@@ -2083,11 +2083,34 @@ ${shader.fragmentShader.replace(
      hills so the edge of the flat ground is never a visible line, and nothing
      stands where she has to walk between the field and the stable.
 
-     Most of this does not collide: she walks through a bush or a barrel if
-     she insists, and that is the right answer for ankle-high clutter, which
-     would otherwise be an invisible kerb everywhere she goes. What does
-     collide is marked `blocks` below and collected into SOLIDS — the
-     buildings, the trees, the stall and the car. See keepOutOfSolids. */
+     What collides is marked `blocks` below and collected into SOLIDS; see
+     keepOutOfSolids. Where that line falls used to be "ankle-high clutter
+     does not, because it would be an invisible kerb everywhere she goes",
+     which is a sound rule that had been applied by eye and drawn in the
+     wrong place. Every prop was measured against the 1.6-unit farmer, and
+     the list sorted by height says plainly where the line belongs:
+
+       signpost        1.70   taller than she is
+       barrel          0.75   hip
+       chest           0.55   knee
+       box             0.50   knee
+       -------------------------------------------- things stop you above
+       flower          0.29   ankle
+       rock_largeA     0.26   a flat slab, 1.2 across — you step on it
+       grass_large     0.25
+       plant_bush      0.24
+       stump_round     0.21
+       flower_yellow   0.19
+       rock_smallA     0.19
+       log             0.17
+
+     So a signpost a head taller than the farmer used to be something she
+     walked through, and so did every barrel and crate in the dooryard. They
+     stop her now. Everything at or under a third of a unit still does not,
+     and that is the original rule kept rather than overturned — the two
+     wide-but-flat cases, the large rock and the log, are called by height
+     on purpose, because what decides whether a thing is clutter is whether
+     you would step over it, not how much ground it covers. */
   /* Where the tall things go is a camera question before it is a farm one.
      The camera sits behind her, which for a farmer facing up the field means
      it is standing in the dooryard — so a farmhouse put there, the obvious
@@ -2330,6 +2353,34 @@ ${shader.fragmentShader.replace(
   const ROAD_CLEARANCE = ROAD_WIDTH / 2 + 1.6; // verge, plus room not to brush a wing mirror
   const offRoad = (x, z) => nearestOnAnyRoad(x, z).distance > ROAD_CLEARANCE;
 
+  /* How wide the car is taken to be, in the one sense anything outside the
+     driving code cares about: how much road it needs. Declared up here with
+     the other clearances rather than down with the handling, because the
+     foliage scatter has to know it — a trunk is a solid the car stops dead
+     against, so where a tree may stand is decided against the width of the
+     thing that would hit it. */
+  const CAR_RADIUS = 1.1;
+
+  /* The widest trunk the scatter can produce. Trunk radius is a fraction of
+     the tree's drawn height — see TRUNK_FRACTION below, and the measurement
+     behind it — and the tallest thing scattered is a 6.6-unit pine. */
+  const TRUNK_MAX_R = 6.6 * 0.085;
+
+  /* The closest a trunk may stand to the middle of a road and still leave
+     the car a lane: half the carriageway, the car's own radius, the trunk's,
+     and half a unit so that drifting wide on a bend is a wobble rather than
+     the end of the drive.
+
+     This number exists because the trees became solid. Before that the
+     margins were a question of how the drive *looked* — a pine in the
+     carriageway spoiled a screenshot. Now one of them ends the journey, so
+     it is derived from the car rather than chosen by eye. ROAD_CLEARANCE
+     above, which the hillside fringe used to be held to, works out at 3.8
+     and leaves a trunk edge at 3.24 against a car edge at 3.3: six
+     centimetres of overlap, and a drive that stops for no visible reason. */
+  const TRUNK_ROAD_SETBACK = ROAD_WIDTH / 2 + CAR_RADIUS + TRUNK_MAX_R + 0.5;
+  const trunkOffRoad = (x, z) => nearestOnAnyRoad(x, z).distance > TRUNK_ROAD_SETBACK;
+
   function buildRoadMesh(route = marketRoute) {
     const position = [];
     const uv = [];
@@ -2450,7 +2501,7 @@ ${shader.fragmentShader.replace(
        ground the dooryard camera looks straight at. */
     { id: 'nature/plant_bush', x: -7.4, z: 6.3 },
     { id: 'nature/flower_yellowA', x: -6.3, z: 7.0 },
-    { id: 'survival/box', x: -4.35, z: 5.3, ry: -0.3, h: 0.5 },
+    { id: 'survival/box', x: -4.85, z: 5.45, ry: -0.3, h: 0.5, blocks: 'box' },
     { id: 'nature/stump_round', x: -7.6, z: 7.4, ry: 1.1 },
     { id: 'nature/plant_bush', x: -6.4, z: 8.8 },
     { id: 'nature/grass_large', x: -7.0, z: 8.1 },
@@ -2464,8 +2515,8 @@ ${shader.fragmentShader.replace(
        loaded (see barn.js) because a kit building is a closed shell and this
        one has to be walked into, and it is placed below with the rest of the
        things that have a wall list instead of a bounding box. */
-    { id: 'survival/barrel', x: 7.8, z: 4.0, ry: 0.9, h: 0.75 },
-    { id: 'survival/barrel', x: 8.4, z: 4.5, ry: 0.2, h: 0.7 },
+    { id: 'survival/barrel', x: 7.95, z: 4.6, ry: 0.9, h: 0.75, blocks: 'box' },
+    { id: 'survival/barrel', x: 8.4, z: 4.5, ry: 0.2, h: 0.7, blocks: 'box' },
     { id: 'nature/log', x: 6.8, z: 5.6, ry: 0.7 },
     { id: 'nature/rock_largeA', x: 9.2, z: 7.0, ry: 0.6 },
     { id: 'nature/plant_bush', x: 8.1, z: 6.3 },
@@ -2489,12 +2540,12 @@ ${shader.fragmentShader.replace(
        0.34 units tall, which beside a 1.45-unit farmer is a bucket. Given
        heights here for the same reason the buildings are: the kit's own
        scale is not this game's. */
-    { id: 'survival/signpost', x: -4.9, z: 6.4, ry: 0.4, h: 1.7 },
-    { id: 'survival/barrel', x: 2.15, z: 6.3, ry: 0.2, h: 0.75 },
-    { id: 'survival/barrel', x: 2.5, z: 6.85, ry: 1.1, h: 0.7 },
-    { id: 'survival/box', x: -2.9, z: 5.3, ry: -0.3, h: 0.5 },
-    { id: 'survival/box', x: -2.85, z: 5.95, ry: 0.6, h: 0.5 },
-    { id: 'survival/chest', x: 0.75, z: 4.6, ry: -0.2, h: 0.55 },
+    { id: 'survival/signpost', x: -6.6, z: 5.85, ry: 0.4, h: 1.7, blocks: 'box' },
+    { id: 'survival/barrel', x: 8.35, z: 6.4, ry: 0.2, h: 0.75, blocks: 'box' },
+    { id: 'survival/barrel', x: 8.7, z: 10.05, ry: 1.1, h: 0.7, blocks: 'box' },
+    { id: 'survival/box', x: -2.15, z: 9.3, ry: -0.3, h: 0.5, blocks: 'box' },
+    { id: 'survival/box', x: -5.35, z: 9.0, ry: 0.6, h: 0.5, blocks: 'box' },
+    { id: 'survival/chest', x: -0.3, z: 9.6, ry: -0.2, h: 0.55, blocks: 'box' },
     /* The market stall — step 11's, not step 7's leftover windmill site.
        fantasy-town/stall-green checked out where the windmill didn't: one
        mesh, a real assembled stall rather than a modular piece of one. It
@@ -2584,13 +2635,13 @@ ${shader.fragmentShader.replace(
        box the car will be stopped by; a barrel is not, and a market square
        whose crates each carry their own no-go zone is a car park with
        bollards. */
-    { id: 'survival/barrel', x: 2.4, z: 33.9, ry: 0.4 },
-    { id: 'survival/barrel', x: 3.1, z: 33.5, ry: -0.8 },
-    { id: 'survival/box', x: 0.4, z: 39.4, ry: 0.2 },
-    { id: 'survival/box', x: 0.9, z: 40.0, ry: 1.1 },
-    { id: 'survival/signpost', x: 5.4, z: 39.4, ry: -0.6 },
-    { id: 'nature/tree_detailed', x: -3.6, z: 42.0, h: 4.6 },
-    { id: 'nature/tree_default', x: 9.6, z: 37.6, h: 4.2 },
+    { id: 'survival/barrel', x: 2.4, z: 33.9, ry: 0.4, blocks: 'box' },
+    { id: 'survival/barrel', x: 3.1, z: 33.5, ry: -0.8, blocks: 'box' },
+    { id: 'survival/box', x: 0.4, z: 39.4, ry: 0.2, blocks: 'box' },
+    { id: 'survival/box', x: 0.9, z: 40.0, ry: 1.1, blocks: 'box' },
+    { id: 'survival/signpost', x: 4.4, z: 43.1, ry: -0.6, blocks: 'box' },
+    { id: 'nature/tree_detailed', x: -3.6, z: 42.0, h: 4.6, blocks: 'trunk' },
+    { id: 'nature/tree_default', x: 9.8, z: 36.4, h: 4.2, blocks: 'trunk' },
     { id: 'nature/plant_bush', x: -1.8, z: 34.4 },
     { id: 'nature/plant_bush', x: 6.4, z: 35.4 },
 
@@ -2634,18 +2685,18 @@ ${shader.fragmentShader.replace(
        not there. */
     { id: 'fantasy-town/stall-green', x: 1.0, z: -34.0, ry: 0.5, h: 2.7, blocks: 'box' },
     { id: 'fantasy-town/stall-green', x: 6.0, z: -33.8, ry: -1.2, h: 2.7, blocks: 'box' },
-    { id: 'survival/signpost', x: 8.4, z: -26.0, ry: -0.5 },
-    { id: 'survival/barrel', x: -0.8, z: -33.0, ry: 0.4 },
-    { id: 'survival/barrel', x: -0.2, z: -33.6, ry: -0.8 },
-    { id: 'survival/barrel', x: 3.6, z: -34.6, ry: 1.1 },
-    { id: 'survival/box', x: -2.6, z: -27.2, ry: 0.2 },
-    { id: 'survival/box', x: -2.0, z: -26.6, ry: 1.1 },
-    { id: 'survival/box', x: 8.0, z: -32.0, ry: -0.4 },
-    { id: 'survival/chest', x: 4.6, z: -32.6, ry: 0.6 },
+    { id: 'survival/signpost', x: 10.5, z: -26.6, ry: -0.5, blocks: 'box' },
+    { id: 'survival/barrel', x: -0.8, z: -33.0, ry: 0.4, blocks: 'box' },
+    { id: 'survival/barrel', x: -0.2, z: -33.6, ry: -0.8, blocks: 'box' },
+    { id: 'survival/barrel', x: 3.6, z: -34.6, ry: 1.1, blocks: 'box' },
+    { id: 'survival/box', x: -2.6, z: -27.2, ry: 0.2, blocks: 'box' },
+    { id: 'survival/box', x: -2.0, z: -26.6, ry: 1.1, blocks: 'box' },
+    { id: 'survival/box', x: 8.0, z: -32.0, ry: -0.4, blocks: 'box' },
+    { id: 'survival/chest', x: 4.6, z: -32.6, ry: 0.6, blocks: 'box' },
     /* Two trees and nothing else green. A city planted like the farm is a
        village with taller houses. */
-    { id: 'nature/tree_default', x: -3.6, z: -25.4, h: 4.4 },
-    { id: 'nature/tree_default', x: 9.0, z: -35.8, h: 4.2 },
+    { id: 'nature/tree_default', x: -3.6, z: -25.4, h: 4.4, blocks: 'trunk' },
+    { id: 'nature/tree_default', x: 9.0, z: -35.8, h: 4.2, blocks: 'trunk' },
 
     /* --- the country house, at the top of the meadow ---
        The cheaper of the two endings, and it has to look like the cheaper
@@ -2659,7 +2710,7 @@ ${shader.fragmentShader.replace(
        reads as a house for one family rather than the working farmstead,
        which is exactly the difference between the two. */
     { id: 'city-suburban/building-type-a', x: -30.4, z: -26.8, ry: 0.35, h: 4.2, blocks: 'box' },
-    { id: 'nature/tree_detailed', x: -24.8, z: -26.8, h: 4.4 },
+    { id: 'nature/tree_detailed', x: -24.8, z: -26.8, h: 4.4, blocks: 'trunk' },
     /* The garden stands *beside* the lane, not on it. The first version put
        the bush hedge across the last few metres of tarmac, where it was
        invisible — swallowed by a road drawn over the top of it — which is
@@ -2671,7 +2722,7 @@ ${shader.fragmentShader.replace(
     { id: 'nature/flower_yellowA', x: -32.6, z: -24.2 },
     { id: 'nature/grass_large', x: -30.6, z: -26.4 },
     { id: 'nature/rock_smallA', x: -24.6, z: -22.8, ry: 0.5 },
-    { id: 'survival/signpost', x: -22.4, z: -20.6, ry: 0.8 },
+    { id: 'survival/signpost', x: -21.8, z: -21.4, ry: 0.8, blocks: 'box' },
 
     /* --- the grand villa, out east past the long bend ---
        "Cypress avenue, fountain, the lot" is what the card has always
@@ -2683,19 +2734,29 @@ ${shader.fragmentShader.replace(
 
        The avenue is hand-placed in pairs rather than scattered, because an
        avenue is the one planting in this game that must not look natural.
-       Trees carry trunk colliders, so the pairs are set wide enough that
-       the gap between them is a lane and not a slalom. */
+       The pairs are set wide enough that the gap between them is a lane and
+       not a slalom.
+
+       That sentence used to end "Trees carry trunk colliders, so the pairs
+       are set wide enough", and it was wrong in both halves at once. These
+       trees carried no collider — `blocks` was never on them — and the
+       pairs were not set wide enough: the second pine stood 1.27 from the
+       middle of the carriageway, which is inside it. Nobody noticed because
+       you drove straight through the tree. Giving every tree a collider
+       made the claim true and the placement false on the same afternoon, so
+       the four pines and one of the market trees moved out to
+       TRUNK_ROAD_SETBACK. The widest move was 3.4 units. */
     /* Set well back from where the lane stops, which is what leaves room for
        a forecourt with the fountain on it. At 7.5 this block measures a good
        seven by eight, so a house placed where it "looked right" from the
        road had its own bounding box out across the turning circle. */
     { id: 'city-suburban/building-type-b', x: 39.8, z: -6.6, ry: 2.9, h: 7.5, blocks: 'box' },
-    { id: 'nature/tree_pineDefaultA', x: 31.8, z: 9.6, h: 5.6 },
-    { id: 'nature/tree_pineDefaultA', x: 36.0, z: 11.4, h: 5.6 },
-    { id: 'nature/tree_pineDefaultA', x: 32.6, z: 5.6, h: 6.0 },
-    { id: 'nature/tree_pineDefaultA', x: 39.2, z: 7.0, h: 6.0 },
-    { id: 'nature/tree_pineDefaultA', x: 32.4, z: 1.6, h: 5.8 },
-    { id: 'nature/tree_pineDefaultA', x: 40.4, z: 2.6, h: 5.8 },
+    { id: 'nature/tree_pineDefaultA', x: 30.5, z: 9.3, h: 5.6, blocks: 'trunk' },
+    { id: 'nature/tree_pineDefaultA', x: 39.3, z: 12.3, h: 5.6, blocks: 'trunk' },
+    { id: 'nature/tree_pineDefaultA', x: 31.5, z: 5.4, h: 6.0, blocks: 'trunk' },
+    { id: 'nature/tree_pineDefaultA', x: 40.6, z: 7.1, h: 6.0, blocks: 'trunk' },
+    { id: 'nature/tree_pineDefaultA', x: 32.4, z: 1.6, h: 5.8, blocks: 'trunk' },
+    { id: 'nature/tree_pineDefaultA', x: 40.4, z: 2.6, h: 5.8, blocks: 'trunk' },
     { id: 'nature/rock_largeA', x: 42.4, z: 6.4, ry: 0.3 },
     { id: 'nature/plant_bush', x: 34.6, z: -2.6 },
     { id: 'nature/plant_bush', x: 43.2, z: -1.8 },
@@ -3339,8 +3400,21 @@ ${shader.fragmentShader.replace(
      entirely. This brings it into the same family as the ground it grows
      out of, which is a decision about this scene rather than a correction
      to the kit, and is why it lives here and not in assets.js. */
+  /* Trunks the scatter has planted, held here rather than pushed straight
+     onto SOLIDS, and the reason is determinism.
+
+     The scatters run concurrently under one Promise.all, and some of their
+     `accept` predicates read SOLIDS — inFarmClearing is where grass decides
+     it may not grow through a wall. Register a tree the moment it is placed
+     and the farm's whole layout starts depending on which of eight async
+     scatters happened to resolve first, which is the one thing a seeded
+     scatter exists to rule out. So they are collected as they are drawn and
+     published in one go below, once every scatter has finished asking. */
+  const scatteredTrunks = [];
+
   async function scatterInstanced(
-    id, count, { heightRange, seed, bounds, accept, shadowing = casts, tint, tintSpread = 0 },
+    id, count,
+    { heightRange, seed, bounds, accept, shadowing = casts, tint, tintSpread = 0, blocks },
   ) {
     const n = Math.round(count * FOLIAGE_SCALE);
     if (n <= 0) return [];
@@ -3404,6 +3478,24 @@ ${shader.fragmentShader.replace(
       scene.add(shadowing(mesh));
       instances.push(mesh);
     }
+    /* A collider per trunk, for the species that asked for one. Same shape
+       addSolid gives a hand-placed tree, and the same TRUNK_FRACTION of the
+       drawn height — a scattered pine and a planted one are the same tree,
+       and the player has no way of telling which is which.
+
+       Only trees ask. Grass, bushes and the small rocks stay passable on
+       purpose; see the note by the scatter calls for the measurements that
+       decided where that line falls. */
+    if (blocks === 'trunk') {
+      for (const t of transforms) {
+        const height = authoredHeight * t.scale;
+        scatteredTrunks.push({
+          id, x: t.position.x, z: t.position.z,
+          r: height * TRUNK_FRACTION, height,
+        });
+      }
+    }
+
     // Read by the tests, which have no other way to ask a canvas how many
     // grass tufts it just decided to draw.
     foliageCounts[id] = transforms.length;
@@ -3452,7 +3544,7 @@ ${shader.fragmentShader.replace(
      spoils a screenshot, the other is a tree the car drives into. */
   const onHillside = (x, z) =>
     Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z)
-    && clearOfCamera(x, z) && offRoad(x, z);
+    && clearOfCamera(x, z) && trunkOffRoad(x, z);
 
   /* The corridor the road runs through, which is everything the drive is
      seen against. Wider than the road by a good margin on both sides, and
@@ -3465,7 +3557,10 @@ ${shader.fragmentShader.replace(
      the road feels like a lane through woods or a slalom: a trunk is a solid
      the car stops dead against, so the margin has to leave room to drift
      wide on a bend without ending the drive. */
-  const TREE_SETBACK = ROAD_WIDTH / 2 + 4.5;
+  /* Comfortably past TRUNK_ROAD_SETBACK, which is the hard floor — this one
+     is a look rather than a limit, and the look wants more room than the car
+     strictly needs. Checked against it rather than left to coincidence. */
+  const TREE_SETBACK = Math.max(ROAD_WIDTH / 2 + 4.5, TRUNK_ROAD_SETBACK);
   const VERGE_SETBACK = ROAD_WIDTH / 2 + 1.2;
   const nearRoute = (x, z) => nearestOnAnyRoad(x, z).distance;
   const notAtMarket = (x, z) => Math.hypot(x - MARKET.x, z - MARKET.z) > MARKET_RADIUS;
@@ -3532,12 +3627,12 @@ ${shader.fragmentShader.replace(
        treeline seen across a field should be. */
     scatterInstanced('nature/tree_default', 26, {
       heightRange: [3.6, 5.2], seed: 10, bounds: HILL_BOUNDS, accept: onHillside,
-      tintSpread: 0.16,
+      tintSpread: 0.16, blocks: 'trunk',
     }).catch((err) => console.warn('farm: hillside trees did not load', err)),
 
     scatterInstanced('nature/tree_pineDefaultA', 22, {
       heightRange: [4.4, 6.6], seed: 11, bounds: HILL_BOUNDS, accept: onHillside,
-      tintSpread: 0.16,
+      tintSpread: 0.16, blocks: 'trunk',
     }).catch((err) => console.warn('farm: hillside pines did not load', err)),
 
     /* Countryside along the road. The hillside fringe above stops thirteen
@@ -3553,12 +3648,12 @@ ${shader.fragmentShader.replace(
        tree you hit. */
     scatterInstanced('nature/tree_default', 30, {
       heightRange: [3.4, 5.0], seed: 20, bounds: ROADSIDE_BOUNDS, accept: byTheRoad,
-      tintSpread: 0.18,
+      tintSpread: 0.18, blocks: 'trunk',
     }).catch((err) => console.warn('farm: roadside trees did not load', err)),
 
     scatterInstanced('nature/tree_pineDefaultA', 26, {
       heightRange: [4.2, 6.4], seed: 21, bounds: ROADSIDE_BOUNDS, accept: byTheRoad,
-      tintSpread: 0.18,
+      tintSpread: 0.18, blocks: 'trunk',
     }).catch((err) => console.warn('farm: roadside pines did not load', err)),
 
     scatterInstanced('nature/plant_bush', 34, {
@@ -3569,7 +3664,23 @@ ${shader.fragmentShader.replace(
     scatterInstanced('nature/rock_smallA', 16, {
       heightRange: [0.3, 0.6], seed: 23, bounds: ROADSIDE_BOUNDS, accept: byTheVerge,
     }).catch((err) => console.warn('farm: roadside rocks did not load', err)),
-  ]));
+  ]).then((meshes) => {
+    /* Every trunk the scatter planted, handed to the collision system in one
+       go now that no scatter is still asking SOLIDS where it may stand.
+
+       This is where a hundred-odd trees stopped being scenery. They were
+       drawn and never registered, so the hillside and both verges were
+       walk-through and drive-through from the day they were sown — the
+       setbacks above were already written as though a trunk would stop the
+       car, which is how long the gap had been there in intent before it was
+       closed in fact.
+
+       Pushed rather than assigned, because the hand-placed trunks are
+       already on this list and both kinds are the same thing to everything
+       downstream. */
+    SOLIDS.posts.push(...scatteredTrunks);
+    return meshes;
+  }));
 
   /* -------------------------------------------------------------- */
   /* Seasons — the calendar script.js already keeps, read here once     */
@@ -5166,7 +5277,8 @@ ${lit}`;
   const CAR_COAST = 3.2; // engine braking with the stick centred
   const CAR_TURN = 1.5; // radians a second at full lock, once up to speed
   const CAR_GRIP_SPEED = 3.0; // below this, the steering has not bitten yet
-  const CAR_RADIUS = 1.1;
+  // CAR_RADIUS is declared up with ROAD_CLEARANCE, because the foliage
+  // scatter has to know how much road the car needs before it plants a tree.
   /* Off the tarmac it will not run on. A field is not a road, and a country
      road matters more if leaving it costs something — this is what keeps the
      drive on the route rather than making the route a suggestion. */
@@ -6400,6 +6512,11 @@ ${lit}`;
       keepOutOfSolids(x, z, out);
       return out.x !== x || out.z !== z;
     },
+    /* The car's version of the same question. Not the same answer: her
+       collision resolves a blocked step by sliding along the obstruction,
+       the car's stops it dead, and the two use different radii. A test that
+       asks whether a tree stops the car has to ask the car. */
+    carBlockedAt: (x, z) => carBlocked(x, z),
     /* How the scene is actually lit, which is the honest question to ask of
        a graphics pass. `shadows` says whether this machine earned a shadow
        map at all — false on every software rasteriser, which is what CI

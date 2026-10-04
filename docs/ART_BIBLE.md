@@ -3640,6 +3640,201 @@ constraint from the comment that used to state it.
 
 ---
 
+## 40. A hundred and five trees that were not there
+
+A player reported walking and driving through trees. They were right, and
+the number was worse than it sounds: the farm draws about a hundred and
+fifteen trees and stopped you at ten.
+
+The ten are the orchard, hand-placed with `blocks: 'trunk'` on each line.
+Everything else went through `scatterInstanced`, which draws a species,
+records how many it drew, and never touches `SOLIDS` — so the hillside
+fringe, both roadside belts, the market's trees, the city's, and the six
+pines of the villa avenue were all scenery you passed through. Eleven more
+hand-placed trees away from the farm had simply never been given `blocks`.
+
+The collision system itself was blameless and that is worth saying, because
+it is where the time would have gone. `keepOutOfSolids` resolves a post
+correctly, `carBlocked` checks posts and boxes with the car's own radius,
+and `moveWithCollision` cuts a step short enough that nothing can be jumped.
+Every one of those was right. The bug was entirely in what got registered.
+
+### The comment that was already true in its own mind
+
+The villa avenue's note read:
+
+> Trees carry trunk colliders, so the pairs are set wide enough that the gap
+> between them is a lane and not a slalom.
+
+Both halves were false at once. Those trees carried no collider, and the
+pairs were *not* set wide enough — the second pine stood 1.27 units from the
+middle of a carriageway 4.4 wide, which is to say inside it. Nobody noticed
+in either direction, because you drove through the tree.
+
+Giving every tree a collider made the sentence true and the placement false
+on the same afternoon. Five hand-placed trees had to move: four villa pines
+and one at the market, the largest move 3.4 units. The scatter's own trees
+needed none — their `accept` predicates had been written as though trunks
+were solid all along, which is the second place this gap existed in intent
+before it was closed in fact.
+
+### Where the line between scenery and obstacle actually falls
+
+The old rule was sound and had been drawn by eye: *ankle-high clutter does
+not collide, because it would be an invisible kerb everywhere she goes.*
+Measuring every prop against the 1.6-unit farmer showed where it belonged:
+
+      signpost        1.70   taller than she is
+      barrel          0.75   hip
+      chest           0.55   knee
+      box             0.50   knee
+      ------------------------------------------- solid above this line
+      flower          0.29   ankle
+      rock_largeA     0.26   a flat slab, 1.2 across — you step on it
+      grass_large     0.25
+      plant_bush      0.24
+      stump_round     0.21
+      rock_smallA     0.19
+      log             0.17
+
+So a signpost a head taller than the farmer was something she walked
+through, as was every barrel and crate in the dooryard. They stop her now.
+The two wide-but-flat cases, the large rock and the log, are judged by
+height rather than footprint on purpose: what makes a thing clutter is
+whether you would step over it, not how much ground it covers.
+
+### What making things solid broke, and what it cost to fix
+
+Turning twenty-three props and a hundred trunks solid moved obstacles into
+places that had never had to be clear before. The dooryard had been dressed
+over several passes by an eye that knew nothing in it would ever stop
+anybody, and that assumption was load-bearing in more places than it looked.
+Found by sweeping, not by playing:
+
+- **A signpost in the market carriageway**, 0.19 from the centre line.
+  Signposts stand at the roadside by design, so three of the four moved back
+  to a measured setback rather than becoming passable again.
+- **Four crates and a barrel narrowing the farm paths.** The spine is 1.1
+  wide and a crate with its collision halo ate half of it. All four moved,
+  none by more than 0.6.
+- **A barrel 0.4 behind the parked car.** Not a trap — a ray cast over 36
+  headings showed twelve units clear in twenty-one of them — but reversing
+  hit it instantly. Moved 1.2.
+- **The city lane passing 2.37 from a solid** against a 2.5 bar, which is
+  the suite's own guard doing exactly its job.
+
+Nothing in the job queue's reach was affected: that sweep reported zero both
+before and after, because the stalls are inset 0.35 and the dooryard is not
+in it.
+
+### Four more the suite found, and the lesson in how they were fixed
+
+The first full run after all that came back with four failures, and the
+instructive part is that three of them were one mistake wearing three hats.
+The dooryard's clutter had been nudged clear of the *paths* by checking each
+prop's centre, and centres are not footprints. Two crates ended up on the
+pond's west rim — 438 points inside both the water's exclusion zone and a
+solid, which is the seam the suite has a test for. The same two crates
+turned the gap between the spine and the water into a 0.55-unit pinch she
+could not walk through, which broke the pond test and the dooryard walk.
+
+Chasing that with one more nudge each time was the wrong method and produced
+exactly what it deserved: a crate moved out of the pond landed where she
+exits it, a chest moved off the water landed on the same line. The fix that
+held was to stop nudging and state the constraint — **keep a clear walkable
+ring round the pond, and keep the one line west along the dooryard open end
+to end** — then solve every prop against it at once. The second of those is
+not a number anybody chose; it is in the suite's own comment, which has said
+for several passes that the last leg of that test "runs west along the
+dooryard, which is the one line west that no wall stands on."
+
+The fourth failure was the orchard's scale test, which had always read
+*every* trunk collider and could do that safely while the orchard was the
+only one. Scattered trees are 3.4 units and up against the orchard's 4.2, so
+it started failing on a roadside tree seen across two fields. It is scoped to
+the farm now, and the way it tells them apart is itself a measured fact:
+`onHillside` requires ground that has begun to rise and ROAM stops her
+inside the flat, so the trees on the farm *are* the orchard.
+
+### The one test rule that had to be relaxed, and why that is not a cheat
+
+`no exclusion zone overlaps another` flags two solids whose collision boxes
+touch. Fourteen pairs appeared, every one of them a crate against a wall or
+a barrel beside a stall — which is where dressing goes. Moving all of them a
+clear unit off every building would have made the farm look like its own
+props were afraid of it.
+
+The rule now exempts a pair when either side is dressing, judged by
+footprint: nothing the game calls a building, stall or vehicle is under a
+unit across, and nothing in the survival kit is over one. That is a real
+weakening of a real test, so it is worth being precise about what still
+protects the player there, and it is not an argument — it is the escape
+test, which walks the whole farm and requires every point she can stand on
+to be a point she can get out of. It was run against all of this dressing
+before the rule was touched, and it passes. The property that matters is
+checked directly; the pair check was only ever an approximation of it, and
+the same section already made that exact argument for the barn's own
+corners.
+
+### The number that had to be derived rather than chosen
+
+`TRUNK_ROAD_SETBACK` is new and is the one figure that could not be eyeballed:
+half the carriageway, plus the car's radius, plus the widest trunk the
+scatter can make, plus half a unit to drift on a bend. 4.36.
+
+The hillside fringe had been held to `ROAD_CLEARANCE` instead — 3.8, which
+was written for *looks*, with a comment about not brushing a wing mirror.
+Against solid trunks it leaves a trunk edge at 3.24 and a car edge at 3.30:
+six centimetres of overlap, and a drive that stops for no visible reason.
+`CAR_RADIUS` moved up the file to sit with the other clearances so the
+scatter could be measured against the thing that would hit it.
+
+### The second round, which was all about the car
+
+The next full run failed four driving tests, and the diagnosis is the useful
+part: three of them — the dooryard walk, the market shop opening and
+closing, the drive out to the cottage — had nothing individually wrong with
+them. They all begin by driving off the pull-in, and the pull-in was walled
+in. A ray cast with the car's own radius showed the western arc had gone
+from twelve units of clear ground to under one.
+
+The cause was mine and it was the same blind spot three times over: every
+prop had been re-placed against the constraints that *walking* cares about —
+the pond, the paths, the lane west — and the car has a radius of 1.1 against
+her 0.25, needs room to turn, and stops dead where she would slide. A barrel
+moved out of the pond's rim landed in the only space the car had to
+manoeuvre in.
+
+So the constraint set grew a fourth member, and the final solve ran every
+remaining prop against all of them at once: clear of the pond's ring, clear
+of the paths, clear of the lane west, and **four and a half units clear of
+the parked car, with every road passable by a vehicle 2.2 wide**. The
+barrels ended up grouped by the barn, which is where barrels belong anyway.
+All five lanes now report zero blocked points along their whole length.
+
+### One consequence, stated rather than smuggled
+
+Open country is no longer open in every direction, and the measurement is
+blunter than the first draft of this section claimed. A ray cast over 72
+headings out of the pull-in finds that **no straight line reaches the
+eastern or western edge of the world at all** — a trunk stops every one.
+Two headings still run out to the southern edge.
+
+Nothing is enclosed: all five roads are clear end to end and tested to be,
+the farm itself is untouched, every destination is reachable, and the ground
+just inside three of the four edges is still drivable. But the belts of
+trees round the farm and along the roads are walls now, which is what was
+asked for and is also a real change to how the map plays.
+
+The test that drove due east to prove the world has an edge could not
+survive that, and the fix was not to find another heading and hope. It asks
+the rule where the rule lives — past the edge is off limits on all four
+sides, and the ground just inside is not — and keeps a drive, aimed down one
+of the two lines that still reach an edge, to prove the rule holds against a
+car actually arriving at it.
+
+---
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:
@@ -4334,6 +4529,69 @@ Everything above was checked before it was written:
   but does not stop the car, and the test sampled the car's position one
   round trip before `alight()` zeroed its speed. Widening the radius would
   have hidden a race. Reading the position after alighting removes it.
+
+- §40's count is measured, not estimated: `foliageCounts` and `solids()` were
+  read from a running scene. Ten trunk colliders against a drawn tree
+  population of about a hundred and fifteen, on a machine where the software
+  rasteriser already thins the scatter to two-fifths.
+
+- Every prop's height was measured off its own loaded model rather than read
+  from the kit's documentation or guessed from its name — the table in §40 is
+  that measurement sorted. It is what moved the signpost from "clutter" to
+  "taller than the farmer".
+
+- The four tests that assert the fix were run against the pre-fix `scene.js`
+  and three of them failed; a fourth was rewritten when it did not. That one
+  had walked her at "the nearest tree", which on this map is always an
+  orchard tree and those were always solid. The rewrite found a real fact
+  worth keeping: **she can never touch a scattered tree on foot**, because
+  `onHillside` requires ground that has started to rise and `ROAM` stops her
+  inside the flat. The scatter is scenery only the car can hit, so the walk
+  test now asserts what the walk can actually reach — a dooryard barrel.
+
+- The parked car was checked for being hemmed in after the dooryard became
+  solid, by casting 36 rays with the car's own radius: twelve units clear in
+  twenty-one directions, 0.4 at the tightest. Not trapped, but the tightest
+  one was a barrel directly behind it, which moved.
+
+- The claim "open country is still drivable" is a measured one and is in the
+  suite as an assertion, not a hope: `carBlockedAt(0, 20)` is false while
+  every trunk position returns true.
+
+- One pre-existing oddity found by the path sweep and deliberately left
+  alone: the orchard path spine runs through two orchard trees, whose
+  collision halos are wider than the path is. They were already solid before
+  this pass, so it is not a regression, and the path is a painted texture
+  rather than a corridor — but a player walking the spine has to step around
+  a tree standing on it.
+
+- A process note worth more than the bugs it caught: three of §40's four
+  follow-up failures came from fixing prop placement by **nudging each prop
+  until the symptom went away**, one at a time. Every nudge solved the test
+  in front of it and created the next one — out of the pond and onto the
+  line she leaves it by, off that line and onto the lane west. What worked
+  was stating the two invariants (a clear ring round the water, an open line
+  west along the dooryard) and solving every prop against both at once. Four
+  moves instead of nine, and nothing left to chase.
+
+- The prop moves were checked by **footprint**, not by centre, after the
+  first round used centres and put two crates on the pond's rim. `inPond` of
+  a crate's middle says nothing about where its corners are, and the corners
+  are what she collides with.
+
+- The parked car's room to manoeuvre is part of the constraint set and was
+  the thing §40 kept forgetting. Measured as a ray cast with CAR_RADIUS over
+  36 headings: twelve units clear in twenty-one of them originally, under
+  one in the whole western arc after the props were re-placed for walking,
+  and back to twelve once the car was given four and a half units of its
+  own. Three test failures that looked unrelated — a walk, a shop opening,
+  a drive to the cottage — were all that one fact, because all three start
+  by driving off the pull-in.
+
+- "No straight line from the pull-in reaches the east or west edge" is a ray
+  cast over 72 headings, not an impression. Two headings still reach the
+  south edge, and the ground just inside three of the four edges is drivable,
+  which is what makes the edge rule testable at all.
 
 Probe scripts live outside the repo, in the session scratchpad. They were
 throwaway; this document is what they were for.
