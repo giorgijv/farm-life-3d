@@ -3978,6 +3978,16 @@ to drift on. The car stops 0.03 short of the north edge. When Step 3 builds the
 civic square there, that fan narrows, and the test will say so by name
 rather than stop against a building.
 
+The next CI run found a second test of the same kind. Leaving the market
+reversed in a straight line, and straight back from the square points at
+the south edge of the world. From the middle of the square that line is
+clear for 12.2 units, against the 12 the test needs. Half a unit further
+along it is 11.2, so whether the car got out depended on where it had
+braked. That predates this step, and CI's frame rate found the short case
+twice running. The car now backs up the road it came in on, steering the
+tail after it, and comes out 12.05 from the centre at full reverse speed
+on three runs out of three.
+
 ### Found, and left for later
 
 The cottage west of the town at (−30.4, −26.8) is outside the levelled

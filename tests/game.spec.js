@@ -6368,11 +6368,25 @@ test.describe('the shop is at the market', () => {
        Driven until she is actually out rather than for a guessed four
        seconds: reverse tops out at 4.5 units a second and the square is ten
        across, so how long the trip takes depends on what she has to back
-       around. The fixed version failed one run in three. */
+       around. The fixed version failed one run in three.
+
+       And backed up the road it came in on, steering as it goes, rather
+       than in a straight line. The road arrives round a bend from the
+       south-east, so straight back from where the car stopped points at
+       the south edge of the world, which stops a car dead. From the middle
+       of the square that line is clear for 12.2 units against the 12 this
+       needs. From a stop half a unit further along it is 11.2, so whether
+       the car got out depended on exactly where it had braked. CI found the
+       short one twice in a row. */
     await page.evaluate(async () => {
       const s = window.Farm3DScene;
       const started = performance.now();
-      s.drive(0, 1);
+      const wrap = (a) => {
+        let v = a;
+        while (v > Math.PI) v -= Math.PI * 2;
+        while (v < -Math.PI) v += Math.PI * 2;
+        return v;
+      };
       await new Promise((resolve) => {
         const tick = () => {
           const c = s.car();
@@ -6381,6 +6395,13 @@ test.describe('the shop is at the market', () => {
             || performance.now() - started > 20_000) {
             s.drive(0, 0); resolve(); return;
           }
+          /* Aim the tail at a point a little way back up the road. In
+             reverse the wheel turns the car the other way, so the stick
+             goes the way the error does. */
+          const here = s.onRoute('market', c.x, c.z);
+          const back = s.routePointAt('market', Math.max(0, here.along - 0.04));
+          const err = wrap(Math.atan2(back.x - c.x, back.z - c.z) - (c.heading + Math.PI));
+          s.drive(Math.max(-1, Math.min(1, err * 2.4)), 1);
           requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
