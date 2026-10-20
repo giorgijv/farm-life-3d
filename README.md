@@ -120,14 +120,22 @@ the card says what you found there and will sell it to you.
 
 **There is a town, Farm City, and it sells different things from the
 market.** North past the orchard, at the end of the longest road in the game,
-is a town on its own level ground — a square, a High Street running forty
-units east out of it, and the tool merchants. Two roads go there, and they
-make a loop: the city road arrives at the square, and a second road forks off
-it beside the farm and climbs into town at High Street's east end.
-Fingerposts at every junction on the map say where each road leads, and a
-"Welcome to Farm City" board stands on each road at the edge of town. The
-town is still being built; shops, cafés, a police station and a city hall
-come in later steps. The two shops are deliberately not the same shop:
+is a town on its own level ground — a square, and a High Street running
+forty units east out of it. Two roads go there, and they make a loop: the
+city road arrives at the square, and a second road forks off it beside the
+farm and climbs into town at High Street's east end. Fingerposts at every
+junction on the map say where each road leads, and a "Welcome to Farm City"
+board stands on each road at the edge of town.
+
+High Street is a terrace of shops: a Greengrocer with fruit out on the
+pavement, a Bakery with a tea-room table, a Café and a Restaurant with
+tables under parasols, Hardware & Feed with sacks and barrels at the door,
+and a Pharmacy across the road. Each has its name signwritten over a
+painted shopfront, a striped awning, a hanging sign with a picture of its
+trade, and lit windows with the goods drawn inside. They are seen from
+outside, not entered. **Hardware & Feed is where the tools are sold** —
+drive up and stop outside it. A police station and a city hall come in a
+later step. The two shops are deliberately not the same shop:
 
 - **The market village**, south, trades farming goods. It buys your harvest
   and it sells the barns you keep it in.
@@ -406,6 +414,8 @@ offline once loaded.
   `window.Farm3DBridge`
 - `signs.js` — the fingerposts and welcome boards, lettered from one canvas
   atlas and merged into a single mesh
+- `highstreet.js` — Farm City's shopfronts, awnings, hanging signs and café
+  terraces, built the same way: one atlas, one mesh
 - `assets.js` — loads the 3D models, and normalises them to a world scale
 - `assets/` — the models themselves (CC0, from Kenney), and a manifest the
   service worker precaches from
@@ -475,7 +485,13 @@ roads join into a loop, that every arm on every fingerpost points down the
 road a shortest-path search of the network says to take, that no sign stands
 in a carriageway or under a tree, that every arm's lettering is one size and
 at least a fifth of a unit tall, that both welcome boards face the traffic
-arriving, that she can walk the length of High Street, that she can drive the whole way out to each
+arriving, that she can walk the length of High Street, that the street has
+its six shops with their names over their doors in letters a fifth of a
+unit tall, that every shopfront faces High Street across a pavement, that
+every shop stands on level ground and none of them can be walked into, that
+the north pavement stays passable past every table and that nothing she
+walks under is lower than her head, that the tools are sold at Hardware &
+Feed and not in the square, that she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

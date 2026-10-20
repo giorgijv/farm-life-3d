@@ -3995,6 +3995,198 @@ ground, and the hollow under one corner leaves it up to 1.18 above the
 grass. It predates this step and is not on the way to anything Farm City
 needs; it is recorded here rather than fixed in passing.
 
+
+## 42. Farm City, step two: the High Street
+
+Six shops on High Street, seen from outside and not entered: a
+Greengrocer, a Bakery with a tea-room table, a Café and a Restaurant with
+tables under parasols, Hardware & Feed, and a Pharmacy across the road.
+The tool shop moved into Hardware & Feed.
+
+### The blocks, measured before anything was placed
+
+The City Kit (Commercial) has fourteen blocks. All fourteen were loaded
+in a browser and measured — bounding box, triangle count, materials —
+and rendered side by side, then front-on through an orthographic camera
+at 200 pixels to the kit unit. What that gave:
+
+- **Every block is one mesh on the kit's one texture.** No merging needed
+  to keep each block to a draw call.
+- **The boxes are the buildings.** The suburban houses' boxes are twice
+  what you can see, because they include each house's plot; these are not.
+- **A storey is 0.4 kit units and a door 0.3.** At a scale of 6 a door is
+  1.8 against the farmer's 1.62 and a storey is 2.4. One scale for every
+  block, so a two-storey shop stands two storeys beside a three-storey
+  one.
+- **Three of the fourteen are five and six storeys** (`l`, `m`, `n`), and
+  the skyscrapers are separate files again. None of them is used: the plan
+  said no towers, and the tallest block on the street is four storeys at
+  10.1. A test holds every block under 11.
+- **The wall is not the box.** Rays cast at each front found the
+  ground-floor wall 0.12 to 0.36 world units behind the box, depending on
+  the block — the plinth and the window frames stand proud. The shopfronts
+  are mounted on the measured wall, per block.
+
+Five blocks are used, vendored through `tools/vendor.mjs` like every other
+kit model.
+
+### Where the street had room
+
+Measured against the rule every lane is held to — 2.7 from the middle of
+any road to any solid:
+
+- **North side.** With the shop walls on z −33.2, every column from x −6
+  to 36 is clear. The west end is closed by the cottage on the square's
+  north-west corner; the east end, past x 28, is left for the civic square
+  Step 3 builds where High Street meets the town road. Four blocks fill
+  it, packed from the west a hand's breadth apart as a terrace.
+- **South side.** The city road and the town road both climb through it.
+  The one stretch a block fits between them is x 16.4 to 22.3. One shop,
+  the Pharmacy, facing north.
+
+Making room cost the town two houses. One stood where the shops had to go;
+the other's box already reached z −44.9, a unit past the end of the world.
+The two on the square's west side remain. The square's two stalls were the
+tool merchants standing in for a shop the kit did not have; they went when
+the shop opened, and their barrels, crate and chest went with them to
+Hardware & Feed's pavement. The tree that stood where the Bakery is went
+too.
+
+The Pharmacy's back is 1.4 units past the town's level ground, over the
+seam to the farm where the ground falls by up to a third of a unit. A
+level patch the size of its footprint, and no wider, sits under it.
+
+The blocks are tinted — sage, butter, terracotta, blue-grey, mint — by
+multiplying their material, so the walls take the colour and the dark
+ground floors and windows stay dark. A tinted block gets its own
+materials: clones of a kit model share materials with the cached
+original, and tinting in place would have painted the whole street the
+last colour set.
+
+### The shopfronts
+
+The kit's ground floors are a band of dark grey. Two of the five have a
+door; none has a window you can see into, a name, or anything to say what
+is sold inside. A street of those reads as offices. So `highstreet.js`
+builds, on the face of each wall:
+
+- a painted shopfront — pilasters with plinths and capitals, a stallriser,
+  display windows with glazing bars and a transom, a panelled door with
+  glass and a brass handle, a stone step;
+- a **fascia** with the shop's name signwritten in cream serif capitals
+  with a gilt line, a cornice above it and console brackets at its ends;
+- a **striped awning** with triangular cheeks, a roller box, iron arms and
+  a scalloped valance whose scallops are real — cut out of the texture with
+  an alpha test, so there is sky between them;
+- a **hanging sign** on a scrolled iron bracket at first-floor height with
+  the trade drawn, not written: an apple, a loaf, a steaming cup, a knife
+  and fork, crossed hammer and spanner, a green cross;
+- **display windows with the goods painted inside** — crates of fruit,
+  loaves and cakes on shelves, a counter of cups and a chalked menu, laid
+  tables with candles, tools on a pegboard over feed sacks, rows of
+  bottles. A second canvas of the same layout carries only the windows and
+  is the material's emissive map, so they read as lit rooms behind glass
+  by day and are still lit after dark, while the paintwork beside them is
+  not;
+- outside: café tables with bistro chairs under eight-panelled parasols,
+  chalk A-boards, a fruit stand, feed sacks, planters of flowers.
+
+The colours are a real high street's heritage palette — bottle green,
+navy, teal, oxblood, barn red — so each shop is distinct from its
+neighbours and none is a brand.
+
+**All of it is one mesh on one atlas**, 2048 × 1024: every shop on the
+street is one draw call, the method `signs.js` set and the stable's
+forty-seven-call first build taught. The atlas, the swatches and the
+packing follow `signs.js`; its three geometry helpers are exported rather
+than copied.
+
+The widest low block holds two businesses — the Café in its one-storey
+wing, the Restaurant in its taller half — because it is the one shape on
+the street that reads as two shops side by side. The plan asked for two
+cafés and a restaurant; the second café is the Bakery's tea room.
+
+### What the tests and screenshots caught
+
+- **She is 1.62 tall, not 1.45.** The first build was drawn against an
+  older figure and hung the awnings' valances at 1.58. The test that asks
+  her own model caught it. The fascia and awnings went up a tenth and the
+  drop shortened: the lowest edge of anything she walks under is now 1.74
+  (an awning's valance) or 1.96 (a parasol's skirt).
+- **The fingerpost at the east end of the street stood at Hardware &
+  Feed's corner** with "Town Square" through the awning. The corner
+  search kept the post a unit off any solid, and an arm reaches 2.9. It
+  now keeps posts 3.2 clear of anything taller than two units.
+- **The welcome boards never knew where the fingerposts were.** Both are
+  placed together and only reach `SOLIDS` once built, so a board could
+  have stood on a post. It is told now.
+- **The Pharmacy took the city road's welcome board's spot**, and the
+  search walked the board back down the road to just off the orchard —
+  the mistake §41 had already fixed once. It was re-aimed at the bend into
+  the square and stands on the open west verge at (5.4, −18.2), three
+  units below the plateau, where a driver coming up the road sees it with
+  the High Street behind it.
+- **Things on the pavement.** The produce stand stood 2.19 from the road
+  where High Street bends towards the square, and the Bakery's A-board
+  2.38, both inside the 2.5 the lanes test. The stand became a smaller
+  two-crate stand against the wall, and the boards moved in from the kerb.
+  Café tables in one long window overlapped each other and their A-board;
+  the café and restaurant doors moved to the centre, one table per window,
+  the board in line with the door.
+- **The overlap test and the terrace.** It asks that separate solids
+  stand half a unit apart, and the four north blocks are a hand's breadth
+  apart on purpose: a terrace is built wall to wall. Its own rule is that
+  walls of one thing may meet, so the terrace is one thing in `SOLIDS` —
+  the boxes carry a shared id and keep their model for anything that asks.
+  The planters, sacks and fruit stand are under a unit across, which is
+  the test's definition of dressing that may stand against a wall.
+
+A test floods the north pavement from the square to Hardware & Feed in
+steps smaller than she is wide and requires it to get through.
+
+**What it costs, measured.** The farm view draws 215 calls, four more
+than Step 1 (the five blocks are one call each, the shopfronts one between
+them, and from the farm most of the street is outside the frustum). With
+the town in view — down the street, from its east end, arriving up the city
+road, and an overview from above the farm — 55 to 105. The ceiling is 300.
+Building the street is one long task while the page loads, about 100 ms on
+this machine: the canvas drawing and the merge.
+
+### What the full run caught that the targeted runs did not
+
+Two failures under the full suite's load, both timing:
+
+- **A farm test that has nothing to do with the town.** "Tapping the same
+  plot twice does not queue it twice" sent two taps and read the queue in
+  three round trips. The scene deliberately credits a walk with all the
+  real time that has passed — the per-frame cap was removed for good reason,
+  see the frame loop — so when the street's 100 ms build landed between
+  them, the walk finished in one frame and the queue read nought. It passed
+  on the commit before this step three times out of three and failed on
+  this one three out of three, so it was this step's to fix. The taps and
+  the read now happen in one synchronous turn, the way the test above it
+  already reads its answer.
+- **The drive to the tool shop.** First it overshot: at a few frames a
+  second the car crossed the shop's stopping circle between frames. Then,
+  sent on from the square along High Street, it circled: the city road
+  comes into the square heading west and High Street runs east, a hairpin
+  for a car on an eight-unit turning circle. A driver would take the town
+  road, which climbs to High Street's east end five units from the shop, so
+  the test does, and brakes then coasts to a stop rather than braking into
+  reverse. It holds eight runs of eight at two workers, which is what the
+  suite and CI use; at three workers on four cores the steering wanders on
+  roads this test has always used, and that is not a load anything runs at.
+
+That the square no longer opens the tool counter is held geometrically —
+the shop's radius stops more than twice its own length short of the square
+— rather than by a drive that has to be in the square on a frame.
+
+### Left for Step 4
+
+The pavements are grass. Kerbs, paving, street lights, and the windows
+brightening at night are Step 4's, and so is a draw budget asserted for the
+town in view rather than measured here.
+
 ---
 
 ## Verified, not assumed

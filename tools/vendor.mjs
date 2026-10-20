@@ -102,6 +102,11 @@ const KENNEY_MODELS = {
      a strip that stops for no reason. */
   'city-roads': ['road-straight', 'road-end'],
   car: ['sedan'],
+  /* Farm City's High Street. Five of the fourteen blocks, chosen by
+     measuring all fourteen: two to four storeys, and none of the five- and
+     six-storey ones, because the town was asked to stay a town. Every block
+     is one mesh on the kit's one texture. */
+  'city-commercial': ['building-a', 'building-d', 'building-e', 'building-h', 'building-i'],
 };
 
 /* Kits whose models reference a shared texture atlas by a relative URI
@@ -114,6 +119,7 @@ const KIT_TEXTURES = {
   'fantasy-town': ['Textures/colormap.png'],
   'city-roads': ['Textures/colormap.png'],
   car: ['Textures/colormap.png'],
+  'city-commercial': ['Textures/colormap.png'],
   // Blocky characters are textured per character rather than per kit.
   'blocky-characters': ['Textures/texture-a.png', 'Textures/texture-e.png'],
 };

@@ -1261,11 +1261,19 @@ test.describe('walking to work', () => {
     await load(page, banked({ plots: ripeAt(3) }));
     await sceneReady(page);
 
-    const plot = page.locator('#plotsGrid > *').nth(3);
-    await tapPlot(plot);
-    await tapPlot(plot);
-
-    expect(await pending(page)).toBe(1);
+    /* Both taps and the read in one synchronous turn, the way the test
+       above reads its answer. Sent as three round trips, a long task
+       landing between them — the town being built while the page loads —
+       gave the walk a frame long enough to finish in, and the queue read
+       nought, which is the walk being quick rather than the queue being
+       wrong. */
+    const queued = await page.evaluate(() => {
+      const plot = document.querySelectorAll('#plotsGrid > *')[3];
+      plot.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      plot.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return window.Farm3DScene.pendingActions();
+    });
+    expect(queued).toBe(1);
   });
 
   test('a job the world has changed under is dropped, not swapped for another', async ({ page }) => {
@@ -6739,21 +6747,53 @@ test.describe('the tool merchants are in the city', () => {
   const toolBtn = (page, name) => page.locator('#upgradeList .upgrade-item')
     .filter({ hasText: name }).getByRole('button');
 
+  /* To Hardware & Feed, where the tools are sold — by the town road, which
+     forks off the city road beside the farm and climbs to High Street's
+     east end five units from the shop. Not up the city road and along High
+     Street: the city road comes into the square heading west and High
+     Street runs east out of it, so that way is a hairpin for a car that
+     turns on an eight-unit circle, and at the frame rate CI renders at the
+     steering lost it — one run circling in the square, one round the back
+     of the terrace. A driver would take the town road, so the test does. */
   const driveToCity = (page) => page.evaluate(async () => {
     const s = window.Farm3DScene;
-    const city = s.city();
+    const shop = s.toolShop();
     s.board();
     const started = performance.now();
     // Latched — see the properties' version of this helper for the frame
     // rate that makes a per-frame decision miss the junction entirely.
-    let onBranch = false;
+    const chain = ['market', 'city', 'town-road'];
+    /* Starting from whichever road it is already on, so a drive that
+       stopped in the square carries on along High Street rather than going
+       back to the farm to begin again. */
+    let leg = 0;
+    const c0 = s.car();
+    chain.forEach((id, i) => { if (s.onRoute(id, c0.x, c0.z).distance < 3) leg = i; });
     await new Promise((resolve) => {
       const tick = () => {
         const c = s.car();
-        if (Math.hypot(c.x - city.x, c.z - city.z) < city.radius * 0.5
-          || performance.now() - started > 60_000) { s.drive(0, 0); resolve(); return; }
-        if (!onBranch && s.onRoute('city', c.x, c.z).distance < 8) onBranch = true;
-        const id = onBranch ? 'city' : 'market';
+        const there = s.atCity() || Math.hypot(c.x - shop.x, c.z - shop.z) < shop.radius * 0.5
+          || (chain[leg] === 'town-road' && s.onRoute('town-road', c.x, c.z).along > 0.97);
+        /* Braked to a stop once there, rather than let go: at the frame
+           rate CI renders at, a car let go at speed in front of the shop
+           rolled on out of its radius before the counter could notice, and
+           on one run carried on to the end of the street. */
+        if (there || performance.now() - started > 110_000) {
+          /* Brake while it is rolling forward at any pace, then let it coast
+             the last of the way to a standstill. Not the brake all the way:
+             the same pull on the stick is reverse once the car is nearly
+             stopped, and at two frames a second one frame of braking takes
+             it from walking pace to backing out of the shop's radius. */
+          if (Math.abs(c.speed) > 0.05 && performance.now() - started < 118_000) {
+            s.drive(0, c.speed > 1 ? 1 : 0);
+            requestAnimationFrame(tick);
+            return;
+          }
+          s.drive(0, 0); resolve(); return;
+        }
+        const next = chain[leg + 1];
+        if (next && s.onRoute(next, c.x, c.z).distance < 8) leg += 1;
+        const id = chain[leg];
         const here = s.onRoute(id, c.x, c.z);
         const near = s.routePointAt(id, Math.min(1, here.along + 0.03));
         const far = s.routePointAt(id, Math.min(1, here.along + 0.09));
@@ -8092,6 +8132,165 @@ test.describe('Farm City: the ground, the roads and the signs', () => {
       const held = await page.evaluate(() => window.Farm3DScene.walkClamp(20, -45, 20, -47));
       expect(held.z).toBeGreaterThan(-46);
     });
+});
+
+/* ------------------------------------------------------------------ */
+/* Farm City: the High Street                                          */
+/* ------------------------------------------------------------------ */
+
+test.describe('Farm City: the High Street', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const street = (page) => page.evaluate(() => window.Farm3DScene.highStreet());
+
+  test('the street has its shops, each with its name over the door', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const hs = await street(page);
+
+    expect(hs.units.map((u) => u.name).sort()).toEqual(
+      ['Bakery', 'Café', 'Greengrocer', 'Hardware & Feed', 'Pharmacy', 'Restaurant'],
+    );
+    /* Readable from the road: the fascia lettering a fifth of a unit tall
+       or more, which is what the fingerposts are held to. */
+    for (const u of hs.units) {
+      expect(u.fasciaCap, `${u.name}'s lettering`).toBeGreaterThanOrEqual(0.2);
+    }
+    // Two cafés and a restaurant, with tables out: the café, the bakery's
+    // tea room, and the restaurant.
+    const tables = Object.fromEntries(hs.units.map((u) => [u.id, u.tables]));
+    expect(tables.cafe).toBeGreaterThan(0);
+    expect(tables.bakery).toBeGreaterThan(0);
+    expect(tables.restaurant).toBeGreaterThan(0);
+    // And the whole street is one mesh's worth of geometry, not a mesh per chair.
+    expect(hs.atlas.width * hs.atlas.height).toBeLessThanOrEqual(2048 * 1024);
+  });
+
+  test('every shopfront faces the street it is on', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const { hs, road } = await page.evaluate(async () => ({
+      hs: await window.Farm3DScene.highStreet(),
+      road: window.Farm3DScene.roadNetwork().find((r) => r.id === 'high-street').pts,
+    }));
+    for (const u of hs.units) {
+      let best = null;
+      for (const [x, z] of road) {
+        const d = Math.hypot(x - u.x, z - u.z);
+        if (!best || d < best.d) best = { d, x, z };
+      }
+      // Turned to look at the road, not along it or away from it...
+      const dot = ((best.x - u.x) * u.faceX + (best.z - u.z) * u.faceZ) / best.d;
+      expect(dot, `${u.name} faces ${dot.toFixed(2)} towards High Street`).toBeGreaterThan(0.9);
+      // ...and across a pavement from it, not standing in it or off up a lane.
+      expect(best.d, `${u.name} is ${best.d.toFixed(2)} from the road`).toBeGreaterThan(3);
+      expect(best.d).toBeLessThan(6);
+    }
+  });
+
+  test('the shops stand on level ground, and none of them can be walked into', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const hs = await s.highStreet();
+      const boxes = s.solids().boxes.filter((b) => b.model && b.model.startsWith('city-commercial/'));
+      const uneven = [];
+      for (const b of boxes) {
+        for (let x = b.minX; x <= b.maxX + 1e-6; x += (b.maxX - b.minX) / 6) {
+          for (let z = b.minZ; z <= b.maxZ + 1e-6; z += (b.maxZ - b.minZ) / 6) {
+            const h = s.groundAt(x, z);
+            if (Math.abs(h) > 1e-6) uneven.push(`${b.model} at (${x.toFixed(1)}, ${z.toFixed(1)}): ${h.toFixed(2)}`);
+          }
+        }
+      }
+      /* At every painted door: half a unit out on the pavement is somewhere
+         she can stand, and half a unit in — behind the door — is not. The
+         shops are seen from outside; the brief was that none can be entered. */
+      const doors = hs.units.map((u) => ({
+        name: u.name,
+        outside: s.blocked(u.door.x + u.faceX * 0.7, u.door.z + u.faceZ * 0.7),
+        inside: s.blocked(u.door.x - u.faceX * 0.5, u.door.z - u.faceZ * 0.5),
+      }));
+      return { uneven, doors, blocks: boxes.length, heights: boxes.map((b) => b.maxY - b.minY) };
+    });
+    expect(r.blocks).toBe(5);
+    expect(r.uneven).toEqual([]);
+    for (const d of r.doors) {
+      expect(d.outside, `the pavement outside the ${d.name}`).toBe(false);
+      expect(d.inside, `inside the ${d.name}`).toBe(true);
+    }
+    /* A town, not a city: nothing over four storeys. The tallest block is
+       10.1 at the street's scale; a fifth storey would be 12.5. */
+    for (const h of r.heights) expect(h).toBeLessThan(11);
+  });
+
+  test('she can walk the pavement past every terrace, and under every awning', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const her = await page.waitForFunction(() => window.Farm3DScene.farmerHeight())
+      .then((h) => h.jsonValue());
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const hs = await s.highStreet();
+      /* A flood fill over the north pavement — the strip between the shop
+         walls and the kerb — from its west end, in steps smaller than she is
+         wide. The tables, chairs, boards and sacks are solid; what matters is
+         that they leave a way through rather than closing the pavement. */
+      const face = hs.blocks.find((b) => b.key === 'grocer').faceZ;
+      const STEP = 0.2;
+      const x0 = -0.6;
+      const x1 = 27.0;
+      const z0 = face + 0.15;
+      const z1 = -30.9;
+      const nx = Math.round((x1 - x0) / STEP);
+      const nz = Math.round((z1 - z0) / STEP);
+      const free = (i, k) => !s.blocked(x0 + i * STEP, z0 + k * STEP);
+      const seen = new Set();
+      const queue = [];
+      for (let k = 0; k <= nz; k += 1) if (free(0, k)) { queue.push([0, k]); seen.add(`0,${k}`); }
+      let east = false;
+      while (queue.length) {
+        const [i, k] = queue.shift();
+        if (i === nx) { east = true; break; }
+        for (const [di, dk] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const ni = i + di;
+          const nk = k + dk;
+          if (ni < 0 || ni > nx || nk < 0 || nk > nz || seen.has(`${ni},${nk}`)) continue;
+          seen.add(`${ni},${nk}`);
+          if (free(ni, nk)) queue.push([ni, nk]);
+        }
+      }
+      return {
+        east,
+        start: queue.length + seen.size > 0,
+        overhead: hs.units.flatMap((u) => [u.lowestOverhead, u.parasolRim]).filter((v) => v !== null),
+      };
+    });
+    expect(r.east, 'the north pavement runs through from the square to Hardware & Feed').toBe(true);
+    /* The lowest edge of anything she walks under — an awning's scalloped
+       valance, a parasol's skirt — clears her head. */
+    expect(r.overhead.length).toBeGreaterThan(6);
+    for (const h of r.overhead) expect(h).toBeGreaterThan(her + 0.05);
+  });
+
+  test('the tools are sold at Hardware & Feed', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const hs = await s.highStreet();
+      return { shop: s.toolShop(), unit: hs.units.find((u) => u.id === 'hardware'), city: s.city() };
+    });
+    // The counter is the pavement in front of the shop...
+    expect(Math.hypot(r.shop.x - r.unit.x, r.shop.z - r.unit.z)).toBeLessThan(r.shop.radius * 0.6);
+    /* ...and nowhere near the square, where the stalls used to be: a
+       counter that still opened in the square would be the old shop with a
+       new sign on it. */
+    expect(Math.hypot(r.shop.x - r.city.x, r.shop.z - r.city.z)).toBeGreaterThan(r.shop.radius * 2);
+  });
 });
 
 /* ------------------------------------------------------------------ */

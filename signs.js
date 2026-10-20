@@ -309,6 +309,10 @@ function drawBoard(ctx, c) {
 /* Geometry, with every UV pointed into the atlas                        */
 /* -------------------------------------------------------------------- */
 
+/* The three helpers below are exported because the High Street's
+   shopfronts are built the same way — one atlas, one merged mesh — and two
+   copies of the same twenty lines would drift apart the first time one of
+   them was fixed. */
 /* Points every vertex of a geometry at one swatch of flat paint. The
    centre of the swatch rather than its corners, and that matters for one
    geometry in particular: ExtrudeGeometry does not make 0-to-1 UVs, it
@@ -316,7 +320,7 @@ function drawBoard(ctx, c) {
    would have sampled the cells either side of it. A flat colour needs no
    mapping at all, only a place to sample, and the middle of the swatch is
    the place no filter can reach out of. */
-function paint(geometry, uv) {
+export function paint(geometry, uv) {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
   const attr = g.getAttribute('uv');
   const u = (uv.u0 + uv.u1) / 2;
@@ -331,7 +335,7 @@ function paint(geometry, uv) {
    outside, so the front and back both read left to right from their own
    side with no mirroring. That is the property a fingerpost needs: the
    same name, the right way round, from either direction of travel. */
-function labelledBox(w, h, d, faceUV, edgeUV) {
+export function labelledBox(w, h, d, faceUV, edgeUV) {
   const g = new THREE.BoxGeometry(w, h, d).toNonIndexed();
   const attr = g.getAttribute('uv');
   for (let face = 0; face < 6; face += 1) {
@@ -365,7 +369,7 @@ const tmpS = new THREE.Vector3(1, 1, 1);
 const tmpP = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 
-function placed(g, x, y, z, yaw = 0) {
+export function placed(g, x, y, z, yaw = 0) {
   tmpQ.setFromAxisAngle(UP, yaw);
   g.applyMatrix4(tmpM.compose(tmpP.set(x, y, z), tmpQ, tmpS));
   return g;

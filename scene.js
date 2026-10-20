@@ -44,6 +44,7 @@ import { loadModel, loadMeshes, preload, overrideKitColor, overrideKitFinish } f
 import { buildFarmer, FARMER_HEIGHT } from './farmer.js';
 import { buildBarn, BARN_WIDTH, BARN_DEPTH } from './barn.js';
 import { buildSigns } from './signs.js';
+import { buildHighStreet } from './highstreet.js';
 import {
   buildStable, STABLE_WIDTH, STABLE_DEPTH,
   STABLE_INSIDE as STABLE_INSIDE_LOCAL,
@@ -1183,14 +1184,22 @@ function startScene(bridge) {
 
   /* Every rectangle that is held level, as centre and half-extents. The
      farm comes from the four numbers above it; the town from TOWN_LEVEL. */
+  /* And one small piece more, under the pharmacy. It is the only shop on
+     the south side of High Street, and the one gap between the two roads
+     that a block fits leaves the back of it 1.4 units beyond the town's
+     south edge — over the seam, where the ground falls by up to a third of
+     a unit, which is enough to see a building float. The patch is the
+     pharmacy's own footprint and a little over, and no wider: the seam
+     either side of it is untouched. */
+  const PHARMACY_LEVEL = { minX: 16.3, maxX: 22.4, minZ: -21.5, maxZ: -19.2 };
+  const rectArea = (r) => ({
+    cx: (r.minX + r.maxX) / 2, cz: (r.minZ + r.maxZ) / 2,
+    hx: (r.maxX - r.minX) / 2, hz: (r.maxZ - r.minZ) / 2,
+  });
   const LEVEL_AREAS = [
     { cx: FLAT_CENTER_X, cz: FLAT_CENTER_Z, hx: FLAT_HALF_X, hz: FLAT_HALF_Z },
-    {
-      cx: (TOWN_LEVEL.minX + TOWN_LEVEL.maxX) / 2,
-      cz: (TOWN_LEVEL.minZ + TOWN_LEVEL.maxZ) / 2,
-      hx: (TOWN_LEVEL.maxX - TOWN_LEVEL.minX) / 2,
-      hz: (TOWN_LEVEL.maxZ - TOWN_LEVEL.minZ) / 2,
-    },
+    rectArea(TOWN_LEVEL),
+    rectArea(PHARMACY_LEVEL),
   ];
   const TERRAIN_HALF = 46; // comfortably past the fog below, so its own edge is never seen
   /* The last ground there is. Nothing that moves may go past it — not the
@@ -2559,6 +2568,138 @@ ${shader.fragmentShader.replace(
     scene.add(catches(new THREE.Mesh(buildRoadMesh(route), roadMaterial)));
   }
 
+  /* -------------------------------------------------------------- */
+  /* Farm City's High Street                                           */
+  /* -------------------------------------------------------------- */
+
+  /* The kit's commercial blocks, as measured rather than as named. Width,
+     height and depth are the bounding box in the kit's own units, read off
+     each model in a browser; `face` is where the ground-floor wall actually
+     is, found by casting rays at it, because the box is not the wall — the
+     plinth and the window frames stand proud of it, by 0.12 to 0.36 of a
+     world unit depending on the block, and a shopfront mounted on the box
+     would have floated off the brickwork by that much.
+
+     Unlike the suburban houses, whose boxes are twice the building because
+     they include each one's plot, these boxes are the building. Checked by
+     overlaying the box on a render of each one. */
+  const COMMERCIAL_KIT = {
+    'city-commercial/building-a': { w: 0.88, h: 1.29, d: 0.94, face: 0.45 },
+    'city-commercial/building-h': { w: 0.88, h: 1.29, d: 1.01, face: 0.444 },
+    'city-commercial/building-e': { w: 1.64, h: 0.89, d: 1.01, face: 0.444 },
+    'city-commercial/building-i': { w: 1.24, h: 1.68, d: 1.30, face: 0.611 },
+    'city-commercial/building-d': { w: 0.84, h: 1.29, d: 0.90, face: 0.39 },
+  };
+  /* One scale for every block on the street, so a two-storey shop is two
+     storeys beside a three-storey one rather than every block stretched to
+     the same height. Six puts a kit door — 0.3 tall — at 1.8 against the
+     farmer's 1.45, and a storey at 2.4: a town at the farmer's scale. The
+     tallest block on the street comes out at 10.1, which is four storeys
+     and the ceiling the plan set: no towers. */
+  const COMMERCIAL_SCALE = 6;
+
+  /* Where the street's two sides were measured to have room.
+
+     North: every column from x -6 to 36 is clear of every road by the 2.7
+     the lanes are held to once the shop walls stand at z -33.2 or further
+     back. The west end is closed by the cottage on the square's north-west
+     corner, whose box reaches x -1.7; the east end is left for the civic
+     square Step 3 builds where High Street meets the town road. Packed from
+     the west with a hand's breadth between blocks, four buildings fill it.
+
+     South: the city road and the town road both come up through it, and
+     the one stretch between them that a block fits is x 16.4 to 22.3, with
+     its front on z -25. One shop. */
+  const HIGH_STREET_FACE = -33.2;
+  const HIGH_STREET_WEST = -1.0;
+  const HIGH_STREET_GAP = 0.1;
+  const HIGH_STREET_TINT = {
+    grocer: 0xe4ecd6, bakery: 0xf5e5c0, dining: 0xf1d6c8, hardware: 0xd3dce8, pharmacy: 0xd9eee4,
+  };
+  const HIGH_STREET_BLOCKS = (() => {
+    let cursor = HIGH_STREET_WEST;
+    const north = [
+      { key: 'grocer', id: 'city-commercial/building-a' },
+      { key: 'bakery', id: 'city-commercial/building-h' },
+      { key: 'dining', id: 'city-commercial/building-e' },
+      { key: 'hardware', id: 'city-commercial/building-i' },
+    ].map((b) => {
+      const k = COMMERCIAL_KIT[b.id];
+      const w = k.w * COMMERCIAL_SCALE;
+      const x = cursor + w / 2;
+      cursor += w + HIGH_STREET_GAP;
+      return { ...b, x, z: HIGH_STREET_FACE - k.face * COMMERCIAL_SCALE, ry: 0, w, faceZ: HIGH_STREET_FACE };
+    });
+    // The pharmacy faces north across the street, so its wall is its -z side.
+    const k = COMMERCIAL_KIT['city-commercial/building-d'];
+    const front = -25.0;
+    const z = front + (k.d / 2) * COMMERCIAL_SCALE;
+    const south = {
+      key: 'pharmacy', id: 'city-commercial/building-d', x: 19.35, z, ry: Math.PI,
+      w: k.w * COMMERCIAL_SCALE, faceZ: z - k.face * COMMERCIAL_SCALE,
+    };
+    return [...north, south];
+  })();
+  const blockOf = (key) => HIGH_STREET_BLOCKS.find((b) => b.key === key);
+
+  /* The shopfronts, for highstreet.js. Each sits on its block's wall, a
+     little narrower than the block so the fascia's end brackets stay on its
+     own brickwork. The wide two-storey block is two businesses — the café in
+     its single-storey wing, the restaurant in the taller half — because the
+     kit's widest low building is the one shape on the street that reads as
+     two shops side by side, and two cafés and a restaurant were what the
+     street was asked for. The bakery's tea room is the second café.
+
+     Colours are the heritage palette a real high street's conservation
+     guidance would ask for — deep greens, navy, oxblood — so each shop is
+     distinct from its neighbours and none of them is a brand. */
+  const SHOPFRONTS = (() => {
+    const north = (key, dx, width, rest) => ({
+      ...rest, x: blockOf(key).x + dx, z: HIGH_STREET_FACE, yaw: 0, width,
+    });
+    const ph = blockOf('pharmacy');
+    return [
+      north('grocer', 0, 4.88, {
+        id: 'grocer', name: 'Greengrocer', kind: 'grocer', door: 'right',
+        colours: { paint: '#2f5d3a', trim: '#1f3d27', stripe: '#3d7a45', door: '#2f5d3a' },
+        extras: [{ kind: 'produce', x: -1.2, out: 0.42 }],
+      }),
+      north('bakery', 0, 4.88, {
+        id: 'bakery', name: 'Bakery', kind: 'bakery', door: 'left', terrace: 1,
+        aboard: ['TEA ROOM', 'Fresh bread', 'Cream teas'],
+        colours: { paint: '#2a3f6b', trim: '#1b2a49', stripe: '#34558f', door: '#2a3f6b' },
+      }),
+      north('dining', -2.6, 4.5, {
+        id: 'cafe', name: 'Café', kind: 'cafe', door: 'centre', terrace: 2,
+        aboard: ['CAFÉ', 'Coffee', 'Cake today'],
+        colours: { paint: '#227a74', trim: '#165550', stripe: '#2f9c93', door: '#227a74', chair: '#1d4e4a' },
+      }),
+      north('dining', 2.45, 4.82, {
+        id: 'restaurant', name: 'Restaurant', kind: 'restaurant', door: 'centre', terrace: 2,
+        colours: { paint: '#6e2233', trim: '#4a1622', stripe: '#8f2d40', door: '#6e2233', ink: '#e8c76a' },
+        extras: [{ kind: 'planters', bloom: '#e889b5' }],
+      }),
+      north('hardware', 0, 7.04, {
+        id: 'hardware', name: 'Hardware & Feed', kind: 'hardware', door: 'centre',
+        colours: { paint: '#9b2d20', trim: '#651d15', stripe: '#b23a2a', door: '#9b2d20' },
+        extras: [{ kind: 'sacks', x: -2.0, out: 0.45 }],
+      }),
+      {
+        id: 'pharmacy', name: 'Pharmacy', kind: 'pharmacy', door: 'left',
+        x: ph.x, z: ph.faceZ, yaw: Math.PI, width: 4.64,
+        colours: { paint: '#1f6f4a', trim: '#144a31', stripe: '#2a8c5c', door: '#1f6f4a' },
+        extras: [{ kind: 'planters', bloom: '#efc23a' }],
+      },
+    ];
+  })();
+
+  /* Where the tool shop is now: on the pavement in front of Hardware &
+     Feed, not the middle of the old square. The radius takes in the street
+     in front of the shop and the pavement she would stand on, and not the
+     square forty units west — so driving into town and stopping in the
+     square is no longer shopping. */
+  const TOOL_SHOP = { x: blockOf('hardware').x, z: -30.2, radius: 6.5 };
+
   const PROPS = [
     /* --- the stable, west: the building the livestock lives in ---
        The farmhouse stood here — `city-suburban/building-type-a` at 4.8,
@@ -2749,50 +2890,46 @@ ${shader.fragmentShader.replace(
        Nothing stands east of the square, because that is the sector the
        road arrives through. */
     /* That last sentence stopped being true when High Street went east,
-       and the fourth house is the one that moved for it. It stood at
-       (14.5, -32), and its collision box — 9.7 by 10.3, about twice the
-       building you can see, because the kit's bounds include its plot —
-       straddled the line any eastward street would have to take. It is on
-       the north side of High Street now, as far back as the world's edge
-       allows: the box clears the kerb by half a unit and the edge by one
-       and a quarter, which is all the room that side of the street has. It
-       is still a house, and the shops of Step 2 may want its plot; that is
-       Step 2's call to make, with footprints measured, not this one's. */
+       and the fourth house moved for it, to the north side of the street.
+       Step 1 left a note that the shops might want its plot. They did, and
+       so did the house behind the square's north side, whose box already
+       reached z -44.9 — past the world's edge, so it was standing a unit
+       off the end of the ground. Both are gone; the two on the square's
+       west side are what is left of the residential town, and the north
+       side of High Street is a terrace of shops. */
     { id: 'city-suburban/building-type-b', x: -8.5, z: -27.5, ry: Math.PI / 2, h: 7.0, blocks: 'box' },
     { id: 'city-suburban/building-type-a', x: -6.5, z: -39.5, ry: 0, h: 6.2, blocks: 'box' },
-    { id: 'city-suburban/building-type-b', x: 6.5, z: -41.5, ry: 0, h: 6.8, blocks: 'box' },
-    { id: 'city-suburban/building-type-a', x: 17.5, z: -37.6, ry: -Math.PI / 2, h: 6.6, blocks: 'box' },
 
-    /* The square: the tool shops, as stalls, because the kit has no
-       shopfront and a stall with crates outside it reads as a trade counter
-       where an unmarked wall does not. */
-    /* Set back off the kerb rather than on it. A stall is a collider, and
-       one standing within the road's own half-width is something the car
-       clips on the way into the square — the test that nothing solid stands
-       in a lane catches it at 2.14 against a carriageway 2.2 wide. */
-    /* The stalls sit in the band between the street and the buildings
-       behind it, and that band is four and a half units wide — a stall is
-       three across and has to keep half a unit off the masonry and two and
-       a half off the carriageway. The first layout had them clipping a
-       building at each end of the square; the street moved north to make
-       the room rather than the stalls being squeezed into a gap that was
-       not there. */
-    { id: 'fantasy-town/stall-green', x: 1.0, z: -34.0, ry: 0.5, h: 2.7, blocks: 'box' },
-    { id: 'fantasy-town/stall-green', x: 6.0, z: -33.8, ry: -1.2, h: 2.7, blocks: 'box' },
-    /* The square's plain signpost is gone: it stood 1.9 from High Street's
-       centre line, inside the carriageway, and a fingerpost now does the job
-       it was only ever pretending to — see signs.js. */
-    { id: 'survival/barrel', x: -0.8, z: -33.0, ry: 0.4, blocks: 'box' },
-    { id: 'survival/barrel', x: -0.2, z: -33.6, ry: -0.8, blocks: 'box' },
-    { id: 'survival/barrel', x: 3.6, z: -34.6, ry: 1.1, blocks: 'box' },
+    /* The High Street's blocks. Placed from the measured table above
+       rather than typed in, and tinted, because the kit paints every block
+       the same pale grey and a high street is a row of different buildings.
+       The tint multiplies the kit's texture, so the walls take the colour
+       and the dark ground floors and the windows stay dark — which is the
+       point, since the shopfronts in front of them are what carries the
+       colour at street level. */
+    ...HIGH_STREET_BLOCKS.map((b) => ({
+      id: b.id, x: b.x, z: b.z, ry: b.ry,
+      h: COMMERCIAL_KIT[b.id].h * COMMERCIAL_SCALE,
+      tint: HIGH_STREET_TINT[b.key],
+      blocks: 'box',
+      solid: b.ry === 0 ? 'farm-city/high-street-terrace' : undefined,
+    })),
+
+    /* The square's two stalls were the tool merchants, standing in for a
+       shop the kit did not have. The tool shop is Hardware & Feed now, and
+       the stalls went with it. The barrels, the crate and the chest that
+       stood round them went too — to Hardware & Feed's pavement, east of
+       its door, which is where a feed merchant keeps that sort of thing. */
+    { id: 'survival/barrel', x: blockOf('hardware').x + 2.15, z: HIGH_STREET_FACE + 0.45, ry: 0.4, blocks: 'box' },
+    { id: 'survival/barrel', x: blockOf('hardware').x + 2.75, z: HIGH_STREET_FACE + 0.55, ry: -0.8, blocks: 'box' },
+    { id: 'survival/barrel', x: blockOf('hardware').x + 2.45, z: HIGH_STREET_FACE + 1.1, ry: 1.1, blocks: 'box' },
+    { id: 'survival/chest', x: blockOf('hardware').x + 1.35, z: HIGH_STREET_FACE + 0.45, ry: 0.1, blocks: 'box' },
     { id: 'survival/box', x: -2.6, z: -27.2, ry: 0.2, blocks: 'box' },
     { id: 'survival/box', x: -2.0, z: -26.6, ry: 1.1, blocks: 'box' },
-    { id: 'survival/box', x: 8.0, z: -32.0, ry: -0.4, blocks: 'box' },
-    { id: 'survival/chest', x: 4.6, z: -32.6, ry: 0.6, blocks: 'box' },
-    /* Two trees and nothing else green. A city planted like the farm is a
-       village with taller houses. */
+    /* One tree and nothing else green. A city planted like the farm is a
+       village with taller houses. There were two; the other stood where
+       the bakery is. */
     { id: 'nature/tree_default', x: -3.6, z: -25.4, h: 4.4, blocks: 'trunk' },
-    { id: 'nature/tree_default', x: 9.0, z: -35.8, h: 4.2, blocks: 'trunk' },
 
     /* --- the country house, at the top of the meadow ---
        The cheaper of the two endings, and it has to look like the cheaper
@@ -2940,7 +3077,12 @@ ${shader.fragmentShader.replace(
     const b = new THREE.Box3().setFromObject(object);
     if (prop.blocks === 'box') {
       SOLIDS.boxes.push({
-        id: prop.id,
+        /* `solid` names the thing a box belongs to when that is more than
+           one model: the High Street's north side is four blocks built as one
+           terrace, wall to wall, and the seam between two of them is a party
+           wall rather than a gap between two buildings. */
+        id: prop.solid ?? prop.id,
+        model: prop.id,
         minX: b.min.x, maxX: b.max.x,
         minZ: b.min.z, maxZ: b.max.z,
         minY: b.min.y, maxY: b.max.y,
@@ -2965,6 +3107,20 @@ ${shader.fragmentShader.replace(
       loadModel(prop.id, prop.h).then(({ object }) => {
         object.position.set(prop.x, 0, prop.z);
         object.rotation.y = prop.ry ?? 0;
+        /* A tinted prop gets materials of its own. Clones of a model share
+           their materials with the cached original, so tinting in place
+           would have painted every block on the street the last colour set. */
+        if (prop.tint !== undefined) {
+          object.traverse((obj) => {
+            if (!obj.material) return;
+            obj.material = [obj.material].flat().map((m) => {
+              const own = m.clone();
+              own.color.multiply(new THREE.Color(prop.tint));
+              return own;
+            });
+            if (obj.material.length === 1) obj.material = obj.material[0];
+          });
+        }
         /* Materials that arrive after the scene-wide pass have to opt out of
            tone mapping themselves — see that pass for why only the sky wants
            it. */
@@ -3144,6 +3300,13 @@ ${shader.fragmentShader.replace(
         if (x > ROAM.minX - 0.5 && x < ROAM.maxX + 0.5 && z > ROAM.minZ - 0.5 && z < ROAM.maxZ + 0.5) continue;
         if (inPondFootprint(x, z, 0.6)) continue;
         if (solidNear(x, z, 1.0)) continue;
+        /* Clear of any building by the length of an arm. A post a unit off
+           a wall is fine; arms 2.9 long at the height of a shop's awning are
+           not, and the first High Street put the east fingerpost's "Town
+           Square" through the canvas over Hardware & Feed's window. Only
+           tall boxes count — a crate is something an arm passes over. */
+        if (SOLIDS.boxes.some((b) => b.maxY - b.minY > 2
+          && x > b.minX - 3.2 && x < b.maxX + 3.2 && z > b.minZ - 3.2 && z < b.maxZ + 3.2)) continue;
         /* And clear of every tree by more than its trunk. The scatter keeps
            its own trees off signs once the signs exist, but the hand-placed
            ones were here first — the square's fingerpost was first put 2.9
@@ -3174,12 +3337,12 @@ ${shader.fragmentShader.replace(
      bend, on the east side, which is open hillside — the side that faces
      away from the orchard rather than into it. */
   const WELCOME_ROADS = [
-    { id: 'welcome-city-road', route: 'city', near: [13.9, -18.6], sides: [-1, 1] },
+    { id: 'welcome-city-road', route: 'city', near: [8.0, -23.6], sides: [1, -1] },
     { id: 'welcome-town-road', route: 'town-road', near: [26.7, -22.4], sides: [1, -1] },
   ];
   const BOARD_REACH = 1.9; // half the board's width, which faces across the road
 
-  function boardSpot({ route: id, near: [nx, nz], sides = [1, -1] }) {
+  function boardSpot({ route: id, near: [nx, nz], sides = [1, -1] }, avoid = []) {
     const r = routeById(id);
     let at = 0;
     let best = Infinity;
@@ -3207,6 +3370,9 @@ ${shader.fragmentShader.replace(
         const ends = [-BOARD_REACH, 0, BOARD_REACH].map((lx) => [x + lx * Math.cos(yaw), z - lx * Math.sin(yaw)]);
         if (ends.some(([ex, ez]) => nearestOnAnyRoad(ex, ez).distance < SIGN_SETBACK - 0.4)) continue;
         if (ends.some(([ex, ez]) => solidNear(ex, ez, 1.0) || inPondFootprint(ex, ez, 0.6))) continue;
+        /* Nor on a fingerpost. They are placed first but only reach SOLIDS
+           once both kinds are built, so the board has to be told. */
+        if (ends.some(([ex, ez]) => avoid.some(([fx, fz]) => Math.hypot(ex - fx, ez - fz) < 3.5))) continue;
         if (ends.some(([ex, ez]) => Math.abs(ex) > WORLD_EDGE - 1 || Math.abs(ez) > WORLD_EDGE - 1)) continue;
         return { x, z, yaw };
       }
@@ -3229,7 +3395,22 @@ ${shader.fragmentShader.replace(
      the buildings standing on it are already in SOLIDS — and before the
      foliage scatter, which chains on this rather than on `dressed`, so the
      grass grows round the posts instead of through them. */
-  const signed = dressed.then(() => {
+  /* The shopfronts, built once the kit blocks behind them have landed and
+     before the signs look for their corners — a café's tables are solid,
+     and a fingerpost's search has to know they are there. */
+  let streetReport = null;
+  const streetBuilt = dressed.then(() => {
+    const built = buildHighStreet({
+      units: SHOPFRONTS,
+      anisotropy: renderer.capabilities.getMaxAnisotropy(),
+    });
+    built.object.traverse((o) => { if (o.material) o.material.toneMapped = false; });
+    scene.add(casts(built.object));
+    SOLIDS.boxes.push(...built.solids);
+    streetReport = built.report;
+  }).catch((err) => console.warn('farm: the High Street did not build', err));
+
+  const signed = streetBuilt.then(() => {
     const taken = [];
     const fingerposts = [];
     for (const j of JUNCTIONS) {
@@ -3243,7 +3424,7 @@ ${shader.fragmentShader.replace(
     }
     const boards = [];
     for (const w of WELCOME_ROADS) {
-      const spot = boardSpot(w);
+      const spot = boardSpot(w, taken);
       if (!spot) { console.warn(`farm: no clear verge for the ${w.id} board`); continue; }
       boards.push({ id: w.id, ...spot, title: 'Farm City', motto: 'Please drive carefully' });
     }
@@ -3668,7 +3849,12 @@ ${shader.fragmentShader.replace(
        taller houses. The market and the two properties are all outside the
        fringe's own bounds and need no such line; the city is the one place
        that is in them. */
-    if (Math.hypot(x - CITY.x, z - CITY.z) <= CITY_RADIUS + 2) return true;
+    /* Now the whole of the town's level ground rather than a circle round
+       its square: the circle stopped at x 15, and High Street runs on to 37. */
+    if (x >= TOWN_LEVEL.minX - 2 && x <= TOWN_LEVEL.maxX + 2
+      && z >= TOWN_LEVEL.minZ - 2 && z <= TOWN_LEVEL.maxZ + 2) return true;
+    if (x >= PHARMACY_LEVEL.minX - 2 && x <= PHARMACY_LEVEL.maxX + 2
+      && z >= PHARMACY_LEVEL.minZ - 2 && z <= PHARMACY_LEVEL.maxZ + 2) return true;
     const m = FOLIAGE_CLEARANCE;
     for (const b of SOLIDS.boxes) {
       if (x >= b.minX - m && x <= b.maxX + m && z >= b.minZ - m && z <= b.maxZ + m) return true;
@@ -5386,8 +5572,8 @@ ${lit}`;
 
      The walkable town is the levelled ground itself, held half a unit in
      from its edges for the same float reason the circles are. The shop is a
-     separate question and still asks CITY_RADIUS: where the tool merchants
-     are is the square, until Step 2 gives them a shopfront on High Street. */
+     separate question, and TOOL_SHOP answers it: the tools are sold at
+     Hardware & Feed on High Street. */
   const TOWN_WALK = {
     minX: TOWN_LEVEL.minX + 0.5, maxX: TOWN_LEVEL.maxX - 0.5,
     minZ: TOWN_LEVEL.minZ + 0.5, maxZ: TOWN_LEVEL.maxZ - 0.5,
@@ -5719,7 +5905,8 @@ ${lit}`;
       shopOpen = open;
       bridge.setMarketOpen?.(open);
     }
-    const cityNow = atPlace(CITY, CITY_RADIUS);
+    // The tools are sold at Hardware & Feed, not anywhere in town.
+    const cityNow = atPlace(TOOL_SHOP, TOOL_SHOP.radius);
     if (cityNow !== cityOpen) {
       cityOpen = cityNow;
       bridge.setCityOpen?.(cityNow);
@@ -6594,6 +6781,15 @@ ${lit}`;
        shop. */
     atCity: () => cityOpen,
     city: () => ({ x: CITY.x, z: CITY.z, radius: CITY_RADIUS }),
+    // Where the tools are sold, which is no longer the square.
+    toolShop: () => ({ ...TOOL_SHOP }),
+    /* The shopfronts, as built: every name over a door, which way each one
+       faces, how big its lettering came out, and its tables. Waits on the
+       street being built, like signs() does. */
+    highStreet: () => streetBuilt.then(() => streetReport && JSON.parse(JSON.stringify({
+      ...streetReport,
+      blocks: HIGH_STREET_BLOCKS.map(({ key, id, x, z, ry, faceZ }) => ({ key, id, x, z, ry, faceZ })),
+    }))),
     /* Farm City's levelled ground, which is where the town is now — the
        circle above is still the square, and still where the tool shop is. */
     town: () => ({ ...TOWN_LEVEL }),

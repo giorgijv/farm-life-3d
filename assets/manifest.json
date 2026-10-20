@@ -3,7 +3,7 @@
     "kenney": "3694c6879e487c108f55677be7dd2ca75b07cc3b",
     "three": "r169"
   },
-  "bytes": 1923343,
+  "bytes": 2603761,
   "files": [
     "./assets/models/nature/crops_leafsStageA.glb",
     "./assets/models/nature/crops_leafsStageB.glb",
@@ -58,7 +58,13 @@
     "./assets/models/city-roads/road-end.glb",
     "./assets/models/city-roads/Textures/colormap.png",
     "./assets/models/car/sedan.glb",
-    "./assets/models/car/Textures/colormap.png"
+    "./assets/models/car/Textures/colormap.png",
+    "./assets/models/city-commercial/building-a.glb",
+    "./assets/models/city-commercial/building-d.glb",
+    "./assets/models/city-commercial/building-e.glb",
+    "./assets/models/city-commercial/building-h.glb",
+    "./assets/models/city-commercial/building-i.glb",
+    "./assets/models/city-commercial/Textures/colormap.png"
   ],
   "vendor": [
     "./vendor/jsm/controls/OrbitControls.js",
