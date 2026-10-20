@@ -3959,6 +3959,25 @@ to face its road at whatever angle the road arrives at, has a row of small
 boxes along it, because an axis-aligned box round a turned board is mostly
 air.
 
+### What CI caught that the local run did not
+
+The test that drives the car into the edge of the world failed on CI and
+passed here. Since §40 it had aimed south-east out of the pull-in, down the
+one straight line a ray cast had found clear to the edge. The cottage
+turning's fingerpost now stands six units along that line, and whether the
+car clips it depends on the arc of the turn out of the pull-in — which is a
+different arc at CI's frame rate than at this machine's. A ray cast after
+the signs went in found one heading in 360 still clear from the pull-in.
+
+That is the §40 lesson again, from the other side: the test depended on a
+line through the countryside staying empty, and the countryside is where
+signs go. It now drives by road to the end of the town road and casts its
+rays from wherever the car actually stopped. It takes the widest clear
+fan within a right angle of the way the car is facing, so there is no turn
+to drift on. The car stops 0.03 short of the north edge. When Step 3 builds the
+civic square there, that fan narrows, and the test will say so by name
+rather than stop against a building.
+
 ### Found, and left for later
 
 The cottage west of the town at (−30.4, −26.8) is outside the levelled

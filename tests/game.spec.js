@@ -6461,6 +6461,44 @@ test.describe('the edges of the world, and the car left in it', () => {
     return s.car();
   }, [tx, tz, ms]);
 
+  /* Follows a chain of roads, each one a branch off the one before, and
+     stops at the end of the last. The latch is the one driveToCity uses,
+     for the same frame-rate reason. */
+  const driveRoutes = (page, ids, ms) => page.evaluate(async ([chain, cap]) => {
+    const s = window.Farm3DScene;
+    if (!s.atWheel()) s.board();
+    const started = performance.now();
+    let leg = 0;
+    await new Promise((resolve) => {
+      const tick = () => {
+        const c = s.car();
+        const last = chain[chain.length - 1];
+        if ((leg === chain.length - 1 && s.onRoute(last, c.x, c.z).along > 0.985)
+          || performance.now() - started > cap) { s.drive(0, 0); resolve(); return; }
+        if (leg < chain.length - 1 && s.onRoute(chain[leg + 1], c.x, c.z).distance < 8) leg += 1;
+        const id = chain[leg];
+        const here = s.onRoute(id, c.x, c.z);
+        const near = s.routePointAt(id, Math.min(1, here.along + 0.03));
+        const far = s.routePointAt(id, Math.min(1, here.along + 0.09));
+        const wrap = (a) => {
+          let v = a;
+          while (v > Math.PI) v -= Math.PI * 2;
+          while (v < -Math.PI) v += Math.PI * 2;
+          return v;
+        };
+        const err = wrap(Math.atan2(near.x - c.x, near.z - c.z) - c.heading);
+        const bend = Math.abs(wrap(Math.atan2(far.x - c.x, far.z - c.z) - c.heading));
+        const pace = bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1);
+        s.drive(Math.max(-1, Math.min(1, -err * 2.4)), c.speed > pace * 12 ? 0.35 : -1);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    // Let it roll to a stop, so the line below is cast from where it is.
+    await new Promise((r) => setTimeout(r, 1500));
+    return s.car();
+  }, [ids, ms]);
+
   test('the car cannot be driven off the edge of the world', async ({ page }) => {
     test.slow();
     await load(page, makeSave());
@@ -6482,8 +6520,8 @@ test.describe('the edges of the world, and the car left in it', () => {
        the test asks the question in two pieces instead of one. The rule is
        checked where the rule lives — just outside the modelled ground is
        somewhere the car may not be, on all four sides — and the drive is
-       kept, aimed down one of the two lines that still run out to an edge,
-       to prove the rule holds against a car actually arriving at it.
+       kept, aimed down a line that still runs out to an edge, to prove the
+       rule holds against a car actually arriving at it.
 
        The second piece is what the old single assertion was really worth:
        the car stops *against* the edge rather than creeping through it. */
@@ -6507,12 +6545,49 @@ test.describe('the edges of the world, and the car left in it', () => {
     expect(verdict.inside, 'but the ground just inside it is not')
       .toEqual([false, false, false]);
 
-    // South-east, which the ray cast says still runs clear to the edge.
-    const car = await driveAt(page, 230, 336, 25_000);
+    /* Where to drive at it from is found, not remembered. The first
+       version of this aimed south-east out of the pull-in down the one
+       heading a ray cast had found clear; the Farm City signs put a
+       fingerpost six units along that line, and the car stopped against it
+       on CI and not locally, because the turn out of the pull-in is a
+       different arc at a different frame rate. So it drives by road to the
+       end of the town road, where the street faces open ground, and casts
+       the rays from wherever the car actually stopped. The widest clear fan
+       within a right angle of the way it is facing is the one it takes, and
+       because it is already facing into that fan, there is no turn to
+       drift on. */
+    const parked = await driveRoutes(page, ['market', 'city', 'town-road'], 60_000);
+    const fan = await page.evaluate(([c, e]) => {
+      const s = window.Farm3DScene;
+      const reaches = (deg) => {
+        const th = deg * Math.PI / 180;
+        for (let t = 0; t < 120; t += 0.25) {
+          const x = c.x + Math.sin(th) * t;
+          const z = c.z + Math.cos(th) * t;
+          if (Math.abs(x) > e - 0.5 || Math.abs(z) > e - 0.5) return true;
+          if (s.carBlockedAt(x, z)) return false;
+        }
+        return false;
+      };
+      const h = c.heading * 180 / Math.PI;
+      let best = { from: 0, width: 0 };
+      let run = null;
+      for (let d = -90; d <= 91; d += 1) {
+        if (d <= 90 && reaches(h + d)) { run ??= d; continue; }
+        if (run !== null && d - run > best.width) best = { from: run, width: d - run };
+        run = null;
+      }
+      return { width: best.width, heading: h + best.from + best.width / 2 };
+    }, [parked, edge]);
+    expect(fan.width, 'some line from the end of the town road still reaches the edge')
+      .toBeGreaterThanOrEqual(10);
+
+    const th = fan.heading * Math.PI / 180;
+    const car = await driveAt(page, parked.x + Math.sin(th) * 300, parked.z + Math.cos(th) * 300, 25_000);
     expect(Math.abs(car.x)).toBeLessThanOrEqual(edge + 0.01);
     expect(Math.abs(car.z)).toBeLessThanOrEqual(edge + 0.01);
     // Stopped against it rather than creeping through.
-    expect(Math.abs(car.z)).toBeGreaterThan(edge - 2);
+    expect(Math.max(Math.abs(car.x), Math.abs(car.z))).toBeGreaterThan(edge - 2);
   });
 
   test('she cannot walk off it either', async ({ page }) => {
