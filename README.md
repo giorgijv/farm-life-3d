@@ -118,11 +118,16 @@ to see.** Until you have driven out, the Dream tab tells you where the lane
 goes and its button says so instead of offering a price; once you have been,
 the card says what you found there and will sell it to you.
 
-**There is a city, and it sells different things from the market.** North
-past the orchard, at the end of the longest road in the game, is a town —
-buildings taller than anything on the farm, a square with a cross street
-running through it, and the tool merchants. The two shops are deliberately
-not the same shop:
+**There is a town, Farm City, and it sells different things from the
+market.** North past the orchard, at the end of the longest road in the game,
+is a town on its own level ground — a square, a High Street running forty
+units east out of it, and the tool merchants. Two roads go there, and they
+make a loop: the city road arrives at the square, and a second road forks off
+it beside the farm and climbs into town at High Street's east end.
+Fingerposts at every junction on the map say where each road leads, and a
+"Welcome to Farm City" board stands on each road at the edge of town. The
+town is still being built; shops, cafés, a police station and a city hall
+come in later steps. The two shops are deliberately not the same shop:
 
 - **The market village**, south, trades farming goods. It buys your harvest
   and it sells the barns you keep it in.
@@ -399,6 +404,8 @@ offline once loaded.
 - `script.js` — game state, systems, rendering and audio
 - `scene.js` — the 3D farm scene (three.js), talking to `script.js` through
   `window.Farm3DBridge`
+- `signs.js` — the fingerposts and welcome boards, lettered from one canvas
+  atlas and merged into a single mesh
 - `assets.js` — loads the 3D models, and normalises them to a world scale
 - `assets/` — the models themselves (CC0, from Kenney), and a manifest the
   service worker precaches from
@@ -460,10 +467,15 @@ roams, that a new farm has a field and an empty stable while buying one beds it
 down and opens the herd, that the refusal holds when the disabled button is
 gone round, and that a save from before that purchase existed keeps the herd it
 already had while one with no animals does not get a free one, that there
-are five ribbons rather than one — the market road, three lanes branching off
-it and the city's own cross street — that each lane starts on the road it
+are six ribbons rather than one — the market road, three lanes branching off
+it, High Street and the town road — that each lane starts on the road it
 branches from and finishes at the place it is named after, that nothing solid
-stands in either of them, that she can drive the whole way out to each
+stands in any of them, that Farm City stands on level ground and its three
+roads join into a loop, that every arm on every fingerpost points down the
+road a shortest-path search of the network says to take, that no sign stands
+in a carriageway or under a tree, that every arm's lettering is one size and
+at least a fifth of a unit tall, that both welcome boards face the traffic
+arriving, that she can walk the length of High Street, that she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

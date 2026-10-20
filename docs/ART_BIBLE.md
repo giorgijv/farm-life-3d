@@ -3833,6 +3833,139 @@ sides, and the ground just inside is not — and keeps a drive, aimed down one
 of the two lines that still reach an edge, to prove the rule holds against a
 car actually arriving at it.
 
+
+## 41. Farm City, step one: the ground, the roads and the signs
+
+The town north of the farm is becoming Farm City, in five steps. This is
+the first, and it builds nothing you would call a building: it is the site.
+Level ground for a town to stand on, a High Street to stand along, a second
+road in, and signs that say where every road goes. The shops, cafés and
+restaurants, the police station and the city hall come after, and each needs
+the ground under it to be flat and the street in front of it to be a street.
+
+### The ground
+
+The terrain was flat only inside the farm's rectangle, and rolled ±2.2
+everywhere else — including under the old city, whose houses stood level
+only because the kit's buildings have deep plinths. A High Street forty
+units long on that ground would have had shopfronts on stilts at one end
+and buried at the other.
+
+`TOWN_LEVEL` is a second levelled rectangle, x −14 to 40 and z −46 to −21,
+and `terrainHeight` now takes the distance to the *nearest* level area
+rather than to the farm alone. Taking the nearest instead of blending keeps
+each plateau's edge exactly where its rectangle says it is. A test reads
+every whole-unit point of the plateau and requires all of them to be zero.
+
+The south edge, −21, was a choice. The farm's level ground stops at −15,
+and a town plateau that came down to meet it would have joined the two
+into one plain. The first draft of the comment said the six-unit seam
+between them was "a low ridge". Measured, it is not: within a few tenths of
+level across the farm's width (+0.42 at x −10, −0.40 at x 20), falling to
+−1.4 past the farm's east corner. It is a shallow hollow, and the comment
+now says so. The town road dips 0.57 into it on the way up.
+
+### The roads
+
+The square's old cross street went nowhere by design. **High Street**
+replaces it: it starts in the square and runs east to x 36.5, on the level
+ground all the way. Its west end was first laid 1.99 from the house on the
+square's west side, inside the 2.5 every road is held to; it now starts at
+x −2 and clears it by 2.57. One house at (14.5, −32) stood where the street
+had to go, and moved to (17.5, −37.6), turned to face it.
+
+**The town road** forks off the city road a third of the way up the farm's
+east side and climbs into town at High Street's east end, where Step 3 puts
+the city hall. Two roads in make a loop — up the city road, along High
+Street, back down the town road — which is what makes the town somewhere
+you drive through rather than into and back out of, and what gives the fork
+the one real choice on the map for a sign to offer.
+
+Every road still clears every solid by 2.5 or more along its whole length,
+with no point that stops the car.
+
+She can walk the town, and the walk region changed shape to let her. It
+used to be a circle round the square, which stopped thirteen units out —
+halfway down a street now forty long. It is the levelled rectangle, held
+half a unit in from its edges, and checked before the circles. The tool
+shop still asks the old circle, because the tool merchants are still in the
+square until Step 2 gives them a shopfront.
+
+### The signs
+
+Six fingerposts, one at every junction, and two welcome boards, all in
+`signs.js`.
+
+**Nothing on a sign is an angle somebody typed.** A junction's arms name a
+place, a road and a direction along it; which way an arm points is read off
+the road itself, two and a half units out from the junction, far enough
+that the junction's own bend does not decide it. Some arms point the same
+way as each other, and that is the network: from the cottage turning, the
+market and Farm City are both south.
+
+The test does not trust that. It builds a graph of every sample of every
+road, joins samples on different roads within a unit of each other — which
+is what a junction is — and runs a shortest-path search from each place
+named. Every arm has to point within 20° of the way that search leaves the
+junction. Flipping a single arm to check the test catches it gave 179.5°.
+
+**Where a sign stands is found, not chosen.** §40 recorded nineteen nudged
+props, each of which solved the test in front of it and caused the next.
+So each fingerpost rings out from its junction and takes the first spot
+that is clear of every road by `SIGN_SETBACK` — half the carriageway, the
+car's radius, the post's collision box and a margin, 4.0 — clear of any
+solid, out of the pond, off the farm and on the map. They came out between
+4.01 and 4.10 from the nearest road centre.
+
+The first look at the town square found its post 2.9 from a hand-placed
+tree, with the canopy over the arms; the first look at the fork found a
+scattered one a unit from the post. Two different fixes, because they are
+two different trees. The scatter now respects a clearing round each sign
+(4.5 for a fingerpost, whose arms reach 2.9; 3.6 for a board). The corner
+search now refuses any spot within 4.0 of a tree that was already there.
+The nearest tree to any fingerpost is now 6.46 away.
+
+**Lettering is one size everywhere.** A sign whose words shrink to fit
+reads as a mistake. Every label is fitted at the size the longest label
+needs — 48 px on a 400-wide arm, which is 0.21 units of cap height on a
+board 2.5 by 0.5. The first draft came out at 0.172 against the 0.21 its
+own comment promised; the arm was enlarged rather than the comment. Black
+on white, the colours of an English fingerpost, with a pointed end that
+does the pointing.
+
+**Welcome boards face the traffic arriving.** One on each road at the edge
+of town, green, "WELCOME TO / Farm City / Please drive carefully" on the
+face, and "THANK YOU FOR VISITING" on the back for the drive home. The city
+road's board was first aimed at a spot on a bend, where neither verge had
+room; the search walked back towards the farm and stood it a unit outside
+the orchard fence, welcoming the apple trees to Farm City. It now stands on
+the straight before the bend, on the open side. The test requires each
+face within about 26° of head-on to the road's direction of travel.
+
+**One draw call for all of it.** Every plank, post, finial and board is
+merged into one mesh over one canvas atlas, 2048 × 512, with the board
+designs deduplicated. The first atlas was 2048 × 4096 for the same content.
+The farm view draws about 211 calls against a ceiling of 300.
+
+Two things the screenshots taught. Extruded geometry's UVs are not 0–1, so
+the solid-colour parts sample the centre of a swatch rather than trusting
+the extruder. And lit like everything else, white paint went the grey of
+the barn's shadow side; road-sign paint is retroreflective, so the atlas is
+also the material's emissive map at 0.22, which brings the white back and
+leaves the black lettering black.
+
+Signs are solid. A fingerpost's post has a 0.8 box; a board, which turns
+to face its road at whatever angle the road arrives at, has a row of small
+boxes along it, because an axis-aligned box round a turned board is mostly
+air.
+
+### Found, and left for later
+
+The cottage west of the town at (−30.4, −26.8) is outside the levelled
+ground, and the hollow under one corner leaves it up to 1.18 above the
+grass. It predates this step and is not on the way to anything Farm City
+needs; it is recorded here rather than fixed in passing.
+
 ---
 
 ## Verified, not assumed

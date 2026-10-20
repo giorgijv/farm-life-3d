@@ -43,6 +43,7 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
 import { loadModel, loadMeshes, preload, overrideKitColor, overrideKitFinish } from './assets.js';
 import { buildFarmer, FARMER_HEIGHT } from './farmer.js';
 import { buildBarn, BARN_WIDTH, BARN_DEPTH } from './barn.js';
+import { buildSigns } from './signs.js';
 import {
   buildStable, STABLE_WIDTH, STABLE_DEPTH,
   STABLE_INSIDE as STABLE_INSIDE_LOCAL,
@@ -1144,6 +1145,53 @@ function startScene(bridge) {
 
   const TRANSITION_WIDTH = 5; // how far beyond the flat rectangle the rise ramps in over
   const HILL_AMPLITUDE = 2.2;
+
+  /* The ground Farm City stands on, levelled the way the farm's is.
+
+     The city was built on the hills and never noticed. Every hand-placed
+     prop is set down at y = 0 whatever the terrain does underneath it —
+     dressFarm puts each one at (x, 0, z) — and out here the terrain rolls a
+     good two units either way. A plan view of the ground heights showed the
+     square's west side a unit above zero and its east side a unit and a half
+     below, with the house at the east edge of the square standing over a
+     hollow. Four suburban houses can get away with that from the road. A
+     high street of shopfronts cannot: a row of buildings on a slope shows
+     every one of them either buried or floating, and the eye reads the
+     line of their bases before it reads anything else about them.
+
+     So the town has a plateau of its own, level at zero like the farm, and
+     blended into the hills over the same TRANSITION_WIDTH. The edges are
+     set by what has to stand on it:
+       west   -14   the old city's westernmost house reaches -12.0
+       east    40   the east end of High Street, and room for the civic
+                    square that Step 3 builds there
+       south  -21   the old city's southern house reaches -21.9
+       north  -46   past the world's edge, so the town does not sit in a bowl
+                    with a rise behind it
+
+     The southern edge is the one that was chosen rather than forced. The
+     farm's own level ground stops at -15, and a town plateau that reached
+     down to meet it would have joined the two into one plain — the farm on
+     the outskirts of a town rather than a farm with a town nearby. At -21
+     the two transition bands meet in the middle of a six-unit seam, and the
+     seam is whatever the hill noise makes of it there. Measured: within a
+     few tenths of level across the farm's width (+0.42 at x -10, -0.40 at
+     x 20), falling away to -1.4 past the farm's east corner. It is a
+     shallow hollow more than a ridge, which is enough to say the town is
+     somewhere else without hiding it. */
+  const TOWN_LEVEL = { minX: -14, maxX: 40, minZ: -46, maxZ: -21 };
+
+  /* Every rectangle that is held level, as centre and half-extents. The
+     farm comes from the four numbers above it; the town from TOWN_LEVEL. */
+  const LEVEL_AREAS = [
+    { cx: FLAT_CENTER_X, cz: FLAT_CENTER_Z, hx: FLAT_HALF_X, hz: FLAT_HALF_Z },
+    {
+      cx: (TOWN_LEVEL.minX + TOWN_LEVEL.maxX) / 2,
+      cz: (TOWN_LEVEL.minZ + TOWN_LEVEL.maxZ) / 2,
+      hx: (TOWN_LEVEL.maxX - TOWN_LEVEL.minX) / 2,
+      hz: (TOWN_LEVEL.maxZ - TOWN_LEVEL.minZ) / 2,
+    },
+  ];
   const TERRAIN_HALF = 46; // comfortably past the fog below, so its own edge is never seen
   /* The last ground there is. Nothing that moves may go past it — not the
      car, and not her feet — because two units beyond this there is no mesh,
@@ -1234,9 +1282,16 @@ function startScene(bridge) {
   }
 
   function terrainHeight(x, z) {
-    const dx = Math.max(0, Math.abs(x - FLAT_CENTER_X) - FLAT_HALF_X);
-    const dz = Math.max(0, Math.abs(z - FLAT_CENTER_Z) - FLAT_HALF_Z);
-    const distOut = Math.hypot(dx, dz);
+    /* Distance out from the nearest level area. Taking the nearest rather
+       than blending the two is what keeps each plateau's edge exactly where
+       its rectangle says it is; where two transition bands overlap, the
+       lower of the two wins, which is the saddle between farm and town. */
+    let distOut = Infinity;
+    for (const a of LEVEL_AREAS) {
+      const dx = Math.max(0, Math.abs(x - a.cx) - a.hx);
+      const dz = Math.max(0, Math.abs(z - a.cz) - a.hz);
+      distOut = Math.min(distOut, Math.hypot(dx, dz));
+    }
     if (distOut <= 0) return 0;
     const t = THREE.MathUtils.smoothstep(distOut, 0, TRANSITION_WIDTH);
     const n = (terrainNoise(x, z) - 0.5) * 2; // recenter to roughly [-1, 1]
@@ -2217,15 +2272,43 @@ ${shader.fragmentShader.replace(
      radius does: how close the car has to get for the shops to open, and how
      far she may walk once she is out of it. Bigger than the market's ten
      because the place itself is bigger. */
-  /* A second street, crossing the first in the square. This is the one
-     thing that separates a town from four houses in a field, and it is
-     cheaper than any amount of extra masonry: buildings arranged around a
-     crossroads read as a place with a plan, and the same buildings with one
-     road running past them read as a hamlet. Built from the same ribbon
-     machinery as the roads out, so it is surfaced, marked and drivable
-     rather than painted on. */
-  const CITY_STREET_WAYPOINTS = [
-    [-2.0, -30.2], [2, -29.4], [5, -29.0], [7, -28.6],
+  /* High Street — Farm City's main street, and the first thing that turns
+     the four houses round a square into a town.
+
+     It used to be a nine-unit cross street that crossed the square and
+     stopped, which was the right size for a square and the wrong size for a
+     town. It now carries straight on east across the levelled ground to
+     where Step 3 puts the civic square, and the shops of Step 2 line it.
+
+     The western half keeps the old cross street's exact line, and that is a
+     constraint rather than nostalgia: the two stalls, the barrels and the
+     chest in the square were placed against it, and a street moved a unit
+     and a half north would have put its kerb against the stalls. East of
+     the square it runs level at -28.4, which is the one line across the
+     block that clears both the stalls to the north and the square's own
+     dressing to the south by the 2.5 the lane test holds every road to. */
+  /* It starts where the old street started, at x -2, and that is measured
+     rather than kept for old times' sake: begun a unit further west it
+     passed 1.99 from the house on that corner, against the 2.5 every lane
+     is held to. */
+  const HIGH_STREET_WAYPOINTS = [
+    [-2.0, -30.2], [2, -29.4], [7, -28.6], [14, -28.4], [22, -28.4],
+    [30, -28.4], [36.5, -28.6],
+  ];
+
+  /* A second road into town, and the reason the town has two ends.
+
+     The city road arrives at the old square from the south-west, which is
+     the town's back door now that High Street runs away from it. This one
+     forks off the city road a third of the way up the farm's east side,
+     dips through the shallow hollow between farm and town (0.57 below
+     level at its lowest, measured) and climbs onto the plateau to meet High
+     Street at its east end, where the town hall will stand. Two roads in
+     make the town a place you can drive through rather than into and back
+     out of, and they make the junction at the fork the one place on the
+     map where a sign has a real choice to offer. */
+  const TOWN_ROAD_WAYPOINTS = [
+    [16, -7], [19.5, -11.5], [23.5, -16.5], [26.5, -21.5], [28, -26.4], [28.4, -28.4],
   ];
 
   const CITY = { x: 2, z: -30 };
@@ -2301,7 +2384,8 @@ ${shader.fragmentShader.replace(
     makeRoute('house', HOUSE_WAYPOINTS),
     makeRoute('villa', VILLA_WAYPOINTS),
     makeRoute('city', CITY_WAYPOINTS),
-    makeRoute('city-street', CITY_STREET_WAYPOINTS),
+    makeRoute('high-street', HIGH_STREET_WAYPOINTS),
+    makeRoute('town-road', TOWN_ROAD_WAYPOINTS),
   ];
   // Kept under their old names: everything that means *the road to market*
   // specifically — how far along the errand is, where the ribbon starts and
@@ -2664,10 +2748,20 @@ ${shader.fragmentShader.replace(
 
        Nothing stands east of the square, because that is the sector the
        road arrives through. */
+    /* That last sentence stopped being true when High Street went east,
+       and the fourth house is the one that moved for it. It stood at
+       (14.5, -32), and its collision box — 9.7 by 10.3, about twice the
+       building you can see, because the kit's bounds include its plot —
+       straddled the line any eastward street would have to take. It is on
+       the north side of High Street now, as far back as the world's edge
+       allows: the box clears the kerb by half a unit and the edge by one
+       and a quarter, which is all the room that side of the street has. It
+       is still a house, and the shops of Step 2 may want its plot; that is
+       Step 2's call to make, with footprints measured, not this one's. */
     { id: 'city-suburban/building-type-b', x: -8.5, z: -27.5, ry: Math.PI / 2, h: 7.0, blocks: 'box' },
     { id: 'city-suburban/building-type-a', x: -6.5, z: -39.5, ry: 0, h: 6.2, blocks: 'box' },
     { id: 'city-suburban/building-type-b', x: 6.5, z: -41.5, ry: 0, h: 6.8, blocks: 'box' },
-    { id: 'city-suburban/building-type-a', x: 14.5, z: -32.0, ry: -Math.PI / 2, h: 6.6, blocks: 'box' },
+    { id: 'city-suburban/building-type-a', x: 17.5, z: -37.6, ry: -Math.PI / 2, h: 6.6, blocks: 'box' },
 
     /* The square: the tool shops, as stalls, because the kit has no
        shopfront and a stall with crates outside it reads as a trade counter
@@ -2685,7 +2779,9 @@ ${shader.fragmentShader.replace(
        not there. */
     { id: 'fantasy-town/stall-green', x: 1.0, z: -34.0, ry: 0.5, h: 2.7, blocks: 'box' },
     { id: 'fantasy-town/stall-green', x: 6.0, z: -33.8, ry: -1.2, h: 2.7, blocks: 'box' },
-    { id: 'survival/signpost', x: 10.5, z: -26.6, ry: -0.5, blocks: 'box' },
+    /* The square's plain signpost is gone: it stood 1.9 from High Street's
+       centre line, inside the carriageway, and a fingerpost now does the job
+       it was only ever pretending to — see signs.js. */
     { id: 'survival/barrel', x: -0.8, z: -33.0, ry: 0.4, blocks: 'box' },
     { id: 'survival/barrel', x: -0.2, z: -33.6, ry: -0.8, blocks: 'box' },
     { id: 'survival/barrel', x: 3.6, z: -34.6, ry: 1.1, blocks: 'box' },
@@ -2919,6 +3015,258 @@ ${shader.fragmentShader.replace(
   let carObject = null;
   let carParts = null;
   const dressed = dressFarm();
+
+  /* -------------------------------------------------------------- */
+  /* Road signs                                                        */
+  /* -------------------------------------------------------------- */
+
+  /* Where the roads go, by name — the places a sign can point at. Each is
+     the end of a route, because a sign's claim is "this road takes you
+     there", and the end of the road is where there is. The same table is
+     what the test searches the road network for, so a label and the place
+     it is tested against cannot drift apart. */
+  const routeById = (id) => ROUTES.find((r) => r.id === id);
+  const routeEnd = (id, end) => {
+    const r = routeById(id);
+    const q = end === 'start' ? r.samples[0] : r.samples[r.samples.length - 1];
+    return [q.x, q.z];
+  };
+  const SIGN_PLACES = {
+    farm: { label: 'Farm', at: routeEnd('market', 'start') },
+    market: { label: 'Market', at: routeEnd('market', 'end') },
+    house: { label: 'Country House', at: routeEnd('house', 'end') },
+    villa: { label: 'Villa', at: routeEnd('villa', 'end') },
+    city: { label: 'Farm City', at: routeEnd('city', 'end') },
+    square: { label: 'Town Square', at: routeEnd('city', 'end') },
+    high: { label: 'High Street', at: routeEnd('town-road', 'end') },
+  };
+
+  /* Every junction on the map, and what its arms say. An arm names a place
+     and the road it leaves by, and which way along that road — the
+     direction it actually points is worked out from the road itself below,
+     so nothing here is an angle somebody typed.
+
+     Some arms point the same way as each other, and that is the network,
+     not an accident: from the cottage turning, the market and Farm City are
+     both south, because the city road leaves the market road further down.
+     A fingerpost stacks those, which is what the real ones do. */
+  const JUNCTIONS = [
+    { id: 'house-turning', at: routeEnd('house', 'start'), arms: [
+      { to: 'farm', route: 'market', dir: -1 },
+      { to: 'house', route: 'house', dir: 1 },
+      { to: 'market', route: 'market', dir: 1 },
+      { to: 'city', route: 'market', dir: 1 },
+    ] },
+    { id: 'city-turning', at: routeEnd('city', 'start'), arms: [
+      { to: 'city', route: 'city', dir: 1 },
+      { to: 'farm', route: 'market', dir: -1 },
+      { to: 'market', route: 'market', dir: 1 },
+    ] },
+    { id: 'villa-turning', at: routeEnd('villa', 'start'), arms: [
+      { to: 'villa', route: 'villa', dir: 1 },
+      { to: 'market', route: 'market', dir: 1 },
+      { to: 'farm', route: 'market', dir: -1 },
+      { to: 'city', route: 'market', dir: -1 },
+    ] },
+    { id: 'town-fork', at: routeEnd('town-road', 'start'), arms: [
+      { to: 'square', route: 'city', dir: 1 },
+      { to: 'high', route: 'town-road', dir: 1 },
+      { to: 'farm', route: 'city', dir: -1 },
+      { to: 'market', route: 'city', dir: -1 },
+    ] },
+    { id: 'town-square', at: routeEnd('city', 'end'), arms: [
+      { to: 'high', route: 'high-street', dir: 1 },
+      { to: 'farm', route: 'city', dir: -1 },
+    ] },
+    /* The east end of High Street. No arm points further east yet: the
+       street runs on to where the town hall will stand, and a sign naming a
+       building that is not there would be the first thing a player
+       checked. Step 3 adds it. */
+    { id: 'high-street-east', at: routeEnd('town-road', 'end'), arms: [
+      { to: 'square', route: 'high-street', dir: -1 },
+      { to: 'farm', route: 'town-road', dir: -1 },
+    ] },
+  ];
+
+  /* The way a road leaves a junction: the nearest sample on it, and one
+     about two and a half units further along in the direction asked for.
+     Far enough that the bend of the junction itself does not decide it, near
+     enough that a lane curving away later does not either. */
+  function leaving(routeId, [jx, jz], dir) {
+    const r = routeById(routeId);
+    let at = 0;
+    let best = Infinity;
+    r.samples.forEach((q, i) => {
+      const d = (q.x - jx) ** 2 + (q.z - jz) ** 2;
+      if (d < best) { best = d; at = i; }
+    });
+    const step = Math.max(1, Math.round(2.5 / (r.curve.getLength() / ROAD_STEPS)));
+    const to = Math.max(0, Math.min(r.samples.length - 1, at + dir * step));
+    const dx = r.samples[to].x - r.samples[at].x;
+    const dz = r.samples[to].z - r.samples[at].z;
+    const len = Math.hypot(dx, dz) || 1;
+    return { dx: dx / len, dz: dz / len };
+  }
+
+  /* How far a sign's post stands from the middle of any road: half the
+     carriageway, the car's radius, the post's collision half-width, and a
+     margin. Derived the way TRUNK_ROAD_SETBACK is, and for the reason §40
+     recorded the hard way — a signpost is solid, and one placed by eye at
+     the roadside stood in the market carriageway. */
+  const SIGN_SETBACK = ROAD_WIDTH / 2 + CAR_RADIUS + 0.4 + 0.3;
+
+  function solidNear(x, z, margin) {
+    for (const b of SOLIDS.boxes) {
+      if (x > b.minX - margin && x < b.maxX + margin
+        && z > b.minZ - margin && z < b.maxZ + margin) return true;
+    }
+    for (const q of SOLIDS.posts) {
+      if (Math.hypot(x - q.x, z - q.z) < q.r + margin) return true;
+    }
+    return false;
+  }
+
+  /* A corner to stand a fingerpost on, found rather than chosen. Rings out
+     from the junction, first spot that is clear of every road by the
+     setback, clear of anything solid, out of the pond, off the farm itself
+     and on the map. The nearest such spot wins, so the sign stands at its
+     junction and not somewhere a little way off. Placing these by hand is
+     the method §40 recorded as the mistake: every one of nineteen nudged
+     props solved the test in front of it and caused the next. */
+  function signCorner([jx, jz], taken) {
+    for (let r = SIGN_SETBACK + 0.2; r <= 9; r += 0.25) {
+      for (let k = 0; k < 72; k += 1) {
+        const th = (k / 72) * Math.PI * 2;
+        const x = jx + Math.cos(th) * r;
+        const z = jz + Math.sin(th) * r;
+        if (nearestOnAnyRoad(x, z).distance < SIGN_SETBACK) continue;
+        if (Math.abs(x) > WORLD_EDGE - 1 || Math.abs(z) > WORLD_EDGE - 1) continue;
+        if (x > ROAM.minX - 0.5 && x < ROAM.maxX + 0.5 && z > ROAM.minZ - 0.5 && z < ROAM.maxZ + 0.5) continue;
+        if (inPondFootprint(x, z, 0.6)) continue;
+        if (solidNear(x, z, 1.0)) continue;
+        /* And clear of every tree by more than its trunk. The scatter keeps
+           its own trees off signs once the signs exist, but the hand-placed
+           ones were here first — the square's fingerpost was first put 2.9
+           from the tree on the corner, with the canopy over the arms. */
+        if (SOLIDS.posts.some((q) => Math.hypot(x - q.x, z - q.z) < 4.0)) continue;
+        if (taken.some(([tx, tz]) => Math.hypot(x - tx, z - tz) < 3)) continue;
+        return { x, z };
+      }
+    }
+    return null;
+  }
+
+  /* The two boards that say where you are. One on each road into town,
+     at the edge of the levelled ground, turned to face whoever is arriving
+     — the direction they drive is the road's own, since both routes are
+     drawn from the farm towards the town. Side of the road is found the
+     same way the fingerposts' corners are: the first that is clear. */
+  /* `near` is on the levelled ground, just inside its edge, which is where
+     a town begins. The first targets were a few units short of it, and the
+     search walked back towards the farm until it found a clear verge: the
+     city road's board ended up one unit outside the farm's own north fence,
+     welcoming the orchard to Farm City. */
+  /* The city road's board is the one that needed a second look. The road
+     swings hard west at the plateau's edge to come into the square, and
+     at that bend neither verge has room for a board facing down the road:
+     the inside of the curve is too near the carriageway and the outside
+     runs into High Street. So it stands on the straight just before the
+     bend, on the east side, which is open hillside — the side that faces
+     away from the orchard rather than into it. */
+  const WELCOME_ROADS = [
+    { id: 'welcome-city-road', route: 'city', near: [13.9, -18.6], sides: [-1, 1] },
+    { id: 'welcome-town-road', route: 'town-road', near: [26.7, -22.4], sides: [1, -1] },
+  ];
+  const BOARD_REACH = 1.9; // half the board's width, which faces across the road
+
+  function boardSpot({ route: id, near: [nx, nz], sides = [1, -1] }) {
+    const r = routeById(id);
+    let at = 0;
+    let best = Infinity;
+    r.samples.forEach((q, i) => {
+      const d = (q.x - nx) ** 2 + (q.z - nz) ** 2;
+      if (d < best) { best = d; at = i; }
+    });
+    /* Outward from the target in both directions at once — 0, -2, +2, -4,
+       +4 samples — so the board ends up as near the place asked for as the
+       ground allows, on whichever side of it the room happens to be. */
+    for (let n = 0; n < 60; n += 1) {
+      const shift = (n % 2 ? -1 : 1) * Math.ceil(n / 2) * 2;
+      const i = Math.max(1, Math.min(r.samples.length - 2, at + shift));
+      const q = r.samples[i];
+      let tx = r.samples[i + 1].x - r.samples[i - 1].x;
+      let tz = r.samples[i + 1].z - r.samples[i - 1].z;
+      const tl = Math.hypot(tx, tz) || 1;
+      tx /= tl; tz /= tl;
+      for (const side of sides) {
+        const off = SIGN_SETBACK + BOARD_REACH;
+        const x = q.x + q.nx * side * off;
+        const z = q.z + q.nz * side * off;
+        const yaw = Math.atan2(-tx, -tz);
+        // Both ends of the board, as well as its middle, have to be clear.
+        const ends = [-BOARD_REACH, 0, BOARD_REACH].map((lx) => [x + lx * Math.cos(yaw), z - lx * Math.sin(yaw)]);
+        if (ends.some(([ex, ez]) => nearestOnAnyRoad(ex, ez).distance < SIGN_SETBACK - 0.4)) continue;
+        if (ends.some(([ex, ez]) => solidNear(ex, ez, 1.0) || inPondFootprint(ex, ez, 0.6))) continue;
+        if (ends.some(([ex, ez]) => Math.abs(ex) > WORLD_EDGE - 1 || Math.abs(ez) > WORLD_EDGE - 1)) continue;
+        return { x, z, yaw };
+      }
+    }
+    return null;
+  }
+
+  let signReport = null;
+  /* Where a tree may not grow because a sign stands there. Not the sign's
+     collision box, which keeps a trunk's *centre* a third of a unit off the
+     post — enough to stop bark growing through it, nowhere near enough to
+     keep a canopy off arms that reach nearly three units out. The first
+     look at the fork found exactly that: a hillside tree a unit from the
+     post with the arms coming out of its leaves. These are circles round
+     each sign that the tree scatter respects; grass is left alone, because
+     grass round the foot of a signpost is what a signpost stands in. */
+  const SIGN_CLEARINGS = [];
+  const clearOfSigns = (x, z) => SIGN_CLEARINGS.every((c) => Math.hypot(x - c.x, z - c.z) > c.r);
+  /* Placed once the props have landed, because a corner is only clear if
+     the buildings standing on it are already in SOLIDS — and before the
+     foliage scatter, which chains on this rather than on `dressed`, so the
+     grass grows round the posts instead of through them. */
+  const signed = dressed.then(() => {
+    const taken = [];
+    const fingerposts = [];
+    for (const j of JUNCTIONS) {
+      const spot = signCorner(j.at, taken);
+      if (!spot) { console.warn(`farm: no clear corner for the ${j.id} sign`); continue; }
+      taken.push([spot.x, spot.z]);
+      fingerposts.push({
+        id: j.id, x: spot.x, z: spot.z, junction: j.at,
+        arms: j.arms.map((a) => ({ label: SIGN_PLACES[a.to].label, to: a.to, ...leaving(a.route, j.at, a.dir) })),
+      });
+    }
+    const boards = [];
+    for (const w of WELCOME_ROADS) {
+      const spot = boardSpot(w);
+      if (!spot) { console.warn(`farm: no clear verge for the ${w.id} board`); continue; }
+      boards.push({ id: w.id, ...spot, title: 'Farm City', motto: 'Please drive carefully' });
+    }
+    const built = buildSigns({
+      fingerposts, boards, groundAt: terrainHeight,
+      anisotropy: renderer.capabilities.getMaxAnisotropy(),
+    });
+    built.object.traverse((o) => { if (o.material) o.material.toneMapped = false; });
+    scene.add(casts(built.object));
+    SOLIDS.boxes.push(...built.solids);
+    /* A fingerpost's arms reach 2.9 from the post and a tree's canopy is
+       about 1.4 across from its trunk, so 4.5 keeps leaves off the arms. A
+       board is 3.8 wide and faces the road, so 3.6 round its middle. */
+    for (const f of fingerposts) SIGN_CLEARINGS.push({ x: f.x, z: f.z, r: 4.5 });
+    for (const b of boards) SIGN_CLEARINGS.push({ x: b.x, z: b.z, r: 3.6 });
+    signReport = {
+      ...built.report,
+      fingerposts: built.report.fingerposts.map((f, i) => ({
+        ...f, junction: fingerposts[i].junction,
+        arms: f.arms.map((a, k) => ({ ...a, to: fingerposts[i].arms[k].to })),
+      })),
+    };
+  });
 
   /* -------------------------------------------------------------- */
   /* The villa's fountain                                              */
@@ -3544,7 +3892,7 @@ ${shader.fragmentShader.replace(
      spoils a screenshot, the other is a tree the car drives into. */
   const onHillside = (x, z) =>
     Math.abs(terrainHeight(x, z)) > 0.15 && !inFarmClearing(x, z)
-    && clearOfCamera(x, z) && trunkOffRoad(x, z);
+    && clearOfCamera(x, z) && trunkOffRoad(x, z) && clearOfSigns(x, z);
 
   /* The corridor the road runs through, which is everything the drive is
      seen against. Wider than the road by a good margin on both sides, and
@@ -3566,7 +3914,8 @@ ${shader.fragmentShader.replace(
   const notAtMarket = (x, z) => Math.hypot(x - MARKET.x, z - MARKET.z) > MARKET_RADIUS;
   const byTheRoad = (x, z) => {
     const d = nearRoute(x, z);
-    return d > TREE_SETBACK && d < 26 && !inFarmClearing(x, z) && notAtMarket(x, z);
+    return d > TREE_SETBACK && d < 26 && !inFarmClearing(x, z) && notAtMarket(x, z)
+      && clearOfSigns(x, z);
   };
   // Low things may come closer — a bush at the verge is scenery, not a wall.
   const byTheVerge = (x, z) => {
@@ -3608,7 +3957,7 @@ ${shader.fragmentShader.replace(
      would have thinned the grass to two-fifths of what step 7 tuned by eye;
      these are the old numbers scaled by the new area, which keeps the farm
      looking as planted as it did. */
-  const foliageReady = dressed.then(() => Promise.all([
+  const foliageReady = signed.then(() => Promise.all([
     scatterInstanced('nature/grass', 540, {
       heightRange: [0.22, 0.34], seed: 1, bounds: FARM_BOUNDS, accept: onFarmGround,
       shadowing: catches, tintSpread: 0.22,
@@ -5027,9 +5376,27 @@ ${lit}`;
      reason, even though there is nothing to do at either: she is meant to
      be able to walk round the outside and look at it. Being teleported home
      the moment her feet touch the gravel would be the whole feature, undone. */
+  /* Farm City is the one place that is not a circle, and it is checked
+     first. It used to be — CITY_RADIUS round the square — and a circle was
+     the right shape for a square. It is the wrong one for a town laid along
+     a street: the old circle stops thirteen units from the square, which is
+     halfway along High Street, so a player who parked at the east end and
+     got out would have been walking inside a circle centred somewhere they
+     could not see.
+
+     The walkable town is the levelled ground itself, held half a unit in
+     from its edges for the same float reason the circles are. The shop is a
+     separate question and still asks CITY_RADIUS: where the tool merchants
+     are is the square, until Step 2 gives them a shopfront on High Street. */
+  const TOWN_WALK = {
+    minX: TOWN_LEVEL.minX + 0.5, maxX: TOWN_LEVEL.maxX - 0.5,
+    minZ: TOWN_LEVEL.minZ + 0.5, maxZ: TOWN_LEVEL.maxZ - 0.5,
+  };
+  const inTownWalk = (x, z) => x >= TOWN_WALK.minX && x <= TOWN_WALK.maxX
+    && z >= TOWN_WALK.minZ && z <= TOWN_WALK.maxZ;
+
   const AWAY = [
     { x: MARKET.x, z: MARKET.z, radius: MARKET_RADIUS },
-    { x: CITY.x, z: CITY.z, radius: CITY_RADIUS },
     { x: DREAM_SITES.house.x, z: DREAM_SITES.house.z, radius: DREAM_SITES.house.radius },
     { x: DREAM_SITES.villa.x, z: DREAM_SITES.villa.z, radius: DREAM_SITES.villa.radius },
   ];
@@ -5042,6 +5409,11 @@ ${lit}`;
   /* Which region she is held inside — the farm, one of the places at the
      end of a road, or a circle round a car parked somewhere else. */
   function clampToRegion(fromX, fromZ, x, z, out) {
+    if (inTownWalk(fromX, fromZ)) {
+      out.x = Math.max(TOWN_WALK.minX, Math.min(TOWN_WALK.maxX, x));
+      out.z = Math.max(TOWN_WALK.minZ, Math.min(TOWN_WALK.maxZ, z));
+      return;
+    }
     for (const place of AWAY) {
       if (Math.hypot(fromX - place.x, fromZ - place.z) > place.radius) continue;
       /* Half a unit inside the radius the place is tested at rather than on
@@ -6222,6 +6594,9 @@ ${lit}`;
        shop. */
     atCity: () => cityOpen,
     city: () => ({ x: CITY.x, z: CITY.z, radius: CITY_RADIUS }),
+    /* Farm City's levelled ground, which is where the town is now — the
+       circle above is still the square, and still where the tool shop is. */
+    town: () => ({ ...TOWN_LEVEL }),
     /* What the tractor is actually doing to her, in the units the walk
        uses. A card that says 15% faster and a farmer who walks at the same
        speed is the failure this catches. */
@@ -6469,7 +6844,16 @@ ${lit}`;
       boxes: SOLIDS.boxes.map((b) => ({ ...b })),
       posts: SOLIDS.posts.map((p) => ({ ...p })),
     }),
-    solidsReady: () => dressed.then(() => SOLIDS.boxes.length + SOLIDS.posts.length),
+    solidsReady: () => signed.then(() => SOLIDS.boxes.length + SOLIDS.posts.length),
+    /* The signs, as what they claim: every arm's label, where it is meant
+       to lead and which way it actually points; every board and which way
+       its lettering faces; and how big the lettering came out. A
+       screenshot can say a sign looks right. These say it is right. */
+    signs: () => signed.then(() => signReport && JSON.parse(JSON.stringify(signReport))),
+    signPlaces: () => Object.fromEntries(Object.entries(SIGN_PLACES).map(([k, v]) => [k, { ...v }])),
+    /* Every road at full resolution, for a test that wants to search the
+       network rather than trust any one route's idea of where it goes. */
+    roadNetwork: () => ROUTES.map((r) => ({ id: r.id, pts: r.samples.map((q) => [q.x, q.z]) })),
     /* Where every hand-placed prop was asked to stand. The farm just grew
        around these numbers and several of them moved; a test that walks the
        list can hold what no single assertion can — that nothing ended up in
@@ -6507,6 +6891,10 @@ ${lit}`;
     farmerHeight: () => (body
       ? new THREE.Box3().setFromObject(body.object).getSize(new THREE.Vector3()).y
       : null),
+    /* The ground's own height at a point — the function the terrain mesh,
+       the roads and the car all read, so a test can ask whether a place is
+       level without having to trust a screenshot's eye for slope. */
+    groundAt: (x, z) => terrainHeight(x, z),
     blocked: (x, z) => {
       const out = { x: 0, z: 0 };
       keepOutOfSolids(x, z, out);
@@ -6517,6 +6905,16 @@ ${lit}`;
        the car's stops it dead, and the two use different radii. A test that
        asks whether a tree stops the car has to ask the car. */
     carBlockedAt: (x, z) => carBlocked(x, z),
+    /* Where one step on foot from (fromX, fromZ) towards (x, z) is allowed
+       to land, by the region rule alone — before any solid gets a say. The
+       town's walk region is a rectangle laid along a street, and the way to
+       know a player can walk the length of it is to ask the rule that holds
+       her, not to time a stroll on a three-frame-a-second rasteriser. */
+    walkClamp: (fromX, fromZ, x, z) => {
+      const out = { x: 0, z: 0 };
+      clampToWalkable(fromX, fromZ, x, z, out);
+      return out;
+    },
     /* How the scene is actually lit, which is the honest question to ask of
        a graphics pass. `shadows` says whether this machine earned a shadow
        map at all — false on every software rasteriser, which is what CI

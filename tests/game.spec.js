@@ -5132,7 +5132,13 @@ test.describe('the size of the place', () => {
           sites.house,
           sites.villa,
         ];
-        const somewhere = places.some(
+        /* And Farm City, which outgrew the circle round its square: it is
+           the levelled rectangle now, and a house on High Street is in
+           town however far it stands from the square. */
+        const town = s.town();
+        const inTown = p.x >= town.minX && p.x <= town.maxX
+          && p.z >= town.minZ && p.z <= town.maxZ;
+        const somewhere = inTown || places.some(
           (q) => Math.hypot(p.x - q.x, p.z - q.z) <= q.radius,
         );
         if (!onFarm && !somewhere) adrift.push(`${p.id} at (${p.x}, ${p.z})`);
@@ -6672,7 +6678,7 @@ test.describe('the tool merchants are in the city', () => {
     return s.car();
   });
 
-  test('the city road runs there, and the square has a street of its own',
+  test('the city road runs there, and High Street runs east out of the square',
     async ({ page }) => {
       await load(page, makeSave());
       await ready(page);
@@ -6704,11 +6710,19 @@ test.describe('the tool merchants are in the city', () => {
       const toCity = marketRoad.length * junction + lane.length;
       expect(toCity).toBeGreaterThan(marketRoad.length);
 
-      // The cross street is inside the square, not a road to anywhere.
-      const street = roads.find((r) => r.id === 'city-street');
-      for (const end of [street.start, street.end]) {
-        expect(Math.hypot(end.x - city.x, end.z - city.z)).toBeLessThan(city.radius);
-      }
+      /* High Street replaced the square's old cross street, which went
+         nowhere by design. This one goes somewhere: it starts in the square
+         and runs east the length of the town, and all of it is on the
+         levelled ground rather than riding over the hills. */
+      const street = roads.find((r) => r.id === 'high-street');
+      expect(Math.hypot(street.start.x - city.x, street.start.z - city.z))
+        .toBeLessThan(city.radius);
+      expect(street.end.x - city.x).toBeGreaterThan(30);
+      const heights = await page.evaluate(
+        (pts) => pts.map(([x, z]) => window.Farm3DScene.groundAt(x, z)),
+        street.points,
+      );
+      for (const h of heights) expect(Math.abs(h)).toBeLessThan(1e-6);
       // And the city is somewhere else entirely from the market.
       expect(Math.hypot(city.x - market.x, city.z - market.z))
         .toBeGreaterThan(city.radius + market.radius);
@@ -6900,11 +6914,12 @@ test.describe('the two properties at the ends of the lanes', () => {
       await ready(page);
 
       const roads = await page.evaluate(() => window.Farm3DScene.roads());
-      /* Five ribbons: the market road, three lanes branching off it, and
-         the city's own cross street, which goes nowhere by design — it is a
-         street inside a town rather than a road to one. */
+      /* Six ribbons: the market road, three lanes branching off it, and
+         Farm City's two — High Street, and the town road that forks off the
+         city road and arrives at High Street's east end. The two in town are
+         tested with the signs, below. */
       expect(roads.map((r) => r.id).sort())
-        .toEqual(['city', 'city-street', 'house', 'market', 'villa']);
+        .toEqual(['city', 'high-street', 'house', 'market', 'town-road', 'villa']);
 
       const market = roads.find((r) => r.id === 'market');
       const sites = await page.evaluate(() => window.Farm3DScene.dreamSites());
@@ -7726,6 +7741,261 @@ test.describe('moving her is comfortable', () => {
     // Sampling that caught nothing would pass the loop above vacuously.
     expect(swung.frames.length).toBeGreaterThan(0);
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* Farm City: the ground, the roads and the signs                      */
+/* ------------------------------------------------------------------ */
+
+test.describe('Farm City: the ground, the roads and the signs', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+    await page.evaluate(() => window.Farm3DScene.signs());
+  };
+  // The levelled rectangle scene.js holds the town on, as TOWN_LEVEL.
+  const TOWN = { minX: -14, maxX: 40, minZ: -46, maxZ: -21 };
+
+  test('the town stands on level ground, and its roads join up into a loop',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+
+      const { bumps, roads } = await page.evaluate((T) => {
+        const s = window.Farm3DScene;
+        const bumps = [];
+        for (let x = T.minX; x <= T.maxX; x += 1) {
+          for (let z = T.minZ; z <= T.maxZ; z += 1) {
+            const h = s.groundAt(x, z);
+            if (Math.abs(h) > 1e-6) bumps.push([x, z, h]);
+          }
+        }
+        return { bumps, roads: s.roadNetwork() };
+      }, TOWN);
+      /* A town on the hills has its shopfronts standing on air at one end
+         and buried at the other. Every point of the plateau, not a sample
+         of it, because a hollow is small. */
+      expect(bumps).toEqual([]);
+
+      const byId = Object.fromEntries(roads.map((r) => [r.id, r.pts]));
+      const near = (pts, [x, z]) => Math.min(...pts.map(([px, pz]) => Math.hypot(px - x, pz - z)));
+      const first = (id) => byId[id][0];
+      const last = (id) => byId[id][byId[id].length - 1];
+      /* The loop: up the city road to the square, along High Street, and
+         back down the town road to where it left the city road. Each of the
+         three joins is a road ending on another one, not near it. */
+      expect(near(byId['high-street'], last('city'))).toBeLessThan(1);
+      expect(near(byId.city, first('town-road'))).toBeLessThan(1);
+      expect(near(byId['high-street'], last('town-road'))).toBeLessThan(1);
+      // And the town road is its own road, not the city road drawn twice.
+      expect(near(byId.city, last('town-road'))).toBeGreaterThan(10);
+    });
+
+  test('every arm on every fingerpost points the way the road actually goes',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+
+      /* Not "points roughly at the place": a fingerpost points down the
+         road you take, and the road you take is a question for the road
+         network, not for a ruler. So this searches it. Every sample of every
+         road is a node, joined to its neighbours along the road and to any
+         sample on another road within a unit, which is what a junction is.
+         The shortest way from the junction to the place named leaves in
+         some direction; the arm has to point within 20 degrees of it. */
+      const result = await page.evaluate(async () => {
+        const s = window.Farm3DScene;
+        const report = await s.signs();
+        const places = s.signPlaces();
+        const nodes = [];
+        const adj = [];
+        for (const r of s.roadNetwork()) {
+          r.pts.forEach(([x, z], i) => {
+            const id = nodes.length;
+            nodes.push([x, z]);
+            adj.push([]);
+            if (i > 0) {
+              const d = Math.hypot(x - nodes[id - 1][0], z - nodes[id - 1][1]);
+              adj[id].push([id - 1, d]);
+              adj[id - 1].push([id, d]);
+            }
+          });
+        }
+        for (let a = 0; a < nodes.length; a += 1) {
+          for (let b = a + 1; b < nodes.length; b += 1) {
+            const d = Math.hypot(nodes[a][0] - nodes[b][0], nodes[a][1] - nodes[b][1]);
+            if (d < 1) { adj[a].push([b, d]); adj[b].push([a, d]); }
+          }
+        }
+        const nearest = ([x, z]) => {
+          let best = 0;
+          let bd = Infinity;
+          nodes.forEach(([nx, nz], i) => {
+            const d = Math.hypot(nx - x, nz - z);
+            if (d < bd) { bd = d; best = i; }
+          });
+          return best;
+        };
+        // Dijkstra outward from a place, so `prev` walks any node home to it.
+        const towards = (goal) => {
+          const dist = new Array(nodes.length).fill(Infinity);
+          const prev = new Array(nodes.length).fill(-1);
+          const done = new Array(nodes.length).fill(false);
+          dist[goal] = 0;
+          for (;;) {
+            let u = -1;
+            for (let i = 0; i < nodes.length; i += 1) {
+              if (!done[i] && dist[i] < Infinity && (u < 0 || dist[i] < dist[u])) u = i;
+            }
+            if (u < 0) break;
+            done[u] = true;
+            for (const [v, w] of adj[u]) {
+              if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; prev[v] = u; }
+            }
+          }
+          return { dist, prev };
+        };
+        const trees = {};
+        const out = [];
+        let unreachable = 0;
+        for (const f of report.fingerposts) {
+          for (const arm of f.arms) {
+            const goal = nearest(places[arm.to].at);
+            trees[goal] ??= towards(goal);
+            const { dist, prev } = trees[goal];
+            const from = nearest(f.junction);
+            if (dist[from] === Infinity) { unreachable += 1; continue; }
+            // Walk the path two and a half units out from the junction.
+            let at = from;
+            let gone = 0;
+            while (prev[at] >= 0 && gone < 2.5) {
+              const nx = prev[at];
+              gone += Math.hypot(nodes[nx][0] - nodes[at][0], nodes[nx][1] - nodes[at][1]);
+              at = nx;
+            }
+            const wx = nodes[at][0] - nodes[from][0];
+            const wz = nodes[at][1] - nodes[from][1];
+            const wl = Math.hypot(wx, wz) || 1;
+            const cos = (wx * arm.dx + wz * arm.dz) / wl;
+            out.push({
+              sign: f.id, label: arm.label,
+              off: Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI,
+            });
+          }
+        }
+        return { arms: out, unreachable, posts: report.fingerposts.length };
+      });
+
+      // Six junctions, and none of them was given up on for want of a corner.
+      expect(result.posts).toBe(6);
+      expect(result.unreachable).toBe(0);
+      expect(result.arms.length).toBeGreaterThanOrEqual(18);
+      for (const a of result.arms) {
+        expect(a.off, `${a.sign}: "${a.label}" is ${a.off.toFixed(1)} degrees off its road`)
+          .toBeLessThan(20);
+      }
+    });
+
+  test('the signs stand clear of the roads and the trees, and can be read',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+
+      const r = await page.evaluate(async () => {
+        const s = window.Farm3DScene;
+        const report = await s.signs();
+        const network = s.roadNetwork();
+        const { posts } = s.solids();
+        const roadGap = (x, z) => Math.min(...network.flatMap((n) => n.pts.map(
+          ([px, pz]) => Math.hypot(px - x, pz - z))));
+        const treeGap = (x, z) => Math.min(...posts.map((p) => Math.hypot(p.x - x, p.z - z)));
+        // And the car's own answer, on every sample of every road.
+        let carStopped = 0;
+        for (const n of network) for (const [x, z] of n.pts) if (s.carBlockedAt(x, z)) carStopped += 1;
+        const routeAt = (id, x, z) => {
+          const pts = network.find((n) => n.id === id).pts;
+          let i = 0;
+          let bd = Infinity;
+          pts.forEach(([px, pz], k) => {
+            const d = Math.hypot(px - x, pz - z);
+            if (d < bd) { bd = d; i = k; }
+          });
+          const a = pts[Math.max(0, i - 2)];
+          const b = pts[Math.min(pts.length - 1, i + 2)];
+          const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          return [(b[0] - a[0]) / l, (b[1] - a[1]) / l];
+        };
+        const BOARD_ROUTE = { 'welcome-city-road': 'city', 'welcome-town-road': 'town-road' };
+        return {
+          carStopped,
+          fingerposts: report.fingerposts.map((f) => ({
+            id: f.id, road: roadGap(f.x, f.z), tree: treeGap(f.x, f.z),
+            caps: f.arms.map((a) => a.capHeight),
+          })),
+          boards: report.boards.map((b) => {
+            const [tx, tz] = routeAt(BOARD_ROUTE[b.id], b.x, b.z);
+            return {
+              id: b.id, title: b.title, road: roadGap(b.x, b.z), tree: treeGap(b.x, b.z),
+              // The face against the direction of travel: -1 is head on.
+              facing: b.faceX * tx + b.faceZ * tz,
+            };
+          }),
+        };
+      });
+
+      /* A sign is solid, and the first one placed by eye stood in the
+         carriageway. Half the road, the car, and the post's own box. */
+      expect(r.carStopped).toBe(0);
+      for (const f of r.fingerposts) {
+        expect(f.road, `${f.id} stands ${f.road.toFixed(2)} from a road`).toBeGreaterThan(2.2 + 1.1 + 0.4);
+        // A canopy is about 1.4 across from its trunk and the arms reach 2.9.
+        expect(f.tree, `${f.id} has a tree ${f.tree.toFixed(2)} away`).toBeGreaterThan(4.0);
+      }
+      /* One size of lettering on every arm on the map — a sign whose words
+         shrink to fit reads as a mistake — and big enough to read from the
+         driving seat: a fifth of a unit of cap height. */
+      const caps = r.fingerposts.flatMap((f) => f.caps);
+      expect(Math.max(...caps) - Math.min(...caps)).toBeLessThan(1e-9);
+      expect(caps[0]).toBeGreaterThanOrEqual(0.2);
+
+      expect(r.boards.map((b) => b.id).sort()).toEqual(['welcome-city-road', 'welcome-town-road']);
+      for (const b of r.boards) {
+        expect(b.title).toBe('Farm City');
+        // Facing whoever is driving in, within about 26 degrees of head on.
+        expect(b.facing, `${b.id} faces ${b.facing.toFixed(2)} along the road`).toBeLessThan(-0.9);
+        expect(b.road).toBeGreaterThan(2.2 + 1.1);
+        expect(b.tree).toBeGreaterThan(3.6);
+      }
+    });
+
+  test('she can walk the length of High Street once she is in town',
+    async ({ page }) => {
+      await load(page, makeSave());
+      await ready(page);
+
+      /* The town used to be a circle round the square, which stopped
+         thirteen units out — halfway down a street that is now forty long.
+         Stepping along High Street from end to end, every step has to land
+         where it was aimed. */
+      const stuck = await page.evaluate(() => {
+        const s = window.Farm3DScene;
+        const street = s.roadNetwork().find((r) => r.id === 'high-street').pts;
+        const out = [];
+        for (let i = 1; i < street.length; i += 1) {
+          const [fx, fz] = street[i - 1];
+          const [x, z] = street[i];
+          const to = s.walkClamp(fx, fz, x, z);
+          if (Math.hypot(to.x - x, to.z - z) > 1e-6) out.push([x, z, to.x, to.z]);
+        }
+        return { out, length: street.length };
+      });
+      expect(stuck.length).toBeGreaterThan(20);
+      expect(stuck.out).toEqual([]);
+
+      // And the town still has an edge: a step off its north side is held.
+      const held = await page.evaluate(() => window.Farm3DScene.walkClamp(20, -45, 20, -47));
+      expect(held.z).toBeGreaterThan(-46);
+    });
 });
 
 /* ------------------------------------------------------------------ */
