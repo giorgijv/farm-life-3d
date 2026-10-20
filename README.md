@@ -134,8 +134,15 @@ and a Pharmacy across the road. Each has its name signwritten over a
 painted shopfront, a striped awning, a hanging sign with a picture of its
 trade, and lit windows with the goods drawn inside. They are seen from
 outside, not entered. **Hardware & Feed is where the tools are sold** —
-drive up and stop outside it. A police station and a city hall come in a
-later step. The two shops are deliberately not the same shop:
+drive up and stop outside it.
+
+High Street ends at the **City Hall**: a stone building on a podium, six
+columns under a pediment with the town's wheat-sheaf in it, and a clock
+tower whose hands show the farm's own time of day. Across the street is the
+civic square, with a fountain, benches, flower beds and the town's flag.
+On the old square's north-west corner is the red-brick **Police Station**,
+with its blue lamp over the door and two police cars on its forecourt. The
+two shops are deliberately not the same shop:
 
 - **The market village**, south, trades farming goods. It buys your harvest
   and it sells the barns you keep it in.
@@ -416,6 +423,8 @@ offline once loaded.
   atlas and merged into a single mesh
 - `highstreet.js` — Farm City's shopfronts, awnings, hanging signs and café
   terraces, built the same way: one atlas, one mesh
+- `civic.js` — the City Hall with its working clock, the Police Station, and
+  the civic square, in three materials: tiled stone, tiled brick, one atlas
 - `assets.js` — loads the 3D models, and normalises them to a world scale
 - `assets/` — the models themselves (CC0, from Kenney), and a manifest the
   service worker precaches from
@@ -491,7 +500,13 @@ unit tall, that every shopfront faces High Street across a pavement, that
 every shop stands on level ground and none of them can be walked into, that
 the north pavement stays passable past every table and that nothing she
 walks under is lower than her head, that the tools are sold at Hardware &
-Feed and not in the square, that she can drive the whole way out to each
+Feed and not in the square, that the City Hall and the Police Station stand
+on level ground and cannot be walked into, that the City Hall's clock hands
+show the farm's time, that it closes the east end of High Street and faces
+its square and is the tallest thing in town, that the Police Station faces
+the old square with its lamp over the door and both cars on its forecourt,
+and that the civic square is level with a solid fountain she can walk all
+the way round, that she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

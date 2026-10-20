@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Playwright tests (shard ${{ matrix.shard }}/3)
+    name: Playwright tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     strategy:
       # Every shard reports. A failure in one says nothing about the other
@@ -16,7 +16,7 @@ jobs:
       # the lot to find out whether the break was local to one shard.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     # Ten was the budget when this was a 2D farm with a small canvas behind
     # it. The suite has grown from 232 tests to 295 and every one of them now
     # boots a scene with terrain, an atmospheric sky, a rigged character and
@@ -49,6 +49,10 @@ jobs:
     #
     # If a shard ever climbs toward twenty, add a fourth rather than raising
     # this — the sharding is the lever now.
+    #
+    # It did: Farm City's High Street added a few minutes of tests, and the
+    # third shard, which carries the long drives, reached twenty and was
+    # cancelled with the other two green at twelve. So there are four.
     timeout-minutes: 20
 
     steps:
@@ -65,7 +69,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run tests
-        run: npm test -- --shard=${{ matrix.shard }}/3
+        run: npm test -- --shard=${{ matrix.shard }}/4
 
       - name: Upload report on failure
         if: failure()

@@ -6490,44 +6490,6 @@ test.describe('the edges of the world, and the car left in it', () => {
     return s.car();
   }, [tx, tz, ms]);
 
-  /* Follows a chain of roads, each one a branch off the one before, and
-     stops at the end of the last. The latch is the one driveToCity uses,
-     for the same frame-rate reason. */
-  const driveRoutes = (page, ids, ms) => page.evaluate(async ([chain, cap]) => {
-    const s = window.Farm3DScene;
-    if (!s.atWheel()) s.board();
-    const started = performance.now();
-    let leg = 0;
-    await new Promise((resolve) => {
-      const tick = () => {
-        const c = s.car();
-        const last = chain[chain.length - 1];
-        if ((leg === chain.length - 1 && s.onRoute(last, c.x, c.z).along > 0.985)
-          || performance.now() - started > cap) { s.drive(0, 0); resolve(); return; }
-        if (leg < chain.length - 1 && s.onRoute(chain[leg + 1], c.x, c.z).distance < 8) leg += 1;
-        const id = chain[leg];
-        const here = s.onRoute(id, c.x, c.z);
-        const near = s.routePointAt(id, Math.min(1, here.along + 0.03));
-        const far = s.routePointAt(id, Math.min(1, here.along + 0.09));
-        const wrap = (a) => {
-          let v = a;
-          while (v > Math.PI) v -= Math.PI * 2;
-          while (v < -Math.PI) v += Math.PI * 2;
-          return v;
-        };
-        const err = wrap(Math.atan2(near.x - c.x, near.z - c.z) - c.heading);
-        const bend = Math.abs(wrap(Math.atan2(far.x - c.x, far.z - c.z) - c.heading));
-        const pace = bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1);
-        s.drive(Math.max(-1, Math.min(1, -err * 2.4)), c.speed > pace * 12 ? 0.35 : -1);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-    // Let it roll to a stop, so the line below is cast from where it is.
-    await new Promise((r) => setTimeout(r, 1500));
-    return s.car();
-  }, [ids, ms]);
-
   test('the car cannot be driven off the edge of the world', async ({ page }) => {
     test.slow();
     await load(page, makeSave());
@@ -6575,17 +6537,24 @@ test.describe('the edges of the world, and the car left in it', () => {
       .toEqual([false, false, false]);
 
     /* Where to drive at it from is found, not remembered. The first
-       version of this aimed south-east out of the pull-in down the one
-       heading a ray cast had found clear; the Farm City signs put a
-       fingerpost six units along that line, and the car stopped against it
-       on CI and not locally, because the turn out of the pull-in is a
-       different arc at a different frame rate. So it drives by road to the
-       end of the town road, where the street faces open ground, and casts
-       the rays from wherever the car actually stopped. The widest clear fan
-       within a right angle of the way it is facing is the one it takes, and
-       because it is already facing into that fan, there is no turn to
-       drift on. */
-    const parked = await driveRoutes(page, ['market', 'city', 'town-road'], 60_000);
+       version aimed south-east out of the pull-in down the one heading a
+       ray cast had found clear; the Farm City signs put a fingerpost on that
+       line. The second drove to the end of the town road and cast rays from
+       there; the City Hall and its square then closed every line from it,
+       as §41 of the art bible said they would. No road end in the game faces
+       open ground to the edge any more — the map is full, which is the town
+       working — so the car is put at the end of High Street facing east,
+       which is the line §43 left open past the City Hall's steps, and the
+       rays are cast from there. The widest clear fan within a right angle of
+       that heading is the one it takes. It still has to drive there and stop
+       against the edge, which is the rule this is about. */
+    await page.evaluate(() => window.Farm3DScene.board());
+    const street = await page.evaluate(() => window.Farm3DScene.roadNetwork()
+      .find((r) => r.id === 'high-street').pts);
+    const [ex, ez] = street[street.length - 1];
+    expect(await page.evaluate(([x, z]) => window.Farm3DScene.putCarAt(x, z, Math.PI / 2), [ex, ez]))
+      .toBe(true);
+    const parked = await page.evaluate(() => window.Farm3DScene.car());
     const fan = await page.evaluate(([c, e]) => {
       const s = window.Farm3DScene;
       const reaches = (deg) => {
@@ -6608,7 +6577,7 @@ test.describe('the edges of the world, and the car left in it', () => {
       }
       return { width: best.width, heading: h + best.from + best.width / 2 };
     }, [parked, edge]);
-    expect(fan.width, 'some line from the end of the town road still reaches the edge')
+    expect(fan.width, 'some line from the end of High Street still reaches the edge')
       .toBeGreaterThanOrEqual(10);
 
     const th = fan.heading * Math.PI / 180;
@@ -8290,6 +8259,166 @@ test.describe('Farm City: the High Street', () => {
        counter that still opened in the square would be the old shop with a
        new sign on it. */
     expect(Math.hypot(r.shop.x - r.city.x, r.shop.z - r.city.z)).toBeGreaterThan(r.shop.radius * 2);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Farm City: the City Hall, the Police Station and the civic square   */
+/* ------------------------------------------------------------------ */
+
+test.describe('Farm City: the City Hall and the Police Station', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const civic = (page) => page.evaluate(() => window.Farm3DScene.civic());
+
+  test('both stand on level ground, and neither can be walked into', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const c = await s.civic();
+      const boxes = s.solids().boxes.filter((b) => b.id === 'city-hall' || b.id === 'police-station');
+      const uneven = [];
+      for (const b of boxes) {
+        for (let x = b.minX; x <= b.maxX + 1e-6; x += (b.maxX - b.minX) / 6) {
+          for (let z = b.minZ; z <= b.maxZ + 1e-6; z += (b.maxZ - b.minZ) / 6) {
+            const h = s.groundAt(x, z);
+            if (Math.abs(h) > 1e-6) uneven.push(`${b.id} at (${x.toFixed(1)}, ${z.toFixed(1)}): ${h.toFixed(2)}`);
+          }
+        }
+      }
+      const hall = c.hall;
+      const pol = c.police;
+      return {
+        ids: [...new Set(boxes.map((b) => b.id))].sort(),
+        uneven,
+        // Behind each front door is solid...
+        hallInside: s.blocked(hall.door.x - hall.faceX * 0.6, hall.door.z - hall.faceZ * 0.6),
+        policeInside: s.blocked(pol.door.x - pol.faceX * 0.6, pol.door.z - pol.faceZ * 0.6),
+        // ...and in front of the City Hall's steps, and of the station's, is not.
+        hallOutside: s.blocked(hall.x, hall.steps.maxZ + 0.7),
+        policeOutside: s.blocked(pol.door.x + pol.faceX * 2.0, pol.door.z + pol.faceZ * 2.0),
+      };
+    });
+    expect(r.ids).toEqual(['city-hall', 'police-station']);
+    expect(r.uneven).toEqual([]);
+    expect(r.hallInside).toBe(true);
+    expect(r.policeInside).toBe(true);
+    expect(r.hallOutside).toBe(false);
+    expect(r.policeOutside).toBe(false);
+  });
+
+  test("the City Hall's clock keeps the farm's own time", async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    /* The day is ninety seconds and its phase is nought at noon, so a
+       quarter of the way round is six in the evening and five-eighths is
+       three in the morning. Set the farm's clock, let a frame draw, and read
+       the hands off the meshes. */
+    for (const [phase, want] of [[0.25, 18], [0.625, 3]]) {
+      const { shown, now } = await page.evaluate(async (p) => {
+        state.dayElapsedMs = p * 90_000;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const ph = window.Farm3DBridge.daySkyState().phase;
+        return { shown: window.Farm3DScene.civicClock(), now: (12 + ph * 24) % 24 };
+      }, phase);
+      expect(shown.dials).toBe(2);
+      /* The farm's day keeps going while the frames draw — on a software
+         rasteriser that is a good half-hour of farm time — so the hands are
+         held to the farm's clock as it reads now, and to the hour that was
+         set only to within that. */
+      expect(Math.abs(shown.hours - now)).toBeLessThan(0.2);
+      expect(Math.abs(shown.hours - want)).toBeLessThan(1);
+      const hourHand = ((shown.hours % 12) / 12) * 360;
+      const minuteHand = (shown.hours % 1) * 360;
+      const off = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+      expect(off(shown.hourAngle, hourHand)).toBeLessThan(1);
+      expect(off(shown.minuteAngle, minuteHand)).toBeLessThan(1);
+    }
+  });
+
+  test('the City Hall closes the east end of High Street and faces its square', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const { c, end } = await page.evaluate(async () => {
+      const street = window.Farm3DScene.roadNetwork().find((r) => r.id === 'high-street').pts;
+      return { c: await window.Farm3DScene.civic(), end: street[street.length - 1] };
+    });
+    const { hall, plaza } = c;
+    // The street runs up to the foot of its steps...
+    expect(Math.abs(end[0] - hall.x)).toBeLessThan(3);
+    expect(hall.steps.maxZ).toBeLessThan(end[1]);
+    // ...and the square is in front of it, across the street.
+    const px = (plaza.minX + plaza.maxX) / 2 - hall.x;
+    const pz = (plaza.minZ + plaza.maxZ) / 2 - hall.z;
+    expect((px * hall.faceX + pz * hall.faceZ) / Math.hypot(px, pz)).toBeGreaterThan(0.9);
+    expect(plaza.minZ).toBeGreaterThan(end[1]);
+    /* A landmark: its weathervane is the highest point in town, by a clear
+       margin over the tallest shop — and a clock tower, not a tower block,
+       at under twenty. */
+    const tallest = await page.evaluate(() => Math.max(...window.Farm3DScene.solids().boxes
+      .filter((b) => b.id !== 'city-hall' && b.maxZ < -18 && b.minX > -14)
+      .map((b) => b.maxY - b.minY)));
+    expect(hall.top).toBeGreaterThan(tallest + 4);
+    expect(hall.top).toBeLessThan(20);
+    expect(hall.columns).toBe(6);
+  });
+
+  test('the Police Station faces the square, with its blue lamp and two cars outside', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const c = await s.civic();
+      return { c, city: s.city(), cars: s.solids().boxes.filter((b) => b.id === 'car/police') };
+    });
+    const pol = r.c.police;
+    const dx = r.city.x - pol.x;
+    const dz = r.city.z - pol.z;
+    expect((dx * pol.faceX + dz * pol.faceZ) / Math.hypot(dx, dz)).toBeGreaterThan(0.5);
+    // The lamp hangs over the door, above head height.
+    expect(Math.hypot(pol.lamp.x - pol.door.x, pol.lamp.z - pol.door.z)).toBeLessThan(1);
+    expect(pol.lamp.y).toBeGreaterThan(3);
+    // Two police cars, each wholly on the station's forecourt.
+    expect(r.cars).toHaveLength(2);
+    const f = pol.forecourt;
+    for (const car of r.cars) {
+      expect(car.minX).toBeGreaterThanOrEqual(f.minX);
+      expect(car.maxX).toBeLessThanOrEqual(f.maxX);
+      expect(car.minZ).toBeGreaterThanOrEqual(f.minZ);
+      expect(car.maxZ).toBeLessThanOrEqual(f.maxZ);
+    }
+  });
+
+  test('the civic square is level, its fountain solid, and she can walk round it', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const { plaza } = await s.civic();
+      const uneven = [];
+      for (let x = plaza.minX; x <= plaza.maxX + 1e-6; x += 0.5) {
+        for (let z = plaza.minZ; z <= plaza.maxZ + 1e-6; z += 0.5) {
+          if (Math.abs(s.groundAt(x, z)) > 1e-6) uneven.push([x, z]);
+        }
+      }
+      /* Round the fountain on a ring between its basin and the benches:
+         every step of the circle free, or the benches have fenced it in. */
+      const f = plaza.fountain;
+      const ring = [];
+      for (let k = 0; k < 48; k += 1) {
+        const a = (k / 48) * Math.PI * 2;
+        ring.push(s.blocked(f.x + Math.sin(a) * 2.75, f.z + Math.cos(a) * 2.75));
+      }
+      return { uneven, centre: s.blocked(f.x, f.z), ring, benches: plaza.benches, beds: plaza.beds };
+    });
+    expect(r.uneven).toEqual([]);
+    expect(r.centre).toBe(true);
+    expect(r.ring.filter(Boolean)).toEqual([]);
+    expect(r.benches).toBe(4);
+    expect(r.beds).toBe(3);
   });
 });
 

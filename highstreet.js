@@ -736,17 +736,18 @@ function bracketSign(u, A, doorX) {
 function terraceTable(u, A) {
   const parts = [];
   const iron = A.swatch(PAINT.chair);
-  const top = paint(new THREE.CylinderGeometry(0.36, 0.36, 0.04, 14), A.swatch(PAINT.table));
+  const top = paint(new THREE.CylinderGeometry(0.36, 0.36, 0.04, 10), A.swatch(PAINT.table));
   parts.push(at(top, 0, 0.74, 0));
   parts.push(at(box(0.05, 0.72, 0.05, iron), 0, 0.36, 0));
-  parts.push(at(paint(new THREE.CylinderGeometry(0.22, 0.24, 0.03, 12), iron), 0, 0.015, 0));
+  parts.push(at(paint(new THREE.CylinderGeometry(0.22, 0.24, 0.03, 8), iron), 0, 0.015, 0));
 
   for (const s of [-1, 1]) {
     const cx = s * 0.58;
-    parts.push(at(paint(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 12), A.swatch(u.colours.chair ?? PAINT.chair)), cx, 0.46, 0));
-    for (const [lx, lz] of [[-0.13, -0.13], [0.13, -0.13], [-0.13, 0.13], [0.13, 0.13]]) {
-      parts.push(at(box(0.03, 0.46, 0.03, iron), cx + lx, 0.23, lz));
-    }
+    parts.push(at(paint(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 8), A.swatch(u.colours.chair ?? PAINT.chair)), cx, 0.46, 0));
+    // Two crossed frames for legs rather than four posts: the same
+    // silhouette under a seat, half the triangles.
+    parts.push(at(box(0.3, 0.46, 0.03, iron), cx, 0.23, 0));
+    parts.push(at(box(0.03, 0.46, 0.3, iron), cx, 0.23, 0));
     // The back, on the side away from the table.
     parts.push(at(box(0.03, 0.42, 0.34, iron), cx + s * 0.17, 0.7, 0));
     parts.push(at(box(0.04, 0.06, 0.38, iron), cx + s * 0.17, 0.92, 0));
@@ -851,7 +852,7 @@ function sackStack(A) {
 function planter(A, bloom) {
   const parts = [];
   parts.push(at(box(0.5, 0.4, 0.4, A.swatch(PAINT.terracotta)), 0, 0.2, 0));
-  const leaves = paint(new THREE.IcosahedronGeometry(0.28, 1), A.swatch(PAINT.leaf));
+  const leaves = paint(new THREE.IcosahedronGeometry(0.28, 0), A.swatch(PAINT.leaf));
   leaves.scale(1, 0.7, 0.8);
   parts.push(at(leaves, 0, 0.55, 0));
   for (let k = 0; k < 5; k += 1) {
@@ -896,8 +897,14 @@ export function buildHighStreet({ units, anisotropy = 1 }) {
   const solids = [];
   const report = { units: [], atlas: { width: A.width, height: A.height } };
 
+  /* Each shop's pavement furniture — tables, chairs, parasols, boards,
+     stands, planters — is its own mesh, so the scene can stop drawing a
+     shop's chairs when the shop is too far off for them to be seen, without
+     the shopfront itself going anywhere. */
+  const furniture = [];
   for (const u of units) {
     const local = shopfrontParts(u, A);
+    const shopFurniture = [];
     const { dx, spans } = frontageLayout(u);
     const out = [];
 
@@ -916,7 +923,7 @@ export function buildHighStreet({ units, anisotropy = 1 }) {
       }
     }
     for (const tx of tables) {
-      for (const g of terraceTable(u, A)) local.push(g.translate(tx, 0, TERRACE_OUT));
+      for (const g of terraceTable(u, A)) shopFurniture.push(g.translate(tx, 0, TERRACE_OUT));
       /* The table and its two chairs as one box: what stops her is the
          furniture, and the parasol above it is overhead. */
       out.push(worldBox(u, tx - 0.82, tx + 0.82, TERRACE_OUT - 0.4, TERRACE_OUT + 0.4, 0.95, `terrace:${u.id}`));
@@ -925,28 +932,31 @@ export function buildHighStreet({ units, anisotropy = 1 }) {
        one stretch of pavement no table is in front of. */
     if (u.aboard) {
       const ax = dx;
-      for (const g of aBoard(u.aboard, A)) local.push(g.translate(ax, 0, ABOARD_OUT));
+      for (const g of aBoard(u.aboard, A)) shopFurniture.push(g.translate(ax, 0, ABOARD_OUT));
       out.push(worldBox(u, ax - 0.28, ax + 0.28, ABOARD_OUT - 0.22, ABOARD_OUT + 0.22, 0.85, `aboard:${u.id}`));
     }
     for (const extra of u.extras ?? []) {
       if (extra.kind === 'produce') {
-        for (const g of produceStand(A)) local.push(g.translate(extra.x, 0, extra.out));
+        for (const g of produceStand(A)) shopFurniture.push(g.translate(extra.x, 0, extra.out));
         out.push(worldBox(u, extra.x - 0.48, extra.x + 0.48, extra.out - 0.24, extra.out + 0.24, 0.95, `produce:${u.id}`));
       } else if (extra.kind === 'sacks') {
-        for (const g of sackStack(A)) local.push(g.translate(extra.x, 0, extra.out));
+        for (const g of sackStack(A)) shopFurniture.push(g.translate(extra.x, 0, extra.out));
         out.push(worldBox(u, extra.x - 0.47, extra.x + 0.47, extra.out - 0.18, extra.out + 0.56, 0.6, `sacks:${u.id}`));
       } else if (extra.kind === 'planters') {
         for (const s of [-1, 1]) {
           const px = dx + s * (FRONT.door.w / 2 + 0.42);
           /* Out past the plinth, which stands 0.36 proud of the wall on
              these blocks. */
-          for (const g of planter(A, extra.bloom ?? PAINT.bloomRed)) local.push(g.translate(px, 0, 0.62));
+          for (const g of planter(A, extra.bloom ?? PAINT.bloomRed)) shopFurniture.push(g.translate(px, 0, 0.62));
           out.push(worldBox(u, px - 0.25, px + 0.25, 0.42, 0.82, 0.75, `planter:${u.id}`));
         }
       }
     }
 
     for (const g of local) parts.push(placed(g, u.x, 0, u.z, u.yaw));
+    if (shopFurniture.length) {
+      furniture.push({ id: u.id, parts: shopFurniture.map((g) => placed(g, u.x, 0, u.z, u.yaw)) });
+    }
     solids.push(...out);
     const fx = Math.sin(u.yaw);
     const fz = Math.cos(u.yaw);
@@ -980,9 +990,21 @@ export function buildHighStreet({ units, anisotropy = 1 }) {
     emissive: 0xffe2b0, emissiveMap: tex(A.glow), emissiveIntensity: 0.55,
     alphaTest: 0.5, side: THREE.DoubleSide,
   });
+  const group = new THREE.Group();
+  group.name = 'high-street';
   const mesh = new THREE.Mesh(mergeGeometries(parts, false), material);
   for (const g of parts) g.dispose();
-  mesh.name = 'high-street';
-  report.triangles = mesh.geometry.getAttribute('position').count / 3;
-  return { object: mesh, solids, report, material };
+  mesh.name = 'high-street-fronts';
+  group.add(mesh);
+  let triangles = mesh.geometry.getAttribute('position').count / 3;
+  const detail = furniture.map((f) => {
+    const m = new THREE.Mesh(mergeGeometries(f.parts, false), material);
+    for (const g of f.parts) g.dispose();
+    m.name = `high-street-furniture:${f.id}`;
+    group.add(m);
+    triangles += m.geometry.getAttribute('position').count / 3;
+    return m;
+  });
+  report.triangles = triangles;
+  return { object: group, solids, report, material, detail };
 }

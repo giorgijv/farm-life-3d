@@ -45,6 +45,7 @@ import { buildFarmer, FARMER_HEIGHT } from './farmer.js';
 import { buildBarn, BARN_WIDTH, BARN_DEPTH } from './barn.js';
 import { buildSigns } from './signs.js';
 import { buildHighStreet } from './highstreet.js';
+import { buildCivic } from './civic.js';
 import {
   buildStable, STABLE_WIDTH, STABLE_DEPTH,
   STABLE_INSIDE as STABLE_INSIDE_LOCAL,
@@ -1164,8 +1165,10 @@ function startScene(bridge) {
      blended into the hills over the same TRANSITION_WIDTH. The edges are
      set by what has to stand on it:
        west   -14   the old city's westernmost house reaches -12.0
-       east    40   the east end of High Street, and room for the civic
-                    square that Step 3 builds there
+       east  42.8   the east end of High Street, and the City Hall Step 3
+                    put there, which reaches x 42.3 — first set at 40, which
+                    left the hall's east end and its square's east beds on
+                    the hills until the test that asks found it
        south  -21   the old city's southern house reaches -21.9
        north  -46   past the world's edge, so the town does not sit in a bowl
                     with a rise behind it
@@ -1180,7 +1183,7 @@ function startScene(bridge) {
      x 20), falling away to -1.4 past the farm's east corner. It is a
      shallow hollow more than a ridge, which is enough to say the town is
      somewhere else without hiding it. */
-  const TOWN_LEVEL = { minX: -14, maxX: 40, minZ: -46, maxZ: -21 };
+  const TOWN_LEVEL = { minX: -14, maxX: 42.8, minZ: -46, maxZ: -21 };
 
   /* Every rectangle that is held level, as centre and half-extents. The
      farm comes from the four numbers above it; the town from TOWN_LEVEL. */
@@ -1196,10 +1199,17 @@ function startScene(bridge) {
     cx: (r.minX + r.maxX) / 2, cz: (r.minZ + r.maxZ) / 2,
     hx: (r.maxX - r.minX) / 2, hz: (r.maxZ - r.minZ) / 2,
   });
+  /* And the civic square across High Street from the City Hall, which
+     needs more depth than the town's south edge leaves: a fountain with
+     benches round it is seven and a half units across, and the level ground
+     there stops five units from the kerb. The seam to the farm is still two
+     and a half units wide at its narrowest, past the square's south side. */
+  const PLAZA_LEVEL = { minX: 29.8, maxX: 42.2, minZ: -21.5, maxZ: -17.6 };
   const LEVEL_AREAS = [
     { cx: FLAT_CENTER_X, cz: FLAT_CENTER_Z, hx: FLAT_HALF_X, hz: FLAT_HALF_Z },
     rectArea(TOWN_LEVEL),
     rectArea(PHARMACY_LEVEL),
+    rectArea(PLAZA_LEVEL),
   ];
   const TERRAIN_HALF = 46; // comfortably past the fog below, so its own edge is never seen
   /* The last ground there is. Nothing that moves may go past it — not the
@@ -2700,6 +2710,40 @@ ${shader.fragmentShader.replace(
      square is no longer shopping. */
   const TOOL_SHOP = { x: blockOf('hardware').x, z: -30.2, radius: 6.5 };
 
+  /* -------------------------------------------------------------- */
+  /* Farm City's City Hall, Police Station and civic square            */
+  /* -------------------------------------------------------------- */
+
+  /* Where the two public buildings and the square go, solved against the
+     same constraints the shops were.
+
+     The City Hall closes the east end of High Street, where the street
+     ends and the town road arrives: the one plot left on the north side,
+     x 29.7 to 42.3 between Hardware & Feed and the edge of the world. Its
+     steps stop 2.8 from the middle of the road, its back a little under a
+     unit inside the world's edge. Its front faces south, across the street,
+     onto the civic square — paved, with the fountain, on the south side of
+     the street's east end, where the town's level ground is extended to
+     make the room.
+
+     The Police Station takes the plot the cottage on the square's
+     north-west corner had, facing the square, with a forecourt in front for
+     its two cars. It is deliberately not at the civic end: a police station
+     belongs where people come and go, and the square is where the town's
+     two roads meet. */
+  const CIVIC = {
+    hall: { x: 36.0, z: -39.45, yaw: 0 },
+    police: { x: -8.0, z: -40.6, yaw: 0 },
+    plaza: {
+      minX: 30.4, maxX: 41.6, minZ: -25.6, maxZ: -18.0,
+      fountain: { x: 36.0, z: -21.8 },
+      flagpole: { x: 31.4, z: -24.7 },
+      beds: [[40.5, -24.7], [40.5, -18.9], [31.5, -18.9]],
+    },
+  };
+  // The station's front wall, from its middle: half its depth.
+  const POLICE_FRONT = 2.8;
+
   const PROPS = [
     /* --- the stable, west: the building the livestock lives in ---
        The farmhouse stood here — `city-suburban/building-type-a` at 4.8,
@@ -2898,7 +2942,14 @@ ${shader.fragmentShader.replace(
        west side are what is left of the residential town, and the north
        side of High Street is a terrace of shops. */
     { id: 'city-suburban/building-type-b', x: -8.5, z: -27.5, ry: Math.PI / 2, h: 7.0, blocks: 'box' },
-    { id: 'city-suburban/building-type-a', x: -6.5, z: -39.5, ry: 0, h: 6.2, blocks: 'box' },
+    /* The cottage on the square's north-west corner is gone too: the
+       Police Station stands there, facing the square. */
+    /* The two police cars, reversed into the station's marked bays — at
+       the kit's own size, like the farm's car, and the kit's own model,
+       which has the light bar and the push bar. Their positions come from
+       the station's, so moving one moves the other. */
+    { id: 'car/police', x: CIVIC.police.x - 2.3, z: CIVIC.police.z + POLICE_FRONT + 2.2, ry: 0, blocks: 'box', distant: 'cull' },
+    { id: 'car/police', x: CIVIC.police.x + 0.15, z: CIVIC.police.z + POLICE_FRONT + 2.2, ry: 0, blocks: 'box', distant: 'cull' },
 
     /* The High Street's blocks. Placed from the measured table above
        rather than typed in, and tinted, because the kit paints every block
@@ -3131,6 +3182,10 @@ ${shader.fragmentShader.replace(
         // After scene.add and the position/rotation above, so the box it
         // measures is the one the player will actually walk into.
         addSolid(prop, object);
+        if (prop.distant === 'cull') {
+          object.name = prop.id;
+          addTownDetail(object);
+        }
         // The one prop this file keeps a handle on, because it is the one
         // the player gets to drive.
         if (prop.id === 'car/sedan') {
@@ -3195,6 +3250,7 @@ ${shader.fragmentShader.replace(
     city: { label: 'Farm City', at: routeEnd('city', 'end') },
     square: { label: 'Town Square', at: routeEnd('city', 'end') },
     high: { label: 'High Street', at: routeEnd('town-road', 'end') },
+    hall: { label: 'City Hall', at: routeEnd('high-street', 'end') },
   };
 
   /* Every junction on the map, and what its arms say. An arm names a place
@@ -3232,13 +3288,14 @@ ${shader.fragmentShader.replace(
     ] },
     { id: 'town-square', at: routeEnd('city', 'end'), arms: [
       { to: 'high', route: 'high-street', dir: 1 },
+      { to: 'hall', route: 'high-street', dir: 1 },
       { to: 'farm', route: 'city', dir: -1 },
     ] },
-    /* The east end of High Street. No arm points further east yet: the
-       street runs on to where the town hall will stand, and a sign naming a
-       building that is not there would be the first thing a player
-       checked. Step 3 adds it. */
+    /* The east end of High Street, where the town road comes in. The City
+       Hall is the arm pointing on east; it was left off until the building
+       was there to point at. */
     { id: 'high-street-east', at: routeEnd('town-road', 'end'), arms: [
+      { to: 'hall', route: 'high-street', dir: 1 },
       { to: 'square', route: 'high-street', dir: -1 },
       { to: 'farm', route: 'town-road', dir: -1 },
     ] },
@@ -3305,7 +3362,11 @@ ${shader.fragmentShader.replace(
            not, and the first High Street put the east fingerpost's "Town
            Square" through the canvas over Hardware & Feed's window. Only
            tall boxes count — a crate is something an arm passes over. */
+        /* Tall and wide, that is: a building, the fountain's pedestal. A
+           flagpole is tall and an arm passes beside it, and counting it
+           left the corner at High Street's east end with nowhere to stand. */
         if (SOLIDS.boxes.some((b) => b.maxY - b.minY > 2
+          && (b.maxX - b.minX > 1.5 || b.maxZ - b.minZ > 1.5)
           && x > b.minX - 3.2 && x < b.maxX + 3.2 && z > b.minZ - 3.2 && z < b.maxZ + 3.2)) continue;
         /* And clear of every tree by more than its trunk. The scatter keeps
            its own trees off signs once the signs exist, but the hand-placed
@@ -3395,22 +3456,65 @@ ${shader.fragmentShader.replace(
      the buildings standing on it are already in SOLIDS — and before the
      foliage scatter, which chains on this rather than on `dressed`, so the
      grass grows round the posts instead of through them. */
-  /* The shopfronts, built once the kit blocks behind them have landed and
-     before the signs look for their corners — a café's tables are solid,
-     and a fingerpost's search has to know they are there. */
+  /* The shopfronts, the City Hall, the Police Station and the civic square,
+     built here and now, while the scene is being set up, rather than once
+     the kit blocks behind the shops have landed. None of it needs them —
+     every piece is built in code — and building it later made it a long
+     task in the middle of play: a tenth of a second here, more on CI's
+     machine, which the walk credits in full as one frame, so a farmer
+     tapped off to a far plot could arrive between two looks at her. Built
+     with the barn, it is part of loading, before there is anything to
+     interact with. Its solids are in SOLIDS before the signs go looking for
+     corners, which is the order that matters. */
   let streetReport = null;
-  const streetBuilt = dressed.then(() => {
-    const built = buildHighStreet({
-      units: SHOPFRONTS,
-      anisotropy: renderer.capabilities.getMaxAnisotropy(),
-    });
-    built.object.traverse((o) => { if (o.material) o.material.toneMapped = false; });
-    scene.add(casts(built.object));
-    SOLIDS.boxes.push(...built.solids);
-    streetReport = built.report;
-  }).catch((err) => console.warn('farm: the High Street did not build', err));
+  let civicBuilt = null;
+  /* The town's small things — café chairs, parasols, planters, benches,
+     flower beds — drawn only when the camera is close enough to see them.
+     From the farm the town is forty to fifty-five units off, behind fog
+     that has eaten a third to two thirds of it, and a chair there is a few
+     pixels the software rasteriser on CI still paid full price for: with
+     the City Hall built, the worst-case frame reached 104,000 triangles
+     against the 100,000 it is held to. At forty units the fog is a third of
+     the way in, which is where a table stops being a table. */
+  /* The two police cars are on the list too, and they are the biggest
+     thing on it: the kit's car is six meshes, and the pair of them came to
+     6,300 triangles and twelve draw calls in the frame from the farm —
+     more than the whole of the High Street's shopfronts — for two cars
+     forty-eight units off in fog. Everything here stands still, so each
+     entry's box is measured once. */
+  const TOWN_DETAIL = [];
+  const TOWN_DETAIL_RANGE = 40;
+  const addTownDetail = (object) => {
+    object.updateMatrixWorld(true);
+    TOWN_DETAIL.push({ object, box: new THREE.Box3().setFromObject(object) });
+  };
+  function syncTownDetail() {
+    for (const d of TOWN_DETAIL) d.object.visible = d.box.distanceToPoint(camera.position) < TOWN_DETAIL_RANGE;
+  }
+  const streetBuilt = (() => {
+    try {
+      const anisotropy = textureAnisotropy();
+      const built = buildHighStreet({ units: SHOPFRONTS, anisotropy });
+      built.object.traverse((o) => { if (o.material) o.material.toneMapped = false; });
+      scene.add(casts(built.object));
+      SOLIDS.boxes.push(...built.solids);
+      streetReport = built.report;
+      built.detail.forEach(addTownDetail);
 
-  const signed = streetBuilt.then(() => {
+      const civic = buildCivic({ ...CIVIC, anisotropy });
+      civic.object.traverse((o) => { if (o.material) o.material.toneMapped = false; });
+      scene.add(casts(civic.object));
+      SOLIDS.boxes.push(...civic.solids);
+      SOLIDS.posts.push(...civic.posts);
+      civic.detail.forEach(addTownDetail);
+      civicBuilt = civic;
+    } catch (err) {
+      console.warn('farm: the High Street did not build', err);
+    }
+    return Promise.resolve();
+  })();
+
+  const signed = dressed.then(() => {
     const taken = [];
     const fingerposts = [];
     for (const j of JUNCTIONS) {
@@ -3430,7 +3534,7 @@ ${shader.fragmentShader.replace(
     }
     const built = buildSigns({
       fingerposts, boards, groundAt: terrainHeight,
-      anisotropy: renderer.capabilities.getMaxAnisotropy(),
+      anisotropy: textureAnisotropy(),
     });
     built.object.traverse((o) => { if (o.material) o.material.toneMapped = false; });
     scene.add(casts(built.object));
@@ -3853,8 +3957,9 @@ ${shader.fragmentShader.replace(
        its square: the circle stopped at x 15, and High Street runs on to 37. */
     if (x >= TOWN_LEVEL.minX - 2 && x <= TOWN_LEVEL.maxX + 2
       && z >= TOWN_LEVEL.minZ - 2 && z <= TOWN_LEVEL.maxZ + 2) return true;
-    if (x >= PHARMACY_LEVEL.minX - 2 && x <= PHARMACY_LEVEL.maxX + 2
-      && z >= PHARMACY_LEVEL.minZ - 2 && z <= PHARMACY_LEVEL.maxZ + 2) return true;
+    for (const r of [PHARMACY_LEVEL, PLAZA_LEVEL]) {
+      if (x >= r.minX - 2 && x <= r.maxX + 2 && z >= r.minZ - 2 && z <= r.maxZ + 2) return true;
+    }
     const m = FOLIAGE_CLEARANCE;
     for (const b of SOLIDS.boxes) {
       if (x >= b.minX - m && x <= b.maxX + m && z >= b.minZ - m && z <= b.maxZ + m) return true;
@@ -6496,6 +6601,19 @@ ${lit}`;
      was worth. The string is a hint rather than a contract, which is why the
      measured budget still runs underneath it and still has the last word on
      hardware that reports itself as real and then doesn't keep up. */
+  /* How hard to filter the town's lettered textures — the signs, the
+     shopfronts, the civic buildings. On a GPU, anisotropic filtering is
+     close to free and keeps lettering sharp seen at a slant, so it gets the
+     most the hardware offers. On a software rasteriser it is anything but:
+     measured on this machine, the High Street's shopfronts cost 58 ms of a
+     400 ms frame at full anisotropy and 14 ms without it, and the road signs
+     41 ms and 5. A farm scene that draws at four frames a second there can
+     not afford the difference, and lettering seen by a software renderer is
+     seen by a test. */
+  function textureAnisotropy() {
+    return rendererIsSoftware() ? 1 : renderer.capabilities.getMaxAnisotropy();
+  }
+
   function rendererIsSoftware() {
     try {
       const gl = renderer.getContext();
@@ -6740,6 +6858,17 @@ ${lit}`;
     }
   }
 
+  /* Every shader the scene already has, compiled now, as part of loading.
+     Three.js otherwise compiles a material's program the first frame
+     something drawn with it is in view, and Farm City brought half a dozen
+     new ones — stone, brick, two atlases, water, the flag, the clock's
+     hands. On a software rasteriser each costs a noticeable fraction of a
+     second, and all of them landed on the first frames of play, which the
+     walk credits in full: the phone test that steers her onto a plot with
+     the stick went from four runs in four to two in three. Models that
+     arrive later still compile when they first draw, as they always have. */
+  renderer.compile(scene, camera);
+
   /* How much work is outstanding. The tests wait on this rather than on a
      stopwatch, and it is the honest question to ask when debugging: has the
      tap been taken, and has it been carried out? */
@@ -6773,6 +6902,21 @@ ${lit}`;
        this file, so the car's own state is asked for by a different name
        rather than by overloading that one. */
     board: () => boardCar(),
+    /* Puts the car somewhere and points it somewhere, for the one test
+       that needs to arrive at the edge of the world down a clear line —
+       which, once the town filled its last open plot, no road end faced any
+       more. Refused anywhere the car could not legitimately be. */
+    putCarAt: (x, z, heading) => {
+      if (carBlocked(x, z)) return false;
+      carAt.x = x;
+      carAt.z = z;
+      carHeading = heading;
+      carSpeed = 0;
+      placeCar();
+      return true;
+    },
+    // Which of the town's small things are being drawn this frame.
+    townDetail: () => TOWN_DETAIL.map((d) => ({ name: d.object.name, visible: d.object.visible })),
     alight: () => leaveCar(),
     atWheel: () => inCar,
     atMarket: () => shopOpen,
@@ -6783,6 +6927,11 @@ ${lit}`;
     city: () => ({ x: CITY.x, z: CITY.z, radius: CITY_RADIUS }),
     // Where the tools are sold, which is no longer the square.
     toolShop: () => ({ ...TOOL_SHOP }),
+    /* The City Hall, the Police Station and the square, as built — and the
+       clock, as it stands this frame: the hour it shows and the angle of
+       each hand. */
+    civic: () => streetBuilt.then(() => civicBuilt && JSON.parse(JSON.stringify(civicBuilt.report))),
+    civicClock: () => (civicBuilt ? civicBuilt.clock() : null),
     /* The shopfronts, as built: every name over a door, which way each one
        faces, how big its lettering came out, and its tables. Waits on the
        street being built, like signs() does. */
@@ -7393,6 +7542,9 @@ ${lit}`;
     frameDt = dt;
     advanceFarmer(dt);
     advanceCar(dt);
+    // The town clock keeps the farm's time, and the flag moves.
+    civicBuilt?.update(bridge.daySkyState().phase, now / 1000);
+    syncTownDetail();
 
     /* Nothing drawn while the context is gone, and none of the per-frame
        sync work that only exists to feed a draw. three.js's render() is

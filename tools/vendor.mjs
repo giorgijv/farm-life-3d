@@ -101,7 +101,9 @@ const KENNEY_MODELS = {
      caps the short pull-in off the stall so it reads as a real turning, not
      a strip that stops for no reason. */
   'city-roads': ['road-straight', 'road-end'],
-  car: ['sedan'],
+  /* The sedan is the farm's car; the police car stands outside Farm City's
+     Police Station, with its light bar and push bar. */
+  car: ['sedan', 'police'],
   /* Farm City's High Street. Five of the fourteen blocks, chosen by
      measuring all fourteen: two to four storeys, and none of the five- and
      six-storey ones, because the town was asked to stay a town. Every block

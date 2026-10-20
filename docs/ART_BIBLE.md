@@ -4181,11 +4181,225 @@ That the square no longer opens the tool counter is held geometrically —
 the shop's radius stops more than twice its own length short of the square
 — rather than by a drive that has to be in the square on a frame.
 
+### And what CI caught after it was pushed
+
+Two shards green at twelve minutes and the third cancelled at twenty, the
+limit — with two failures in it before the clock ran out: the farmer's walk
+cycle not seen while she walked, and the drive to the market not arriving.
+Both passed here and on Step 1's CI. Both are what a long frame does: the
+street was built once the kit blocks had loaded, which on CI's machine
+lands in the middle of a test, and the walk credits the whole stall as one
+frame.
+
+Nothing in the street needs the kit blocks; every piece of it is built in
+code. So it is built now with the barn, while the scene is being set up,
+and the long task is part of loading rather than of play. And the workflow
+has four shards, as its own comment said to do when one reached twenty.
+
 ### Left for Step 4
 
 The pavements are grass. Kerbs, paving, street lights, and the windows
 brightening at night are Step 4's, and so is a draw budget asserted for the
 town in view rather than measured here.
+
+
+## 43. Farm City, step three: the City Hall and the Police Station
+
+Neither is in any kit: the mirror has houses, shops and towers, and no town
+hall or police station. Both are built in `civic.js` from boxes, cylinders
+and a few extruded shapes, the way the barn and the stable were. So is the
+civic square in front of the City Hall.
+
+### Where they went
+
+- **The City Hall closes the east end of High Street.** It takes the one
+  plot left on the north side, between Hardware & Feed and the edge of the
+  world: x 29.7 to 42.3. Its steps stop 2.8 from the middle of the road,
+  where the street ends, and its back is just under a unit inside the
+  world's edge. Its front faces south across the street onto the square.
+- **The civic square is on the south side of the street's east end.** The
+  town's level ground stops five units from the kerb there, and a fountain
+  with benches round it is seven and a half across. A level patch extends
+  it, the way the pharmacy's did; the seam to the farm is still two and a
+  half units wide at its narrowest.
+- **The Police Station is on the old square's north-west corner**, facing
+  it, where the last cottage stood. Not at the civic end: a police station
+  belongs where people come and go, and the square is where the two roads
+  into town meet.
+
+The town's level ground used to end at x 40. The City Hall reaches 42.3,
+and the test that reads the ground under every civic building found its
+east end, and its square's east beds, standing on the hills. The plateau
+now reaches 42.8.
+
+### The City Hall
+
+A stone block on a podium, its ground floor rusticated, with a string
+course and a balustraded parapet. A portico of six columns, each with a base
+and capital, carries an entablature with CITY HALL incised in the frieze and
+a pediment with the town's wheat-sheaf in a medallion. Sash windows sit in
+stone architraves on three faces, and the great door has a fanlight. Behind
+the portico a clock tower rises from the roof: a stone shaft with corner
+pilasters, dials on its front and west faces, an open belfry with a bell, a
+copper dome, a lantern, and a gilt weathervane at 18.4. That makes it the
+tallest thing in town by more than four units, and a test holds it there,
+and under twenty.
+
+**The clock works.** Its hands are meshes, turned every frame to the farm's
+own time of day — `daySkyState`'s phase is nought at noon, so the hour is
+twelve plus a day's worth of the phase. A farm day is ninety seconds, so the
+minute hand visibly sweeps. The test sets the farm's clock, lets a frame
+draw, and reads the angle of each hand back off the meshes. It does not
+restate the sum. At night the dials are lit, as a town clock is.
+
+The first look at it found **the pediment invisible**: a triangle of the
+same stone as the parapet behind it, with no edges, and from the square it
+vanished. A pediment reads by its raking cornices and a recessed tympanum,
+so it has both now, and taller columns lift its apex above the parapet.
+
+### The Police Station
+
+Red brick, two storeys, and plain on purpose: the opposite kind of building
+to the City Hall. Stone quoins run up every corner, alternately long and
+short. There is a stone plinth, a string course, a cornice and a coped
+parapet. Across its front, between the floors, is POLICE STATION, white on
+navy. Over the entrance a canopy sits on iron brackets, and above it the
+**blue lamp**: four panes lettered POLICE in an iron frame under a pyramid
+roof, lit. There is a roller-shuttered garage, sash windows with stone
+sills and lintels, and a radio mast on the roof.
+
+The two police cars are the kit's own (`car/police`, with its light bar and
+push bar), at the kit's size like the farm's car. They are reversed into
+marked bays on a tarmac forecourt. The first layout parked the second car
+across the front door, and the test that walks up to the door found a
+police car where the pavement should be. The bays are in front of the
+garage and the window now. The station became a little shallower so the
+cars clear the house next door by the half unit separate solids are held
+to.
+
+### The civic square
+
+The square is flagstoned, with a darker kerb. In the middle is a tiered
+fountain: an octagonal basin with a rim, a pedestal, two bowls and a copper
+finial. Four benches on the diagonals face it, there are flower beds in
+three corners, and the town's flag — green, a white band at the hoist, the
+gold sheaf — flies from a pole on a stepped base, rippling.
+
+**The basin first hid its own water.** It was a solid drum and the pool was
+inside the stone. It has a raised rim now, and the water lies within it.
+
+**The fountain's collider is a circle.** A box round an octagon reaches
+three units out at its corners, and with the benches at three and a half,
+that closed the way round the fountain on all four diagonals. The test that
+walks a ring round it found it. The basin is a round solid now, the pedestal
+a small box standing up out of it, and the benches moved out by a fifth of
+a unit.
+
+That split also mattered to the signs. The rule from §42 keeps fingerposts
+an arm's length from anything tall, and at first it counted the flagpole
+and the whole fountain. That left the corner at High Street's east end with
+nowhere to stand, and the fingerpost there was not built — a warning in
+the console, and the test that counts six fingerposts counted five. A
+fingerpost is only kept off things that are tall *and* wide now: a
+building, the fountain's pedestal. The east fingerpost points the way to
+the City Hall, and so does the square's.
+
+### Three materials
+
+Everything static is merged by material, and there are three: stone and
+brick, each a small canvas tiled at its real coursing so no wall is a
+stretched picture, and one atlas for everything with lettering or a
+painted face. The water, the flag (which moves) and the clock's hands
+(which turn) are their own meshes.
+
+### What the full run found: the town costs the farm
+
+Three failures, and they were one finding. **The worst case the game can
+reach** — every plot grown, every pen full, a hurricane coming — came to
+104,468 triangles against the 100,000 it is held to. **No sun falls on the
+clouds at midnight**, which has a window of a few seconds of farm time to
+read its answer in, missed it, because frames had got slower. And **the car
+cannot be driven off the edge of the world** found no clear line from the
+end of the town road, which §41 had said would happen once Step 3 built
+there.
+
+A breakdown of the worst-case frame, mesh by mesh, rather than a guess:
+
+- The town's own building is modest: 2,900 triangles of shopfronts, 2,800
+  of civic stone, 1,800 of civic atlas, and 7,900 of kit blocks.
+- **The two police cars were the most expensive thing in it**: the kit's car
+  is six meshes, and the pair came to about 6,300 triangles and twelve draw
+  calls, for two cars forty-eight units off in fog.
+
+So, three changes:
+
+- **Detail the camera cannot see is not drawn.** The cafés' tables, chairs
+  and parasols, the boards, the stands, the planters, the square's benches
+  and flower beds, and the police cars are each drawn only while the camera
+  is within forty units of them. From the farm the town is forty to
+  fifty-five units off, and at forty the fog is a third of the way in,
+  which is where a café chair stops being a chair. Each shop's furniture is
+  its own mesh for this, so one shop's chairs go without its neighbour's.
+- **Triangles nobody sees, cut.** The flower beds were a plant per bloom,
+  1,700 triangles; they are a mound of green with a scatter of flowers on
+  it now. The station's quoins are seven courses a corner instead of
+  fourteen: the rhythm is what reads. A window's surround is one plate
+  behind it, not two jambs and a head. Columns have ten sides, not
+  fourteen. A café chair's legs are two crossed frames, not four posts.
+- **The edge drive is put at the end of High Street, facing east**, along
+  the line past the City Hall's steps that this step left open. No road end
+  in the game faces open ground to the edge any more — the map is full,
+  which is the town working — so `putCarAt` puts the car there, refusing
+  anywhere the car could not be, and the drive to the edge and the stop
+  against it are the same as before.
+
+Measured after, three runs: 93,000 to 97,000 triangles, and 259 to 263 draw
+calls, against ceilings of 100,000 and 300.
+
+### And what it costs a frame
+
+The next full run turned up two walking tests, and comparing them against
+earlier commits told the story. On Step 1's commit the phone test that
+plays the whole loop with the stick passed four runs in four. On today's
+code it failed one in three. So the town had made it worse, and two things
+were found.
+
+- **Shaders compiled mid-play.** Three.js compiles a material's program on
+  the first frame that draws it, and Farm City brought half a dozen new
+  ones. All of them landed on the first frames of play, on a software
+  rasteriser, where the walk credits the stall in full. The scene now
+  compiles everything it has with `renderer.compile` before the test
+  surface exists, so it is part of loading.
+- **The town costs the phone's view about a seventh of its frames**: 5.3
+  frames a second on Step 1, 4.6 now, measured on that viewport. Hiding the
+  code-built town brings it back. Finer measurement than that was noise at
+  under five frames a second, and this is recorded as a cost, not
+  explained away. Winning it back is Step 4's job.
+
+Then the full run after that turned up two more walking tests, and they
+pointed somewhere better. Each failed on the first run in a browser and
+passed on repeats, and in steady state the 1280 × 720 view now took more
+than 400 ms a frame where Step 1's rarely did. Turning each part of the
+town off for ten seconds at a time, each part's cost could be measured, and the
+answer was not geometry: **the High Street's shopfronts cost 58 ms a frame
+and the road signs 41**, and both had their textures at the renderer's
+maximum anisotropic filtering. On a GPU that is close to free. On a software
+rasteriser it is the most expensive thing in the frame. With it off there
+the shopfronts cost 14 ms and the signs 5, the whole frame got 30 ms
+faster, and the walk-cycle test went from half its runs failing to none. A
+GPU still gets full anisotropy, which keeps lettering sharp at a slant. The
+farmhouse walk still fails a run in four or so, and on Step 1's commit it
+failed two in six: that one is older than the town.
+
+The phone test is one long walk, so it scales with the frame rate. Its
+budget went from three minutes to five, with the measurement in its
+comment, and its helper's last-step nudges are now in proportion to the
+gap left: a fixed nudge at four frames a second carried her past the tile
+and back. The farmhouse walk passed three runs in three on today's code
+and failed two in three on the commit Step 2 was pushed as. That commit
+still built the town mid-play. That margin is thin, and Step 4,
+which is about detail and night, has to pay for what it adds out of it.
+With the town in view the frame costs 41 to 65 draw calls.
 
 ---
 

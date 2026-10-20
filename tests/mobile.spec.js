@@ -151,8 +151,16 @@ test.describe('phone portrait', () => {
        viewport, on a software rasteriser, at whatever frame rate four
        contending workers leave it. It overran the default 30s budget on CI
        both before and after the walk helper below was rewritten, which is
-       the sign that the budget is the wrong number rather than the test. */
-    test.slow();
+       the sign that the budget is the wrong number rather than the test.
+
+       And again when Farm City went up. The town costs this view about a
+       seventh of its frame rate on the software rasteriser — 5.3 frames a
+       second before, 4.6 after, measured on this phone viewport — and a
+       test that is one long walk scales with that: runs went from about a
+       minute and a half to two, and one in six reached three. Five minutes
+       is a budget for the test as it is, not a cover for it; winning the
+       frames back is the town's own job (Farm City step 4). */
+    test.setTimeout(300_000);
     await load(page, makeSave({
       coins: 900,
       plots: Array.from({ length: PLOT_COUNT }, (_, i) => (
@@ -254,7 +262,7 @@ test.describe('phone portrait', () => {
     async function driveOnto(plot) {
       let previous = Infinity;
       let sidestepped = false;
-      for (let attempt = 0; attempt < 12; attempt += 1) {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
         const state = await page.evaluate((p) => ({
           onIt: window.Farm3DScene.reachable()?.plot === p,
           her: window.Farm3DScene.farmerAt(),
@@ -291,7 +299,12 @@ test.describe('phone portrait', () => {
           sidestepped = false;
         }
 
-        const push = far ? 40 : 9;
+        /* Near the tile, a push in proportion to the gap. At four or five
+           frames a second — which is where this suite renders once the
+           town is in view — a fixed nudge carried her past the tile in a
+           single frame and back again on the next, until the attempts ran
+           out. */
+        const push = far ? 40 : Math.max(4, Math.min(9, gap * 14));
         await pushStick(dirX * push, dirZ * push, far ? gap - 0.3 : 0.35, plot);
       }
       const where = await page.evaluate(() => window.Farm3DScene.farmerAt());
