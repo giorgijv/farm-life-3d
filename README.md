@@ -141,8 +141,13 @@ columns under a pediment with the town's wheat-sheaf in it, and a clock
 tower whose hands show the farm's own time of day. Across the street is the
 civic square, with a fountain, benches, flower beds and the town's flag.
 On the old square's north-west corner is the red-brick **Police Station**,
-with its blue lamp over the door and two police cars on its forecourt. The
-two shops are deliberately not the same shop:
+with its blue lamp over the door and two police cars on its forecourt.
+
+The streets have stone pavements and kerbs, Victorian street lamps with
+hanging baskets, bunting along the shops, and two zebra crossings with
+blinking amber beacons. **At dusk the lamps come on**, each throwing a pool
+of light on the paving, and the shop windows and the City Hall's brighten
+with them. The two shops are deliberately not the same shop:
 
 - **The market village**, south, trades farming goods. It buys your harvest
   and it sells the barns you keep it in.
@@ -425,6 +430,8 @@ offline once loaded.
   terraces, built the same way: one atlas, one mesh
 - `civic.js` — the City Hall with its working clock, the Police Station, and
   the civic square, in three materials: tiled stone, tiled brick, one atlas
+- `streetscape.js` — Farm City's pavements and kerbs, street lamps, zebra
+  crossings and bunting, and the town's lights after dark
 - `assets.js` — loads the 3D models, and normalises them to a world scale
 - `assets/` — the models themselves (CC0, from Kenney), and a manifest the
   service worker precaches from
@@ -505,8 +512,12 @@ on level ground and cannot be walked into, that the City Hall's clock hands
 show the farm's time, that it closes the east end of High Street and faces
 its square and is the tallest thing in town, that the Police Station faces
 the old square with its lamp over the door and both cars on its forecourt,
-and that the civic square is level with a solid fountain she can walk all
-the way round, that she can drive the whole way out to each
+that the civic square is level with a solid fountain she can walk all
+the way round, that High Street has pavements, lamps and crossings with
+none of them in the road, that the lamps are off by day and on at night
+with the windows brightening alongside, that the crossings' beacons blink,
+that the shop blocks and the police cars are merged into one mesh each,
+and that the town holds to the farm's draw budget from inside it, that she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

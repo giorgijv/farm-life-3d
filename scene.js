@@ -46,6 +46,8 @@ import { buildBarn, BARN_WIDTH, BARN_DEPTH } from './barn.js';
 import { buildSigns } from './signs.js';
 import { buildHighStreet } from './highstreet.js';
 import { buildCivic } from './civic.js';
+import { buildStreetscape } from './streetscape.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   buildStable, STABLE_WIDTH, STABLE_DEPTH,
   STABLE_INSIDE as STABLE_INSIDE_LOCAL,
@@ -2948,8 +2950,8 @@ ${shader.fragmentShader.replace(
        the kit's own size, like the farm's car, and the kit's own model,
        which has the light bar and the push bar. Their positions come from
        the station's, so moving one moves the other. */
-    { id: 'car/police', x: CIVIC.police.x - 2.3, z: CIVIC.police.z + POLICE_FRONT + 2.2, ry: 0, blocks: 'box', distant: 'cull' },
-    { id: 'car/police', x: CIVIC.police.x + 0.15, z: CIVIC.police.z + POLICE_FRONT + 2.2, ry: 0, blocks: 'box', distant: 'cull' },
+    { id: 'car/police', x: CIVIC.police.x - 2.3, z: CIVIC.police.z + POLICE_FRONT + 2.2, ry: 0, blocks: 'box', merge: 'police-cars' },
+    { id: 'car/police', x: CIVIC.police.x + 0.15, z: CIVIC.police.z + POLICE_FRONT + 2.2, ry: 0, blocks: 'box', merge: 'police-cars' },
 
     /* The High Street's blocks. Placed from the measured table above
        rather than typed in, and tinted, because the kit paints every block
@@ -2964,6 +2966,7 @@ ${shader.fragmentShader.replace(
       tint: HIGH_STREET_TINT[b.key],
       blocks: 'box',
       solid: b.ry === 0 ? 'farm-city/high-street-terrace' : undefined,
+      merge: 'town-blocks',
     })),
 
     /* The square's two stalls were the tool merchants, standing in for a
@@ -3182,10 +3185,7 @@ ${shader.fragmentShader.replace(
         // After scene.add and the position/rotation above, so the box it
         // measures is the one the player will actually walk into.
         addSolid(prop, object);
-        if (prop.distant === 'cull') {
-          object.name = prop.id;
-          addTownDetail(object);
-        }
+        if (prop.merge) object.userData.merge = prop.merge;
         // The one prop this file keeps a handle on, because it is the one
         // the player gets to drive.
         if (prop.id === 'car/sedan') {
@@ -3456,6 +3456,102 @@ ${shader.fragmentShader.replace(
      the buildings standing on it are already in SOLIDS — and before the
      foliage scatter, which chains on this rather than on `dressed`, so the
      grass grows round the posts instead of through them. */
+  /* -------------------------------------------------------------- */
+  /* Farm City's streets: pavements, lamps, crossings, bunting         */
+  /* -------------------------------------------------------------- */
+
+  /* Where the pavements, the lamps and the crossings go, worked out from
+     High Street's own samples rather than typed in, so a lamp is a fixed
+     distance from the middle of the road wherever the road bends.
+
+     The pavement runs from the kerb — the carriageway's edge — out to the
+     shop walls on the north side and two metres of paving on the south,
+     narrowing where it has to: at the City Hall's steps, the pharmacy's
+     front and the civic square's edge. It stops wherever another road comes
+     in, which on the north side is the city road's end in the square and on
+     the south the city road and the town road both: a kerb across the
+     mouth of a road is a kerb nobody can drive over. */
+  const STREET_LAMP_OUT = 2.85;
+  function streetscapeLayout() {
+    const hs = ROUTES.find((r) => r.id === 'high-street');
+    const others = ROUTES.filter((r) => r.id === 'city' || r.id === 'town-road');
+    const clearOfOthers = (x, z) => others.every((r) => nearestOnRoute(r, x, z).distance > ROAD_WIDTH / 2 + 0.3);
+    const inner = ROAD_WIDTH / 2;
+    const north = (q) => {
+      const toLine = (z) => (z - q.z) / q.nz; // distance along +normal to a line of constant z
+      if (q.x >= 32.6 && q.x <= 39.4) return toLine(-31.3) - 0.05; // the City Hall's steps
+      if (q.x >= 29.6) return toLine(-33.1) - 0.05;                 // its podium
+      return Math.min(4.8, toLine(HIGH_STREET_FACE) - 0.05);         // the shops' walls
+    };
+    const south = (q) => {
+      const toLine = (z) => (z - q.z) / -q.nz;
+      if (q.x >= 16.3 && q.x <= 22.4) return toLine(-25.0) - 0.05;  // the pharmacy
+      if (q.x >= 30.2) return toLine(-25.6) - 0.05;                 // the civic square
+      return 4.0;
+    };
+    const runs = (side, outerAt) => {
+      const out = [];
+      let cur = [];
+      hs.samples.forEach((q, i) => {
+        if (i % 4 && i !== hs.samples.length - 1) return;
+        const o = Math.max(inner + 0.5, outerAt(q));
+        const ok = [inner, o].every((d) => clearOfOthers(q.x + q.nx * side * d, q.z + q.nz * side * d));
+        if (ok) cur.push([q.x, q.z, q.nx, q.nz, o]);
+        else { if (cur.length > 1) out.push(cur); cur = []; }
+      });
+      if (cur.length > 1) out.push(cur);
+      return out.map((pts) => ({ pts, side, inner, outer: 4 }));
+    };
+    const at = (x, side, d = STREET_LAMP_OUT) => {
+      let q = hs.samples[0];
+      for (const c of hs.samples) if (Math.abs(c.x - x) < Math.abs(q.x - x)) q = c;
+      return { x: q.x + q.nx * side * d, z: q.z + q.nz * side * d, q };
+    };
+    /* Where a lamp can stand on the north pavement was measured, not
+       chosen: the same flood the High Street test walks, run with a lamp
+       added at every fifth of a unit along the kerb. Between x 8 and 20 the
+       cafés' and the restaurant's tables leave exactly one way along the
+       pavement — the lane between the tables and the kerb — and a lamp
+       anywhere there closes it. The first layout put lamps at the party
+       walls, which is where they look right, and two of them stood in that
+       lane. So the north lamps are where the pavement has room for them,
+       the terraces are lit by their own windows and by lamps on the south
+       pavement opposite, and the crossing is at x 20.4, the nearest point
+       past the terraces where its beacon leaves the way open. */
+    const lamp = (x, side, group) => {
+      const p = at(x, side);
+      // The basket's bracket faces the road.
+      return { x: p.x, z: p.z, yaw: side > 0 ? 0 : Math.PI, group };
+    };
+    const lamps = [
+      /* Not nearer the square than 4.4: the city road ends in the square
+         on High Street's line, and a lamp at 1.4 stood 2.03 from it. */
+      ...[4.4, 23.4, 29.9].map((x) => lamp(x, 1, 'north')),
+      { x: 40.5, z: -31.4, yaw: 0, group: 'hall' },
+      ...[13.0, 16.9, 22.4].map((x) => lamp(x, -1, 'south')),
+      ...[34.6, 37.4].map((x) => lamp(x, -1, 'square')),
+      { x: -3.0, z: -33.3, yaw: 0, group: 'old-square' },
+    ];
+    /* Two zebra crossings: from the pharmacy's side to Hardware & Feed's,
+       and from the civic square to the City Hall. */
+    const crossings = [20.4, 31.2].map((x) => {
+      const { q } = at(x, 1, 0);
+      return { x: q.x, z: q.z, dx: -q.nz, dz: q.nx, width: ROAD_WIDTH };
+    });
+    /* Bunting strung from lamp to lamp along the north side, high enough
+       that the long span over the café terraces clears their parasols: a
+       pennant's tip at the bottom of the sag is at 2.6, the parasols' tops
+       at 2.44. */
+    const northLamps = lamps.filter((l) => l.group === 'north');
+    const bunting = [];
+    for (let i = 0; i < northLamps.length - 1; i += 1) {
+      const a = northLamps[i];
+      const b = northLamps[i + 1];
+      bunting.push([[a.x, 3.45, a.z], [b.x, 3.45, b.z], 0.5, `north-${i}`]);
+    }
+    return { strips: [...runs(1, north), ...runs(-1, south)], lamps, crossings, bunting };
+  }
+
   /* The shopfronts, the City Hall, the Police Station and the civic square,
      built here and now, while the scene is being set up, rather than once
      the kit blocks behind the shops have landed. None of it needs them —
@@ -3468,6 +3564,8 @@ ${shader.fragmentShader.replace(
      corners, which is the order that matters. */
   let streetReport = null;
   let civicBuilt = null;
+  let streetMaterial = null;
+  let streetscape = null;
   /* The town's small things — café chairs, parasols, planters, benches,
      flower beds — drawn only when the camera is close enough to see them.
      From the farm the town is forty to fifty-five units off, behind fog
@@ -3488,8 +3586,19 @@ ${shader.fragmentShader.replace(
     object.updateMatrixWorld(true);
     TOWN_DETAIL.push({ object, box: new THREE.Box3().setFromObject(object) });
   };
-  function syncTownDetail() {
-    for (const d of TOWN_DETAIL) d.object.visible = d.box.distanceToPoint(camera.position) < TOWN_DETAIL_RANGE;
+  /* The town after dark: the lamps come on through dusk, and the shops'
+     windows and the City Hall's — lit from inside all day, faintly — come
+     up with them. */
+  function syncTownNight(now) {
+    if (!streetscape) return;
+    streetscape.update(skyNight, now / 1000);
+    const { lit } = streetscape.state();
+    if (streetMaterial) streetMaterial.emissiveIntensity = 0.55 + lit * 0.9;
+    if (civicBuilt) civicBuilt.materials.atlas.emissiveIntensity = 0.5 + lit * 1.0;
+  }
+
+  function syncTownDetail(from = camera.position) {
+    for (const d of TOWN_DETAIL) d.object.visible = d.box.distanceToPoint(from) < TOWN_DETAIL_RANGE;
   }
   const streetBuilt = (() => {
     try {
@@ -3499,6 +3608,7 @@ ${shader.fragmentShader.replace(
       scene.add(casts(built.object));
       SOLIDS.boxes.push(...built.solids);
       streetReport = built.report;
+      streetMaterial = built.material;
       built.detail.forEach(addTownDetail);
 
       const civic = buildCivic({ ...CIVIC, anisotropy });
@@ -3508,11 +3618,74 @@ ${shader.fragmentShader.replace(
       SOLIDS.posts.push(...civic.posts);
       civic.detail.forEach(addTownDetail);
       civicBuilt = civic;
+
+      const street = buildStreetscape({ ...streetscapeLayout(), anisotropy });
+      street.object.traverse((o) => { if (o.material) o.material.toneMapped = false; });
+      scene.add(street.object);
+      SOLIDS.boxes.push(...street.solids);
+      street.detail.forEach(addTownDetail);
+      streetscape = street;
     } catch (err) {
       console.warn('farm: the High Street did not build', err);
     }
     return Promise.resolve();
   })();
+
+  /* The five High Street blocks, and the two police cars, each merged into
+     one mesh once they have loaded. Each block is its own draw call
+     otherwise, and each police car six — one per wheel, a body and a
+     grille. The tint each block was given rides along as a vertex colour,
+     so one material draws the whole terrace in its five colours. Their
+     solids were measured off the loaded models already, and stay. */
+  const TOWN_MERGED = {};
+  dressed.then(() => {
+    for (const key of ['town-blocks', 'police-cars']) {
+      const sources = scene.children.filter((o) => o.userData.merge === key);
+      if (!sources.length) continue;
+      const byMap = new Map();
+      for (const src of sources) {
+        src.updateMatrixWorld(true);
+        src.traverse((m) => {
+          if (!m.isMesh) return;
+          const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+          let g = m.geometry.clone().applyMatrix4(m.matrixWorld);
+          if (g.index) g = g.toNonIndexed();
+          for (const name of Object.keys(g.attributes)) {
+            if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+          }
+          const n = g.getAttribute('position').count;
+          if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+          const colour = new Float32Array(n * 3);
+          for (let i = 0; i < n; i += 1) colour.set([mat.color.r, mat.color.g, mat.color.b], i * 3);
+          g.setAttribute('color', new THREE.BufferAttribute(colour, 3));
+          /* Grouped by the kit material, not by texture identity: each of
+             the five blocks is its own glTF file, so each parsed its own
+             copy of the one kit texture, and grouping by the copy merged
+             nothing. Within one group they are all the same kit. */
+          const k = `${mat.name}:${mat.map ? 'map' : 'none'}`;
+          if (!byMap.has(k)) byMap.set(k, { mat, parts: [] });
+          byMap.get(k).parts.push(g);
+        });
+        scene.remove(src);
+      }
+      const meshes = [];
+      for (const { mat, parts } of byMap.values()) {
+        const merged = new THREE.MeshStandardMaterial({
+          name: key, map: mat.map, vertexColors: true,
+          roughness: mat.roughness, metalness: mat.metalness,
+        });
+        merged.toneMapped = false;
+        const mesh = new THREE.Mesh(mergeGeometries(parts, false), merged);
+        for (const g of parts) g.dispose();
+        mesh.name = key;
+        scene.add(casts(mesh));
+        meshes.push(mesh);
+      }
+      // The police cars are small and forty-eight units from the farm.
+      if (key === 'police-cars') meshes.forEach(addTownDetail);
+      TOWN_MERGED[key] = { sources: sources.length, meshes: meshes.length };
+    }
+  });
 
   const signed = dressed.then(() => {
     const taken = [];
@@ -6915,6 +7088,45 @@ ${lit}`;
       placeCar();
       return true;
     },
+    /* The streets, as built, and the town's lights as they are this frame. */
+    streetscape: () => streetBuilt.then(() => streetscape && JSON.parse(JSON.stringify(streetscape.report))),
+    townLights: () => (streetscape ? {
+      ...streetscape.state(),
+      shops: streetMaterial?.emissiveIntensity ?? null,
+      civic: civicBuilt?.materials.atlas.emissiveIntensity ?? null,
+    } : null),
+    /* The same, asked of a given hour and second rather than this frame's:
+       the beacons blink once a second, and a test that wanted to see both
+       halves of a blink would otherwise be timing frames on a rasteriser
+       that draws four a second. The next frame puts the real hour back. */
+    townLightsAt: (night, t) => {
+      if (!streetscape) return null;
+      streetscape.update(night, t);
+      return streetscape.state();
+    },
+    townMerged: () => dressed.then(() => ({ ...TOWN_MERGED })),
+    /* What a frame costs from a given place, looking at a given point:
+       rendered once from a camera put there, with the town's detail decided
+       for that camera, then everything put back. How a test holds the town
+       to the same draw budget as the farm without driving to it. */
+    drawCostFrom: (position, target) => {
+      const cam = camera.clone();
+      cam.position.set(...position);
+      cam.lookAt(...target);
+      cam.updateMatrixWorld();
+      /* renderer.info is reset once a frame, not per render (see where
+         autoReset is turned off), so this render is measured from a reset
+         of its own and the frame's figures are put back after it. */
+      const frame = { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+      syncTownDetail(cam.position);
+      renderer.info.reset();
+      renderer.render(scene, cam);
+      const cost = { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+      syncTownDetail();
+      renderer.info.render.calls = frame.calls;
+      renderer.info.render.triangles = frame.triangles;
+      return cost;
+    },
     // Which of the town's small things are being drawn this frame.
     townDetail: () => TOWN_DETAIL.map((d) => ({ name: d.object.name, visible: d.object.visible })),
     alight: () => leaveCar(),
@@ -7330,7 +7542,13 @@ ${lit}`;
       scene.traverse((obj) => {
         if (!obj.isMesh) return;
         for (const mat of [obj.material ?? []].flat()) {
-          if (mat.isMeshBasicMaterial && mat.map) facts.unlit.push(mat.name || obj.name);
+          /* Additive materials are exempt: they are light, not surfaces —
+             the pools a street lamp throws on the paving — and the sun has
+             no business shading them. What this is here to catch is a model
+             that declared itself unlit and came out noon-bright at night. */
+          if (mat.isMeshBasicMaterial && mat.map && mat.blending !== THREE.AdditiveBlending) {
+            facts.unlit.push(mat.name || obj.name);
+          }
           if (mat.metalness === 1 && !mat.metalnessMap) facts.metallic.push(mat.name || obj.name);
           if (mat.name === 'grass' && !facts.grass) facts.grass = `#${mat.color.getHexString()}`;
           /* Roughness by material name. Every kit ships these at 1, which is
@@ -7544,6 +7762,7 @@ ${lit}`;
     advanceCar(dt);
     // The town clock keeps the farm's time, and the flag moves.
     civicBuilt?.update(bridge.daySkyState().phase, now / 1000);
+    syncTownNight(now);
     syncTownDetail();
 
     /* Nothing drawn while the context is gone, and none of the per-frame

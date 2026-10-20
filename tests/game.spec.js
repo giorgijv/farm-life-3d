@@ -8423,6 +8423,111 @@ test.describe('Farm City: the City Hall and the Police Station', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Farm City: the streets, after dark, and what the town costs          */
+/* ------------------------------------------------------------------ */
+
+test.describe('Farm City: the streets, after dark, and what the town costs', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+
+  test('High Street has pavements, lamps and crossings, none of them in the road', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const st = await s.streetscape();
+      const net = s.roadNetwork();
+      const gap = (b) => Math.min(...net.flatMap((n) => n.pts.map(([x, z]) => Math.hypot(
+        Math.max(b.minX - x, 0, x - b.maxX), Math.max(b.minZ - z, 0, z - b.maxZ),
+      ))));
+      const boxes = s.solids().boxes.filter((b) => b.id === 'street-lamp' || b.id === 'beacon');
+      return {
+        st,
+        lamps: boxes.filter((b) => b.id === 'street-lamp').length,
+        beacons: boxes.filter((b) => b.id === 'beacon').length,
+        nearest: Math.min(...boxes.map(gap)),
+        carStopped: net.flatMap((n) => n.pts).filter(([x, z]) => s.carBlockedAt(x, z)).length,
+      };
+    });
+    // Pavement on both sides of the street, broken where the other roads come in.
+    expect(r.st.strips.filter((p) => p.side > 0).length).toBeGreaterThanOrEqual(1);
+    expect(r.st.strips.filter((p) => p.side < 0).length).toBeGreaterThanOrEqual(2);
+    expect(r.lamps).toBeGreaterThanOrEqual(10);
+    expect(r.st.crossings).toHaveLength(2);
+    // A beacon either side of each crossing.
+    expect(r.beacons).toBe(4);
+    // Solid, and standing on the pavement rather than in the carriageway.
+    expect(r.nearest).toBeGreaterThan(2.5);
+    expect(r.carStopped).toBe(0);
+    // The pavement sits below the stone step at every shop door, 0.08.
+    expect(r.st.kerb.pavement).toBeLessThan(0.08);
+  });
+
+  test('the lamps come on at dusk, and the windows brighten with them', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const at = (phase) => page.evaluate(async (p) => {
+      state.dayElapsedMs = p * 90_000;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return window.Farm3DScene.townLights();
+    }, phase);
+    // Noon, and midnight: phase 0 and a half.
+    const noon = await at(0);
+    const night = await at(0.5);
+    expect(noon.lit).toBeLessThan(0.05);
+    expect(noon.pools).toBeLessThan(0.05);
+    expect(night.lit).toBeGreaterThan(0.9);
+    expect(night.glass).toBeGreaterThan(noon.glass * 5);
+    expect(night.pools).toBeGreaterThan(0.5);
+    expect(night.shops).toBeGreaterThan(noon.shops);
+    expect(night.civic).toBeGreaterThan(noon.civic);
+  });
+
+  test('the beacons at the crossings blink, day and night', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      return [[0, 10.2], [0, 11.2], [1, 10.2], [1, 11.2]].map(([n, t]) => s.townLightsAt(n, t).beacon);
+    });
+    // Lit one second, dim the next, whatever the hour.
+    expect(Math.abs(r[0] - r[1])).toBeGreaterThan(1);
+    expect(Math.abs(r[2] - r[3])).toBeGreaterThan(1);
+  });
+
+  test('the shop blocks and the police cars are drawn as one mesh each', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const merged = await page.evaluate(() => window.Farm3DScene.townMerged());
+    expect(merged['town-blocks']).toEqual({ sources: 5, meshes: 1 });
+    expect(merged['police-cars']).toEqual({ sources: 2, meshes: 1 });
+  });
+
+  test('the town holds to the same draw budget as the farm, from inside it', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.foliageReady());
+    /* Down High Street, at the City Hall from its square, at the Police
+       Station from the old square, and over the whole town from above the
+       farm's north fence. The ceilings are the farm's: 300 calls, 100,000
+       triangles. */
+    const views = [
+      [[12, 5.5, -21.5], [12, 4.2, -36]],
+      [[36, 3.5, -21.5], [36, 6.5, -36]],
+      [[-3, 3.2, -30], [-8, 2.8, -37.5]],
+      [[10, 22, 0], [18, 2, -33]],
+    ];
+    for (const [pos, target] of views) {
+      const cost = await page.evaluate(([p, t]) => window.Farm3DScene.drawCostFrom(p, t), [pos, target]);
+      expect(cost.calls, `calls from ${pos}`).toBeLessThanOrEqual(300);
+      expect(cost.triangles, `triangles from ${pos}`).toBeLessThanOrEqual(100_000);
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* Smoke                                                               */
 /* ------------------------------------------------------------------ */
 

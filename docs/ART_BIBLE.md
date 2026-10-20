@@ -4401,6 +4401,115 @@ still built the town mid-play. That margin is thin, and Step 4,
 which is about detail and night, has to pay for what it adds out of it.
 With the town in view the frame costs 41 to 65 draw calls.
 
+
+## 44. Farm City, step four: the streets, the night, and the bill
+
+Step 4 was meant to be detail, night and performance. In the event Step 3
+paid most of the performance bill: anisotropic filtering, distance culling
+and up-front shader compilation are all recorded in §43. What was left was
+the streets themselves, the town after dark, and two merges.
+
+### The streets
+
+`streetscape.js` builds what is between the buildings.
+
+- **Pavements and kerbs.** High Street gets stone paving out from a
+  kerb at the carriageway's edge. On the north side it runs to the shop
+  walls; on the south it is two metres wide. It narrows where it has to:
+  at the City Hall's steps, the pharmacy's front and the civic square's
+  edge. It is built from High Street's own samples, so it follows the bend
+  into the square. It breaks wherever another road comes in, because a kerb
+  across the mouth of a road is a kerb nobody can drive over. The paving
+  sits at 0.075, under the 0.08 top of the stone step at every shop door:
+  laid over it, it would have buried them.
+- **Street lamps.** Victorian, with a moulded base, a fluted post, a gold
+  collar, a four-paned lantern under a pyramid roof, and a hanging basket of
+  flowers on a bracket towards the road.
+- **Two zebra crossings**, with a Belisha beacon at each end — a black and
+  white banded pole and an amber globe that blinks once a second, day and
+  night, as real ones do.
+- **Bunting** strung from lamp to lamp along the shops.
+
+### Where a lamp can stand was measured
+
+The first layout put the north side's lamps at the party walls between
+shops, which is where they look right. Two of them closed the pavement. The
+High Street test that floods the north pavement from the square to Hardware
+& Feed stopped at x 9.6. Between x 8 and 20 the cafés' and the restaurant's
+tables leave exactly one way along the pavement — the lane between the
+tables and the kerb — and a lamp at the kerb anywhere there fills it.
+
+Rather than move lamps one at a time until the test passed — the method
+§40 recorded as the mistake — the flood was run with a lamp added at every
+fifth of a unit along the kerb. A lamp keeps the pavement open between
+x −0.4 and 8, between 20.2 and 24.8, and past 27, and nowhere else; a
+beacon the same, give or take. So the north lamps stand at 4.4, 23.4 and
+29.9. The terraces are lit by their own windows and by three lamps on the
+south pavement opposite. The crossing moved from x 19.6 to 20.4, the
+nearest point past the terraces where its beacon leaves the way open. The
+chosen set was flooded together before it was written in.
+
+One more came out of the road test. A lamp at x 1.4, where High Street
+bends into the square, stood 2.03 from the city road's end, which comes
+into the square right there. It is at 4.4.
+
+### At night
+
+The lamps come on through dusk, the way the yard's lamps do, rather than at
+a switch. None of them is a light. A forward renderer pays for every light
+on every pixel, so a dozen lamps would be a dozen lights. Instead the glass
+glows (and blooms where bloom is affordable), and each lamp throws a pool
+of warm light on the paving: a soft disc drawn additively, faded in as the
+glass comes up. The shop windows and the City Hall's — lit from inside all
+day, faintly — come up with them, and the clock's dials are lit.
+
+The pools are the one unlit, textured material in the scene on purpose, and
+the full run said so: the check that nothing is accidentally unlit — written
+for kit characters that declare themselves unlit and stay noon-bright at
+midnight — flagged them. They are light, not a surface, so the check now
+passes additive materials and still catches what it was written for.
+
+The tests set the farm's clock to noon and midnight and read the lights.
+For the beacons they ask for the state at a chosen second, because a
+blink seen by timing frames on a rasteriser drawing four a second would
+be a coin toss.
+
+### The two merges
+
+The five High Street blocks were five draw calls. The two police cars were
+twelve: the kit's car is six meshes, one per wheel, a body and a grille.
+Once loaded, each set is baked into one mesh, and the tint each block was
+given rides along as a vertex colour, so one material draws the terrace
+in its five colours. The first attempt merged nothing. Each block is its
+own glTF file, so each parsed its own copy of the one kit texture, and
+grouping by the texture object found five groups of one. They are grouped
+by the kit material now. The solids were measured off the loaded models
+and are unchanged.
+
+### The bill
+
+Measured after, against the ceilings of 300 calls and 100,000 triangles:
+
+- **The farm's worst case**: 263 to 264 calls and about 93,900 triangles,
+  level with Step 3, with the streets added. The merges paid for them.
+- **Inside the town**: 15 to 25 calls and 30,000 to 38,000 triangles, down
+  High Street, at the City Hall and at the Police Station. **From above the
+  farm, looking at the whole town**: 63 calls and 92,500 triangles. That is
+  the view nearest the ceiling, and a test now holds all four to it.
+  `drawCostFrom` renders the frame from a camera put there, with the town's
+  detail decided for that camera. Its first version reported 161,000 from
+  inside the town. That was this frame and the previous one together:
+  `renderer.info` is reset once a frame here, not per render. It resets for
+  its own render now and puts the frame's figures back.
+- **The phone's view**: 5.2 to 5.3 frames a second on the software
+  rasteriser, which is Step 1's figure. Before the anisotropy fix in §43
+  it was 4.5.
+
+### Left for Step 5
+
+Renaming City to Farm City in the interface and the help panel, and the
+last of the documentation.
+
 ---
 
 ## Verified, not assumed
