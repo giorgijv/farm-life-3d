@@ -6741,7 +6741,11 @@ test.describe('the tool merchants are in the city', () => {
     await new Promise((resolve) => {
       const tick = () => {
         const c = s.car();
-        const there = s.atCity() || Math.hypot(c.x - shop.x, c.z - shop.z) < shop.radius * 0.5
+        /* Well inside the counter's reach, not at its edge: the counter
+           opens the moment the car crosses 6.5 from the shop, and a car
+           stopped there on the first frame it is open can coast back out on
+           the next. The town road's end is 5.3 from the shop. */
+        const there = Math.hypot(c.x - shop.x, c.z - shop.z) < shop.radius * 0.6
           || (chain[leg] === 'town-road' && s.onRoute('town-road', c.x, c.z).along > 0.97);
         /* Braked to a stop once there, rather than let go: at the frame
            rate CI renders at, a car let go at speed in front of the shop
@@ -6774,7 +6778,13 @@ test.describe('the tool merchants are in the city', () => {
         };
         const err = wrap(Math.atan2(near.x - c.x, near.z - c.z) - c.heading);
         const bend = Math.abs(wrap(Math.atan2(far.x - c.x, far.z - c.z) - c.heading));
-        const pace = bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1);
+        /* Never more than six-tenths of full speed on this drive, the
+           longest in the suite. At the frame rate CI renders at, a car at
+           full speed moves three or four units between frames — further
+           than the point a little ahead it is steering for — and on one run
+           it left the city road on a bend at eleven units a second and spent
+           the rest of the test against the barn. */
+        const pace = Math.min(0.6, bend > 0.45 ? 0.25 : (bend > 0.22 ? 0.6 : 1));
         s.drive(Math.max(-1, Math.min(1, -err * 2.4)), c.speed > pace * 12 ? 0.35 : -1);
         requestAnimationFrame(tick);
       };

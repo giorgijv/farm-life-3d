@@ -4505,6 +4505,19 @@ Measured after, against the ceilings of 300 calls and 100,000 triangles:
   rasteriser, which is Step 1's figure. Before the anisotropy fix in §43
   it was 4.5.
 
+### What CI caught
+
+The drive to Hardware & Feed failed both attempts on one shard. A trail of
+the car every three seconds, recorded under the same load here, showed two
+ways for it to fail. One run left the city road on a bend at eleven units a
+second — at CI's frame rate a car at full speed moves three or four units
+between frames, further than the point it steers for — and spent the rest
+of the test against the barn. Another stopped the moment the tool counter
+opened, which is at the edge of the counter's reach, and could coast back
+out. The drive is held to six-tenths of full speed now, and it stops well
+inside the counter's reach or at the town road's end, never at its edge.
+Ten runs in ten under load.
+
 ### Left for Step 5
 
 Renaming City to Farm City in the interface and the help panel, and the
