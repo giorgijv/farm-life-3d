@@ -141,9 +141,20 @@ wall. There are baskets on a table, garlic and herbs on a rail, sacks of
 potatoes, and a counter with a brass scale, a till and the shopkeeper
 behind it. The chalkboard over the counter shows what the market pays for
 each crop. The lamps light the room after dark, and walking back out
-through the door puts her on the pavement outside. The other shops are
-still seen from outside only. **Hardware & Feed is where the tools are
-sold**: drive up and stop outside it.
+through the door puts her on the pavement outside.
+
+**Hardware & Feed is where the tools are sold, over its counter.** Walk in
+the same way and up to the long dark counter at the back. Standing there
+opens the shop, and the "See the tools for sale" prompt brings up the Farm
+City tab; step away and it is shut again. Parking outside is no longer
+shopping. Down the middle of the shop, the six things only it sells are on
+show: a sprinkler, a sack of rich feed, a can of fertiliser, an order book
+of market contacts, a model tractor and a pesticide sprayer. Each has a
+card with a gold pip for every level the farm has bought, and SOLD OUT
+across it once all three are. There is a pegboard of tools down one wall,
+feed sacks and hay bales down the other, a wheelbarrow and watering cans in
+the window, and the stock on shelves behind the counter under the shop's
+board. The other four shops are still seen from outside only.
 
 High Street ends at the **City Hall**: a stone building on a podium, six
 columns under a pediment with the town's wheat-sheaf in it, and a clock
@@ -161,7 +172,7 @@ with them. The two shops are deliberately not the same shop:
 - **The market village**, south, trades farming goods. It buys your harvest
   and it sells the barns you keep it in.
 - **Farm City**, north, sells the equipment that makes the farm better, on
-  its own tab and at Hardware & Feed —
+  its own tab and over Hardware & Feed's counter —
   sprinklers, feed, fertiliser, contacts, and two things you can only get in
   town: a **tractor** that takes 15% a level off the time it takes to cross
   the farm, and **pesticide** that keeps a ripe crop standing 25% a level
@@ -521,7 +532,7 @@ unit tall, that every shopfront faces High Street across a pavement, that
 every shop stands on level ground and none of them can be walked into, that
 the north pavement stays passable past every table and that nothing she
 walks under is lower than her head, that she can walk up to every shop's
-door from the street, that the tools are sold at Hardware &
+door from the street, that the tools are sold inside Hardware &
 Feed and not in the square, that the City Hall and the Police Station stand
 on level ground and cannot be walked into, that the City Hall's clock hands
 show the farm's time, that it closes the east end of High Street and faces
@@ -535,13 +546,17 @@ with the windows brightening alongside, that the crossings' beacons blink,
 that the shop blocks and the police cars are merged into one mesh each,
 and that the town holds to the farm's draw budget from inside it, that a
 car parked just short of the town or the farm can be walked back to, that
-the Greengrocer's door is offered from the pavement and takes her in by the
-prompt or by walking on into it, that every part of its floor can be
-reached from the door with nothing solid walked through, that the camera
-inside frames the whole room on a desktop and on a phone, that walking out
-of the door brings her back onto High Street, that inside only the room is
-drawn, that the farm's errands wait while she is in the shop, and that its
-lamps light it after dark and its shopkeeper knows the time of day, that
+each shop that opens — the Greengrocer and Hardware & Feed — is offered
+from the pavement and takes her in by the prompt or by walking on into its
+door, that every part of each one's floor can be reached from the door with
+nothing solid walked through, that the camera inside frames the whole room
+on a desktop and on a phone, that walking out of the door brings her back
+onto High Street, that inside only the room is drawn, that the farm's
+errands wait while she is in a shop, that each one's lamps light it after
+dark and its shopkeeper knows the time of day, that the tools are sold over
+Hardware & Feed's counter and not on the pavement outside or anywhere else
+in the shop, and that its six cards show the levels the farm has bought,
+that
 she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —

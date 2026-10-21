@@ -4766,6 +4766,116 @@ parts. The room itself is five.
   order the plan set: Hardware & Feed, the Bakery, the Café, the
   Restaurant, the Pharmacy.
 
+## 48. Inside the shops, step two: Hardware & Feed, where the tools are bought
+
+The second shop that opens, and the first with something to do inside.
+
+### The tools are sold over the counter
+
+The tools used to be sold within a circle 6.5 across on the pavement in
+front of Hardware & Feed. Stopping the car outside was the same thing as
+shopping there. With a counter inside, that circle would have made the
+counter furniture. So the circle is gone:
+
+- **The shop is open only while she stands at the counter.** That means
+  the strip along the counter's front, inside the shop. `syncShop` asks
+  the room, and nothing else opens it.
+- **The prompt there says "🔧 See the tools for sale"** and opens the Farm
+  City tab, the same tab and the same rules as before.
+- **A step back and it is shut again**, with the note above the list
+  saying where to go: "Walk into Hardware & Feed on Farm City's High
+  Street and up to its counter to buy this".
+- **The test hook now describes the counter.** `toolShop()` returns the
+  counter strip as a world rectangle. The test that used to hold the
+  circle to the shop's front now holds the counter inside the block's
+  walls.
+- **The drive test walks in.** "The two shops are separate places" used
+  to drive into the circle and buy. It now parks, gets out, goes in and up
+  to the counter first.
+
+### The room
+
+7.2 by 7.3 inside, with the door in the middle of the frontage. The walls
+are ochre over brown matchboard.
+
+- **The way in** is a straight two-unit aisle from the door to the
+  counter.
+- **The windows** either side of the door hold a wheelbarrow, watering
+  cans and a stack of pots on one side, and a barrel of tool handles,
+  buckets and a coil of hose on the other.
+- **The counter** runs across the back, dark wood, with a bin of grain at
+  one end and a flap at the other. On it are a till, a scale for nails, a
+  bell and brown paper on a roll. Behind it are three shelves of stock
+  under a board that reads "HARDWARE & FEED · EST. 1902", and the
+  shopkeeper in a khaki coat and the shop's red apron.
+- **The left wall** has a pegboard of rakes, forks, spades, a saw and a
+  hammer over a bench of paint tins and a rack of seed packets.
+- **The right wall** has feed sacks on a pallet, printed side to the
+  aisle, and hay bales.
+- **The two islands** down the middle carry the six things only this shop
+  sells:
+
+  | Upgrade | On show as |
+  |---|---|
+  | Sprinkler | A sprinkler and its hose |
+  | Rich Feed | A sack of it |
+  | Fertiliser | A green can |
+  | Market Contacts | An order book on a lectern, with a card file |
+  | Tractor | A model tractor |
+  | Pesticide | A knapsack sprayer |
+
+  The cards are read from the game's own upgrade table, in the order the
+  Farm City tab lists them, so a line added there is a card added here.
+
+### The cards show what the farm has bought
+
+Each line has a card leaning back on its island towards the camera, with
+its name and three sockets. A gold pip fills a socket for each level the
+farm has bought, and a red SOLD OUT band crosses the card when all three
+have been.
+
+They are two instanced meshes, one for every pip in the shop and one for
+every band. A hidden one is scaled to nothing, so buying a level changes a
+matrix, not the scene. The room is told the farm's levels on every frame
+it is drawn, and it only touches the matrices when they have changed.
+
+### What the screenshots found
+
+- **The ceiling beams crossed the islands.** The first room had two beams
+  running back from the street. From the dollhouse camera they were dark
+  bars laid straight across the islands, the one part of the room that
+  has to be read. They were taken out, and the lamps hang on cords.
+- **The six lines and their cards were too small to read.** At a shop's
+  real sizes the items were a handful of pixels from the camera, and the
+  cards were half a unit across. Each item is now built at its own size
+  and scaled by half again about the spot it stands on. The cards are
+  0.62 across, as wide as the island.
+- **The lamps hid what they were hung over.** From out over the pavement,
+  56 degrees up, a shade 2.17 off the floor hides her head at 0.4 behind
+  it and her feet at 1.5. Over the islands the lamps hid the displays.
+  When they were moved to the aisle, the second one was in front of the
+  counter and hid her at the till. They now hang at 1.9 and 3.1 into the
+  aisle, so what they hide is aisle floor.
+- **A flood fill's last row was off the floor.** The new test that floods
+  every room from its door found "fenced" floor in Hardware & Feed, along
+  the very front. The grid had rounded its last row 0.01 past the walk's
+  front edge. It is rounded down now, and both rooms are clear.
+
+### Measured
+
+| | Draw calls | Triangles |
+|---|---|---|
+| Inside Hardware & Feed, by day | 83 | 12,010 |
+| Inside the Greengrocer, by day | 80 | 15,128 |
+| The street, from the pavement outside | 25 | 38,220 |
+
+### Still open
+
+- **The four other shops** are painted doors still: the Bakery, the Café,
+  the Restaurant and the Pharmacy.
+- **The interiors cannot be seen through the shop windows**, as §47
+  recorded.
+
 ---
 
 ## Verified, not assumed

@@ -1542,7 +1542,7 @@ function helpSections() {
       emoji: '🏙️', title: 'Farm City',
       lines: [
         'North past the orchard, at the end of the longest drive on the map, is a '
-        + 'town, Farm City, whose Hardware & Feed sells the tools. Going is optional; the whole game '
+        + 'town, Farm City, whose Hardware & Feed sells the tools over its counter. Going is optional; the whole game '
         + 'can be farmed without ever driving up there.',
         `${UPGRADE_ORDER.length} permanent upgrades give late-game coins somewhere to go: `
         + 'faster crops, faster animals, bigger harvests, better prices, a tractor '
@@ -2382,6 +2382,7 @@ function promptLabel(target) {
   /* A shop's door, and the way back out of it. */
   if (target.type === 'enter') return `🚪 Go into the ${target.name}`;
   if (target.type === 'leave') return '🚪 Back out to High Street';
+  if (target.type === 'counter') return '🔧 See the tools for sale';
   if (target.type === 'plot') return PLOT_PROMPT[target.intent]?.() ?? '';
   const def = ANIMALS[target.kind];
   return target.intent === 'collect'
@@ -2438,6 +2439,9 @@ function runPrompt() {
   if (target.type === 'park') return !!window.Farm3DScene?.alight();
   if (target.type === 'enter') return !!window.Farm3DScene?.enter(target.id);
   if (target.type === 'leave') return !!window.Farm3DScene?.leave();
+  /* At Hardware & Feed's counter: the tools are on the Farm City tab, and
+     standing here is what opens it for buying. */
+  if (target.type === 'counter') { setActiveTab('city'); return true; }
   if (target.type === 'plot') {
     const kind = plotIntent(target.plot);
     if (!kind) return false;
@@ -2468,6 +2472,8 @@ document.getElementById('actionPrompt')?.addEventListener('click', runPrompt);
 window.Farm3DBridge = {
   PLOT_COUNT,
   CROPS,
+  UPGRADES,
+  UPGRADE_ORDER,
   getState: () => state,
   getActiveTab: () => activeTab,
   plotProgress,
@@ -2542,8 +2548,8 @@ window.Farm3DBridge = {
      interface asks for. */
   /* The city's counterpart to setMarketOpen. Re-renders on the City tab for
      the same reason the market one does: the buttons carry the reason they
-     are disabled, and a tab the player is already looking at when the car
-     pulls up outside Hardware & Feed has to change under them. */
+     are disabled, and a tab the player is already looking at when she
+     walks up to Hardware & Feed's counter has to change under them. */
   setCityOpen(open) {
     if (open === cityOpen) return;
     cityOpen = open;
@@ -3333,8 +3339,8 @@ let cityOpen = true;
 const SHUT_SHORT = '🚗 At the market';
 const SHUT_LONG = 'Drive the car to the market to buy this — selling works from the farm.';
 const CITY_SHORT = '🏙️ Farm City';
-const CITY_LONG = 'Drive to Hardware & Feed on Farm City\'s High Street to buy this — '
-  + 'the tools are sold there, not at the farm.';
+const CITY_LONG = 'Walk into Hardware & Feed on Farm City\'s High Street and up to its '
+  + 'counter to buy this — the tools are sold there, not at the farm.';
 
 function shopRefusal() {
   SFX.error();

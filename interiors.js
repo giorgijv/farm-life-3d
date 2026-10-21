@@ -96,6 +96,21 @@ const PAINT = {
   herb: '#4f8a3c',
   shade: '#3f7550',
   cord: '#26211d',
+  galv: '#a7adb0',
+  galvDark: '#7d8487',
+  hose: '#3e8a3a',
+  terracotta: '#b65a3a',
+  hay: '#d8b85a',
+  hayDark: '#a98a3a',
+  tyre: '#262626',
+  tractorRed: '#b8262b',
+  tractorYellow: '#e8c43a',
+  jerryGreen: '#2f6b35',
+  sprayYellow: '#e3b72a',
+  rope: '#c2a26a',
+  boxRed: '#c84a3f',
+  boxBlue: '#3f6fa8',
+  wheat: '#d9b45a',
 };
 
 /* -------------------------------------------------------------------- */
@@ -370,18 +385,176 @@ const DRAW = {
     fit(ctx, spec.name.toUpperCase(), 22, c.w - 10, SERIF);
     ctx.fillText(spec.name.toUpperCase(), c.x + c.w / 2, c.y + c.h * 0.55);
   },
+
+  /* Hardware & Feed's board over the shelves behind its counter. */
+  signboard(ctx, c, spec) {
+    ctx.fillStyle = spec.colours.paint;
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.strokeStyle = '#c9a227';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(c.x + 6, c.y + 6, c.w - 12, c.h - 12);
+    ctx.fillStyle = '#f1e2b8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const text = `${spec.name.toUpperCase()}  ·  EST. 1902`;
+    fit(ctx, text, 54, c.w - 60, SERIF);
+    ctx.fillText(text, c.x + c.w / 2, c.y + c.h / 2 + 2);
+  },
+  // Brown hardboard with its grid of holes.
+  pegboard(ctx, c) {
+    ctx.fillStyle = '#8a6340';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#4a3220';
+    for (let y = c.y + 6; y < c.y + c.h; y += 10) {
+      for (let x = c.x + 6; x < c.x + c.w; x += 10) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  },
+  soldout(ctx, c) {
+    ctx.fillStyle = '#b8262b';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#fff6e8';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fit(ctx, 'SOLD OUT', 36, c.w - 20, SANS);
+    ctx.fillText('SOLD OUT', c.x + c.w / 2, c.y + c.h / 2 + 1);
+  },
+  feedsack(ctx, c) {
+    ctx.fillStyle = '#e4d3a8';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = 'rgba(90,70,40,0.15)';
+    for (let k = 0; k < c.w; k += 5) ctx.fillRect(c.x + k, c.y, 1, c.h);
+    ctx.fillStyle = '#9b2d20';
+    ctx.fillRect(c.x, c.y + c.h * 0.18, c.w, c.h * 0.12);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#3d2a17';
+    fit(ctx, 'LAYERS MASH', 28, c.w - 16, SANS);
+    ctx.fillText('LAYERS MASH', c.x + c.w / 2, c.y + c.h * 0.5);
+    ctx.font = `bold 18px ${SANS}`;
+    ctx.fillText('FARM CITY FEED', c.x + c.w / 2, c.y + c.h * 0.74);
+  },
+  /* A plain printed label: [text, ink, ground]. */
+  label(ctx, c, spec, [text, ink, ground]) {
+    ctx.fillStyle = ground;
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fit(ctx, text, 34, c.w - 16, SANS);
+    ctx.fillText(text, c.x + c.w / 2, c.y + c.h / 2 + 1);
+  },
+  // An open order book: ruled pages, names and figures in ink.
+  ledger(ctx, c) {
+    ctx.fillStyle = '#f3ecd8';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#7a5530';
+    ctx.fillRect(c.x + c.w / 2 - 2, c.y, 4, c.h);
+    ctx.fillStyle = 'rgba(60,90,140,0.4)';
+    for (let y = c.y + 18; y < c.y + c.h - 6; y += 11) {
+      ctx.fillRect(c.x + 8, y, c.w / 2 - 16, 1);
+      ctx.fillRect(c.x + c.w / 2 + 8, y, c.w / 2 - 16, 1);
+    }
+    ctx.fillStyle = '#2a2a3a';
+    ctx.font = `italic 11px ${SERIF}`;
+    ctx.textAlign = 'left';
+    const names = ['Market', 'Mill', 'Dairy', 'Baker', 'Inn', 'Grocer', 'Hall', 'Farm'];
+    names.forEach((n, i) => {
+      const left = i < 4;
+      ctx.fillText(n, c.x + (left ? 10 : c.w / 2 + 10), c.y + 16 + (i % 4) * 22);
+    });
+    ctx.font = `bold 13px ${SERIF}`;
+    ctx.fillText('CONTACTS', c.x + 10, c.y + c.h - 10);
+  },
+  // A rack's worth of seed packets, each a flower on its own colour.
+  seeds(ctx, c) {
+    ctx.fillStyle = '#5d3b20';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    const colours = ['#e8c43a', '#d8433b', '#5f8fd0', '#e889b5', '#8cbf3f', '#e8892a'];
+    for (let r = 0; r < 2; r += 1) {
+      for (let k = 0; k < 6; k += 1) {
+        const x = c.x + 6 + k * ((c.w - 12) / 6);
+        const y = c.y + 6 + r * ((c.h - 12) / 2);
+        const w = (c.w - 12) / 6 - 6;
+        const h = (c.h - 12) / 2 - 6;
+        ctx.fillStyle = '#f4efe2';
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = colours[(k + r * 2) % colours.length];
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + h * 0.42, w * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#3f7a3a';
+        ctx.fillRect(x + w / 2 - 1, y + h * 0.55, 2, h * 0.3);
+      }
+    }
+  },
+  /* The card in front of each of the shop's six lines: its name, and three
+     sockets for the gold pips that say how many levels have been bought. */
+  tag(ctx, c, spec, name) {
+    ctx.fillStyle = '#f6efdc';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.strokeStyle = spec.colours.paint;
+    ctx.lineWidth = 6;
+    ctx.strokeRect(c.x + 3, c.y + 3, c.w - 6, c.h - 6);
+    ctx.fillStyle = '#2b1d12';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    fit(ctx, name, 32, c.w - 30, SANS);
+    ctx.fillText(name, c.x + 14, c.y + c.h * 0.34);
+    ctx.font = `bold 16px ${SANS}`;
+    ctx.fillStyle = '#7a5530';
+    ctx.fillText('LEVEL', c.x + 14, c.y + c.h * 0.72);
+    for (const sk of TAG_SOCKETS) {
+      ctx.fillStyle = '#5a4634';
+      ctx.beginPath();
+      ctx.arc(c.x + sk.u * c.w, c.y + (1 - sk.v) * c.h, 11, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
 };
 
-function makeAtlas(spec) {
-  const cells = [
+/* What each shop letters or paints, beyond the swatches every room has.
+   A cell is drawn by DRAW[kind]; `key` names it in the atlas when one kind
+   is drawn more than once, and `arg` is what that copy says. */
+const CELLS = {
+  grocer: () => [
     { kind: 'chalk', w: 512, h: 320 },
     { kind: 'poster', w: 256, h: 320 },
-    { kind: 'mat', w: 256, h: 160 },
     { kind: 'sack', w: 192, h: 160 },
     { kind: 'scale', w: 96, h: 96 },
     { kind: 'till', w: 128, h: 112 },
     { kind: 'bag', w: 128, h: 96 },
-    ...Object.entries({ ...PAINT, paint: spec.colours.paint, trim: spec.colours.trim })
+  ],
+  hardware: (spec) => [
+    { kind: 'signboard', w: 768, h: 96 },
+    { kind: 'pegboard', w: 256, h: 128 },
+    { kind: 'soldout', w: 256, h: 48 },
+    { kind: 'feedsack', w: 192, h: 160 },
+    { kind: 'label', key: 'richfeed', w: 192, h: 96, arg: ['RICH FEED', '#6b3e1f', '#e9d9b0'] },
+    { kind: 'label', key: 'jerry', w: 160, h: 96, arg: ['FERTILISER', '#f1e8cf', '#2f6b35'] },
+    { kind: 'ledger', w: 192, h: 128 },
+    { kind: 'seeds', w: 256, h: 128 },
+    { kind: 'scale', w: 96, h: 96 },
+    { kind: 'till', w: 128, h: 112 },
+    ...spec.upgrades.map((u) => ({ kind: 'tag', key: `tag:${u.id}`, w: 256, h: 112, arg: u.name })),
+  ],
+};
+
+/* Where a tag's three level sockets are drawn, as fractions of the tag
+   across and up — the same numbers place the gold pips on them. */
+const TAG_SOCKETS = [0.64, 0.76, 0.88].map((u) => ({ u, v: 0.3 }));
+
+function makeAtlas(spec) {
+  const cells = [
+    { kind: 'mat', w: 256, h: 160 },
+    ...CELLS[spec.kind](spec),
+    ...Object.entries({
+      ...PAINT, paint: spec.colours.paint, trim: spec.colours.trim,
+      ...(spec.colours.shade ? { shade: spec.colours.shade } : {}),
+    })
       .map(([key, colour]) => ({ kind: 'swatch', key, colour, w: 16, h: 16 })),
   ];
   const WIDTH = 1024;
@@ -408,7 +581,7 @@ function makeAtlas(spec) {
     ctx.rect(c.x, c.y, c.w, c.h);
     ctx.clip();
     if (c.kind === 'swatch') { ctx.fillStyle = c.colour; ctx.fillRect(c.x, c.y, c.w, c.h); }
-    else DRAW[c.kind](ctx, c, spec);
+    else DRAW[c.kind](ctx, c, spec, c.arg);
     ctx.restore();
   }
   const uvOf = (c) => ({
@@ -417,7 +590,7 @@ function makeAtlas(spec) {
     v0: 1 - (c.y + c.h - 0.5) / HEIGHT,
     v1: 1 - (c.y + 0.5) / HEIGHT,
   });
-  const uv = Object.fromEntries(cells.filter((c) => c.kind !== 'swatch').map((c) => [c.kind, uvOf(c)]));
+  const uv = Object.fromEntries(cells.filter((c) => c.kind !== 'swatch').map((c) => [c.key ?? c.kind, uvOf(c)]));
   const swatch = Object.fromEntries(cells.filter((c) => c.kind === 'swatch').map((c) => [c.key, uvOf(c)]));
   return { canvas, uv, swatch, width: WIDTH, height: HEIGHT };
 }
@@ -829,7 +1002,326 @@ function grocer(kit, spec) {
   };
 }
 
-const DESIGNS = { grocer };
+/* -------------------------------------------------------------------- */
+/* Hardware & Feed                                                       */
+/* -------------------------------------------------------------------- */
+
+/* A country ironmonger's: a long dark counter across the back with the
+   stock on shelves behind it and the shop's board over them, a pegboard
+   of tools down one wall, feed and hay stacked down the other, and in the
+   middle the six things this shop is the only place to buy — each on show
+   with a card in front saying how many of its three levels the farm has.
+
+   The room is 7.2 by 7.3 with its door in the middle of the frontage, so
+   the way in is a straight two-unit aisle from the door to the counter,
+   with the two islands of the farm's upgrades either side of it. */
+function hardware(kit, spec) {
+  const { minX, maxX, back } = spec.room;
+  const front = -ROOM.wall;
+  const { block, cylinder, solid } = kit;
+
+  // The window, left of the door: a wheelbarrow, watering cans and pots.
+  block('woodDark', [minX, -0.8], [0, 0.22], [-1.1, front]);
+  solid('window-left', [minX, -0.8], [-1.1, front], 1.0);
+  {
+    const x = -2.55;
+    const z = -0.62;
+    const tray = paint(new THREE.CylinderGeometry(0.34, 0.24, 0.2, 4, 1, true), kit.sw('jerryGreen'));
+    kit.parts.atlas.push(tray.rotateY(Math.PI / 4).scale(1.1, 1, 0.8).translate(x, 0.5, z));
+    block('jerryGreen', [x - 0.24, x + 0.24], [0.39, 0.41], [z - 0.17, z + 0.17]);
+    const wheel = paint(new THREE.CylinderGeometry(0.13, 0.13, 0.05, 12), kit.sw('tyre'));
+    kit.parts.atlas.push(wheel.rotateZ(Math.PI / 2).rotateY(Math.PI / 2).translate(x, 0.35, z + 0.36));
+    for (const sx of [-0.14, 0.14]) {
+      block('wood', [x + sx - 0.015, x + sx + 0.015], [0.4, 0.43], [z - 0.55, z + 0.36]);
+      block('iron', [x + sx - 0.015, x + sx + 0.015], [0.22, 0.4], [z - 0.2, z - 0.17]);
+    }
+  }
+  for (const [x, z, r] of [[-1.55, -0.45, 0.1], [-1.2, -0.75, 0.09], [-1.0, -0.4, 0.08]]) {
+    cylinder('galv', r, r * 1.05, r * 1.8, x, 0.22, z, 10);
+    const spout = paint(new THREE.CylinderGeometry(0.012, 0.02, r * 2.6, 6), kit.sw('galvDark'));
+    kit.parts.atlas.push(spout.rotateZ(-0.9).translate(x + r * 1.3, 0.22 + r * 1.6, z));
+    const handle = paint(new THREE.TorusGeometry(r * 0.7, 0.01, 4, 10, Math.PI), kit.sw('galvDark'));
+    kit.parts.atlas.push(handle.translate(x - r * 0.2, 0.22 + r * 1.8, z));
+  }
+  for (let k = 0; k < 4; k += 1) cylinder('terracotta', 0.11, 0.08, 0.13, -3.25, 0.22 + k * 0.07, -0.5, 10, k < 3);
+
+  // The window, right of the door: a barrel of handles, buckets, hose.
+  block('woodDark', [0.8, maxX], [0, 0.22], [-1.1, front]);
+  solid('window-right', [0.8, maxX], [-1.1, front], 1.0);
+  cylinder('wood', 0.2, 0.18, 0.5, 1.4, 0.22, -0.6, 12);
+  for (const y of [0.32, 0.6]) cylinder('iron', 0.205, 0.205, 0.03, 1.4, y, -0.6, 12);
+  for (let k = 0; k < 5; k += 1) {
+    const a = (k / 5) * Math.PI * 2;
+    const hx = 1.4 + Math.cos(a) * 0.1;
+    const hz = -0.6 + Math.sin(a) * 0.1;
+    block('woodLight', [hx - 0.015, hx + 0.015], [0.5, 1.25 + (k % 2) * 0.12], [hz - 0.015, hz + 0.015]);
+    block(k % 2 ? 'galv' : 'tyre', [hx - 0.08, hx + 0.08], [1.25 + (k % 2) * 0.12, 1.31 + (k % 2) * 0.12], [hz - 0.02, hz + 0.02]);
+  }
+  for (let k = 0; k < 3; k += 1) cylinder('galv', 0.14, 0.11, 0.22, 2.3, 0.22 + k * 0.05, -0.55, 12, true);
+  for (let k = 0; k < 3; k += 1) {
+    const ring = paint(new THREE.TorusGeometry(0.2, 0.025, 5, 14), kit.sw('hose'));
+    kit.parts.atlas.push(ring.rotateX(Math.PI / 2).translate(3.05, 0.25 + k * 0.05, -0.6));
+  }
+
+  // The two islands down the middle, the shop's six lines on them.
+  const islands = [[-2.1, -1.0], [1.0, 2.1]];
+  const iz = [-4.4, -2.0];
+  for (const ix of islands) {
+    block('woodDark', ix, [0, 0.76], iz);
+    block('woodLight', [ix[0] - 0.03, ix[1] + 0.03], [0.76, 0.8], [iz[0] - 0.03, iz[1] + 0.03]);
+  }
+  solid('lines-left', islands[0], iz, 0.9);
+  solid('lines-right', islands[1], iz, 0.9);
+
+  /* The cards lean back towards the camera, and are as big as the island
+     is wide: the first were half a unit across and could not be read from
+     where the camera stands. */
+  const TILT = 0.75;
+  const TAG = { w: 0.62, h: 0.27, d: 0.012 };
+  const up = new THREE.Vector3(0, Math.cos(TILT), -Math.sin(TILT));
+  const normal = new THREE.Vector3(0, Math.sin(TILT), Math.cos(TILT));
+  const slots = spec.upgrades.map((u, i) => {
+    const x = i < 3 ? -1.55 : 1.55;
+    const z = [-2.42, -3.18, -3.94][i % 3];
+    const top = 0.8;
+    /* Each line built at its own size, then half as big again about the
+       spot it stands on: at the size things are in a shop they were a
+       handful of pixels from the camera. */
+    const from = kit.parts.atlas.length;
+    (ITEMS[u.id] ?? ITEMS.generic)(kit, x, top, z - 0.1);
+    for (let g = from; g < kit.parts.atlas.length; g += 1) {
+      kit.parts.atlas[g].translate(-x, -top, -(z - 0.1)).scale(1.5, 1.5, 1.5).translate(x, top, z - 0.1);
+    }
+    // The card, leaning back on the island's top in front of its item.
+    const centre = new THREE.Vector3(x, top + (TAG.h / 2) * Math.cos(TILT), z + 0.36 - (TAG.h / 2) * Math.sin(TILT));
+    const card = labelledBox(TAG.w, TAG.h, TAG.d, { front: kit.A.uv[`tag:${u.id}`], back: kit.sw('woodDark') }, kit.sw('woodDark'));
+    kit.parts.atlas.push(card.rotateX(-TILT).translate(centre.x, centre.y, centre.z));
+    const onCard = (fu, fv, lift) => centre.clone()
+      .addScaledVector(new THREE.Vector3(1, 0, 0), (fu - 0.5) * TAG.w)
+      .addScaledVector(up, (fv - 0.5) * TAG.h)
+      .addScaledVector(normal, TAG.d / 2 + lift);
+    return {
+      id: u.id,
+      max: u.max,
+      pips: TAG_SOCKETS.map((sk) => onCard(sk.u, sk.v, 0.008)),
+      banner: { at: onCard(0.5, 0.62, 0.006), tilt: TILT },
+    };
+  });
+
+  // The counter across the back, with a bin of grain at one end and a
+  // flap at the other.
+  const cx = [-2.8, 2.8];
+  const cz = [-6.0, -5.35];
+  block('woodDark', cx, [0, 0.92], cz);
+  for (let x = cx[0] + 0.12; x < cx[1] - 0.5; x += 0.7) block('wood', [x, x + 0.56], [0.14, 0.78], [cz[1], cz[1] + 0.012]);
+  block('wood', [cx[0] - 0.03, cx[1] + 0.03], [0.92, 0.97], [cz[0] - 0.02, cz[1] + 0.05]);
+  solid('counter', cx, cz, 0.97);
+  for (const [x0, x1, grain] of [[minX, minX + 0.38, 'corn'], [minX + 0.4, cx[0], 'wheat']]) {
+    block('wood', [x0, x1], [0, 0.78], cz);
+    block(grain, [x0 + 0.04, x1 - 0.04], [0.78, 0.8], [cz[0] + 0.04, cz[1] - 0.04]);
+  }
+  solid('grain-bins', [minX, cx[0]], cz, 0.8);
+  block('woodDark', [cx[1], maxX], [0.86, 0.92], cz);
+  block('wood', [cx[1] + 0.05, maxX - 0.05], [0.1, 0.86], [cz[1] - 0.08, cz[1] - 0.04]);
+  solid('counter-flap', [cx[1], maxX], cz, 0.92);
+  solid('behind-counter', [minX, maxX], [back, cz[0]], 0.97);
+  // On it: the till, a scale for nails, a bell, and brown paper on a roll.
+  kit.parts.atlas.push(placed(
+    labelledBox(0.36, 0.2, 0.3, { front: kit.A.uv.till, back: kit.sw('iron') }, kit.sw('iron')), 1.9, 1.07, -5.7,
+  ));
+  kit.block('brassDark', [-1.75, -1.45], [0.97, 1.01], [-5.8, -5.55]);
+  kit.cylinder('brass', 0.025, 0.025, 0.2, -1.6, 1.01, -5.7, 6);
+  kit.cylinder('brass', 0.15, 0.11, 0.03, -1.6, 1.21, -5.7, 12);
+  kit.parts.atlas.push(placed(
+    labelledBox(0.2, 0.2, 0.025, { front: kit.A.uv.scale, back: kit.sw('brass') }, kit.sw('brass')), -1.6, 1.12, -5.55,
+  ));
+  kit.cylinder('brass', 0.05, 0.07, 0.07, 0.35, 0.97, -5.55, 10);
+  kit.cylinder('iron', 0.012, 0.012, 0.04, 0.35, 1.04, -5.55, 5);
+  for (const x of [-0.95, -0.35]) block('iron', [x - 0.015, x + 0.015], [0.97, 1.2], [-5.7, -5.66]);
+  const roll = paint(new THREE.CylinderGeometry(0.07, 0.07, 0.62, 10), kit.sw('bag'));
+  kit.parts.atlas.push(roll.rotateZ(Math.PI / 2).translate(-0.65, 1.13, -5.68));
+
+  // The stock behind the counter, and the board over it.
+  let k = 0;
+  for (const y of [1.15, 1.6, 2.05]) {
+    block('wood', [minX + 0.1, maxX - 0.1], [y - 0.03, y], [back, back + 0.34]);
+    for (let x = minX + 0.25; x < maxX - 0.2; x += 0.24) {
+      k += 1;
+      const kind = k % 5;
+      if (kind === 0) cylinder('galv', 0.07, 0.07, 0.16, x, y, back + 0.17, 10);
+      else if (kind === 1) {
+        const coil = paint(new THREE.TorusGeometry(0.07, 0.03, 5, 10), kit.sw('rope'));
+        kit.parts.atlas.push(coil.translate(x, y + 0.1, back + 0.17));
+      } else block(['boxRed', 'boxBlue', 'cream', 'tractorYellow'][k % 4], [x - 0.09, x + 0.09], [y, y + 0.14 + (k % 3) * 0.04], [back + 0.06, back + 0.3]);
+    }
+  }
+  kit.parts.atlas.push(placed(
+    labelledBox(3.8, 0.36, 0.03, { front: kit.A.uv.signboard, back: kit.sw('woodDark') }, kit.sw('woodDark')),
+    0, 2.42, back + 0.02,
+  ));
+
+  // The tool wall: a bench of tins and seeds under a pegboard of tools.
+  const tz = [-5.0, -1.4];
+  block('woodDark', [minX, minX + 0.45], [0, 0.85], tz);
+  solid('tool-wall', [minX, minX + 0.45], tz, 2.4);
+  const paints = ['boxRed', 'boxBlue', 'jerryGreen', 'tractorYellow', 'cream', 'boxRed'];
+  for (let i = 0; i < 12; i += 1) {
+    const z = tz[0] + 0.15 + i * 0.13;
+    cylinder(paints[i % paints.length], 0.055, 0.055, 0.1, minX + 0.32, 0.85, z, 10);
+    cylinder('galv', 0.056, 0.056, 0.012, minX + 0.32, 0.95, z, 10);
+  }
+  kit.parts.atlas.push(placed(
+    labelledBox(1.1, 0.5, 0.02, { front: kit.A.uv.seeds, back: kit.sw('woodDark') }, kit.sw('woodDark')),
+    minX + 0.2, 1.1, -2.1, Math.PI / 2,
+  ));
+  kit.parts.atlas.push(placed(
+    labelledBox(3.6, 1.3, 0.02, { front: kit.A.uv.pegboard, back: kit.sw('woodDark') }, kit.sw('woodDark')),
+    minX + 0.012, 1.7, (tz[0] + tz[1]) / 2, Math.PI / 2,
+  ));
+  const tx = minX + 0.06;
+  for (let i = 0; i < 9; i += 1) {
+    const z = tz[0] + 0.25 + i * 0.4;
+    const kind = i % 4;
+    if (kind === 0 || kind === 2) {
+      // A long-handled tool hung head down: a rake or a fork.
+      block('woodLight', [tx - 0.012, tx + 0.012], [1.25, 2.3], [z - 0.012, z + 0.012]);
+      block('galvDark', [tx - 0.015, tx + 0.015], [1.08, 1.25], [z - (kind ? 0.06 : 0.14), z + (kind ? 0.06 : 0.14)]);
+    } else if (kind === 1) {
+      // A spade.
+      block('woodLight', [tx - 0.012, tx + 0.012], [1.35, 2.2], [z - 0.012, z + 0.012]);
+      block('galv', [tx - 0.008, tx + 0.008], [1.12, 1.37], [z - 0.09, z + 0.09]);
+      block('woodDark', [tx - 0.012, tx + 0.012], [2.2, 2.24], [z - 0.07, z + 0.07]);
+    } else {
+      // A saw and a hammer.
+      block('galv', [tx - 0.006, tx + 0.006], [1.85, 1.97], [z - 0.26, z + 0.16]);
+      block('wood', [tx - 0.02, tx + 0.02], [1.84, 1.98], [z + 0.16, z + 0.26]);
+      block('woodLight', [tx - 0.012, tx + 0.012], [1.3, 1.62], [z - 0.012, z + 0.012]);
+      block('iron', [tx - 0.02, tx + 0.02], [1.62, 1.68], [z - 0.07, z + 0.05]);
+    }
+  }
+
+  // Feed and hay down the right-hand wall.
+  const fx = [maxX - 0.8, maxX];
+  block('wood', fx, [0, 0.12], [-4.7, -3.0]);
+  for (let row = 0; row < 3; row += 1) {
+    for (let col = 0; col < 3; col += 1) {
+      const z0 = -4.66 + col * 0.55;
+      const y0 = 0.12 + row * 0.2;
+      const sack = labelledBox(0.5, 0.19, 0.72, { front: kit.sw('sack'), back: kit.sw('sack') }, kit.sw('sack'));
+      kit.parts.atlas.push(sack.translate(maxX - 0.4 + ((row + col) % 2) * 0.02, y0 + 0.095, z0 + 0.25));
+      // The printed side of each sack turned to the aisle.
+      kit.parts.atlas.push(placed(
+        labelledBox(0.46, 0.17, 0.006, { front: kit.A.uv.feedsack, back: kit.sw('sack') }, kit.sw('sack')),
+        fx[0] - 0.005, y0 + 0.095, z0 + 0.25, -Math.PI / 2,
+      ));
+    }
+  }
+  for (let row = 0; row < 2; row += 1) {
+    for (let col = 0; col < 2; col += 1) {
+      const z0 = -2.8 + col * 0.76;
+      const y0 = row * 0.4;
+      block('hay', [fx[0] + 0.02, fx[1] - 0.02], [y0, y0 + 0.38], [z0, z0 + 0.72]);
+      for (const sz of [0.2, 0.52]) block('hayDark', [fx[0] + 0.01, fx[1] - 0.01], [y0 + 0.37, y0 + 0.385], [z0 + sz, z0 + sz + 0.02]);
+    }
+  }
+  solid('feed-stack', [fx[0] - 0.05, maxX], [-4.75, -1.25], 1.4);
+
+  /* Two workshop lamps, down the middle aisle. Not over the islands or
+     the counter, where the camera looks past a hanging shade at the very
+     things a shade would hide. From out over the pavement, 56 degrees up,
+     a shade 2.17 off the floor hides her head when she stands 0.4 behind
+     it and her feet at 1.5 — so the second lamp is not at the counter's
+     front, where it stood first and hid her at the till, but far enough
+     forward that what it hides is the aisle. */
+  const lamps = [[0, -1.9, ROOM.height], [0, -3.1, ROOM.height]];
+  for (const [x, z, from] of lamps) {
+    block('cord', [x - 0.008, x + 0.008], [2.3, from], [z - 0.008, z + 0.008]);
+    cylinder('shade', 0.05, 0.2, 0.14, x, 2.17, z, 12, true);
+    kit.bulb(x, 2.18, z);
+  }
+
+  return {
+    keeper: { x: 0.4, z: -6.65, look: { shirt: 0xc9b48a, apron: 0x9b2d20, trousers: 0x3d3a36, hair: 0x4a3626, beard: true } },
+    lamps: lamps.map(([x, z]) => [x, 2.15, z]),
+    counter: { x: 0, z: -4.95 },
+    // Where she stands to be served: along the counter's front.
+    counterZone: { x: [cx[0], cx[1]], z: [cz[1] + 0.2, cz[1] + 1.0] },
+    slots,
+    greeting: (hour) => `🔧 “${hello(hour)}! Everything the farm needs, and a few things it doesn't.”`,
+  };
+}
+
+/* The six things only this shop sells, each as it would be stood on a
+   shop floor: built at (x, y, z) on the island's top. */
+const ITEMS = {
+  sprinkler(kit, x, y, z) {
+    kit.cylinder('iron', 0.1, 0.11, 0.03, x, y, z, 10);
+    kit.cylinder('brass', 0.012, 0.012, 0.24, x, y + 0.03, z, 6);
+    kit.block('brass', [x - 0.19, x + 0.19], [y + 0.26, y + 0.28], [z - 0.01, z + 0.01]);
+    kit.block('brass', [x - 0.01, x + 0.01], [y + 0.26, y + 0.28], [z - 0.19, z + 0.19]);
+    const ring = paint(new THREE.TorusGeometry(0.13, 0.022, 5, 14), kit.sw('hose'));
+    kit.parts.atlas.push(ring.rotateX(Math.PI / 2).translate(x + 0.2, y + 0.02, z + 0.1));
+  },
+  feed(kit, x, y, z) {
+    const h = 0.36;
+    const body = paint(new THREE.CylinderGeometry(0.12, 0.15, h, 8), kit.sw('sack'));
+    kit.parts.atlas.push(body.scale(1, 1, 0.75).translate(x, y + h / 2, z));
+    const rim = paint(new THREE.TorusGeometry(0.115, 0.022, 4, 8), kit.sw('bag'));
+    kit.parts.atlas.push(rim.rotateX(Math.PI / 2).scale(1, 1, 0.75).translate(x, y + h, z));
+    for (let k = 0; k < 5; k += 1) kit.block('wheat', [x - 0.08 + k * 0.035, x - 0.06 + k * 0.035], [y + h - 0.02, y + h + 0.01], [z - 0.02, z + 0.02]);
+    kit.parts.atlas.push(placed(
+      labelledBox(0.2, 0.1, 0.006, { front: kit.A.uv.richfeed, back: kit.sw('sack') }, kit.sw('sack')),
+      x, y + h * 0.5, z + 0.15 * 0.75 + 0.004,
+    ));
+  },
+  fertiliser(kit, x, y, z) {
+    kit.block('jerryGreen', [x - 0.12, x + 0.12], [y, y + 0.3], [z - 0.07, z + 0.07]);
+    kit.block('jerryGreen', [x - 0.06, x + 0.06], [y + 0.3, y + 0.34], [z - 0.02, z + 0.02]);
+    kit.cylinder('cream', 0.025, 0.025, 0.05, x + 0.08, y + 0.3, z, 8);
+    kit.parts.atlas.push(placed(
+      labelledBox(0.18, 0.1, 0.006, { front: kit.A.uv.jerry, back: kit.sw('jerryGreen') }, kit.sw('jerryGreen')),
+      x, y + 0.15, z + 0.074,
+    ));
+  },
+  contacts(kit, x, y, z) {
+    // An order book open on a little lectern, and the card file beside it.
+    const book = topLabelled(0.34, 0.02, 0.22, kit.A.uv.ledger, kit.sw('woodDark'));
+    kit.parts.atlas.push(book.rotateX(0.35).translate(x - 0.05, y + 0.12, z));
+    kit.block('woodDark', [x - 0.18, x + 0.08], [y, y + 0.1], [z - 0.08, z + 0.08]);
+    kit.block('woodLight', [x + 0.12, x + 0.26], [y, y + 0.12], [z - 0.1, z + 0.1]);
+    for (let k = 0; k < 6; k += 1) kit.block('white', [x + 0.135, x + 0.245], [y + 0.12, y + 0.17], [z - 0.08 + k * 0.03, z - 0.07 + k * 0.03]);
+  },
+  tractor(kit, x, y, z) {
+    // A model tractor, side on to the aisle: red body, cab, big wheels.
+    kit.block('tractorRed', [x - 0.18, x + 0.12], [y + 0.07, y + 0.15], [z - 0.07, z + 0.07]);
+    kit.block('tractorRed', [x - 0.18, x - 0.04], [y + 0.15, y + 0.28], [z - 0.07, z + 0.07]);
+    kit.block('glass', [x - 0.17, x - 0.05], [y + 0.18, y + 0.26], [z - 0.072, z + 0.072]);
+    kit.cylinder('iron', 0.01, 0.01, 0.1, x + 0.06, y + 0.15, z + 0.03, 5);
+    for (const [wx, r] of [[-0.12, 0.085], [0.09, 0.05]]) {
+      for (const sz of [-0.085, 0.085]) {
+        const tyre = paint(new THREE.CylinderGeometry(r, r, 0.04, 12), kit.sw('tyre'));
+        kit.parts.atlas.push(tyre.rotateX(Math.PI / 2).translate(x + wx, y + r, z + sz));
+        const hub = paint(new THREE.CylinderGeometry(r * 0.45, r * 0.45, 0.044, 8), kit.sw('tractorYellow'));
+        kit.parts.atlas.push(hub.rotateX(Math.PI / 2).translate(x + wx, y + r, z + sz));
+      }
+    }
+  },
+  pesticide(kit, x, y, z) {
+    // A knapsack sprayer: the tank, its pump, and the lance lying by it.
+    kit.cylinder('sprayYellow', 0.09, 0.1, 0.28, x - 0.04, y, z, 10);
+    kit.cylinder('iron', 0.03, 0.03, 0.03, x - 0.04, y + 0.28, z, 8);
+    kit.block('iron', [x - 0.05, x - 0.03], [y + 0.31, y + 0.42], [z - 0.01, z + 0.01]);
+    kit.block('iron', [x - 0.1, x + 0.02], [y + 0.42, y + 0.44], [z - 0.012, z + 0.012]);
+    kit.block('galvDark', [x + 0.08, x + 0.12], [y, y + 0.02], [z - 0.2, z + 0.2]);
+    const hose = paint(new THREE.TorusGeometry(0.07, 0.012, 4, 10, Math.PI), kit.sw('iron'));
+    kit.parts.atlas.push(hose.rotateY(Math.PI / 2).translate(x + 0.04, y + 0.06, z + 0.13));
+  },
+  generic(kit, x, y, z) {
+    kit.block('boxRed', [x - 0.15, x + 0.15], [y, y + 0.25], [z - 0.12, z + 0.12]);
+  },
+};
+
+const DESIGNS = { grocer, hardware };
 
 /* Good morning, by the farm's own clock: the day is ninety seconds long,
    and a shopkeeper who says morning at midnight has not been looking out
@@ -929,6 +1421,51 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     return l;
   });
 
+  /* What the shop has sold the farm, shown on its cards: a gold pip in
+     each of a line's three sockets for each level bought, and a SOLD OUT
+     band across the card when there are no more. Instanced, one mesh for
+     every pip in the shop and one for every band, and shown or hidden by
+     scaling each to nothing — so buying a level changes a matrix, not the
+     scene. */
+  const slots = design.slots ?? [];
+  let stock = () => {};
+  const shown = {};
+  if (slots.length) {
+    const gold = material('pips', { color: 0xe8b923, roughness: 0.35, metalness: 0.6 });
+    const pips = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.028, 1), gold, slots.length * 3);
+    pips.name = `interior-${spec.id}-pips`;
+    const bandGeo = labelledBox(0.58, 0.095, 0.008, { front: A.uv.soldout, back: A.swatch.iron }, A.swatch.iron);
+    const bands = new THREE.InstancedMesh(bandGeo, mats.atlas, slots.length);
+    bands.name = `interior-${spec.id}-sold-out`;
+    // Culled as one box from the start: their extents change as levels sell.
+    pips.frustumCulled = false;
+    bands.frustumCulled = false;
+    group.add(pips, bands);
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const one = new THREE.Vector3(1, 1, 1);
+    const none = new THREE.Vector3(0, 0, 0);
+    let last = '';
+    stock = (levels = {}) => {
+      const key = slots.map((sl) => levels[sl.id] ?? 0).join(',');
+      if (key === last) return;
+      last = key;
+      slots.forEach((sl, i) => {
+        const level = Math.max(0, Math.min(3, levels[sl.id] ?? 0));
+        sl.pips.forEach((p, k) => {
+          pips.setMatrixAt(i * 3 + k, m.compose(p, q.identity(), k < level ? one : none));
+        });
+        const sold = level >= sl.max;
+        q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sl.banner.tilt);
+        bands.setMatrixAt(i, m.compose(sl.banner.at, q, sold ? one : none));
+        shown[sl.id] = { pips: level, soldOut: sold };
+      });
+      pips.instanceMatrix.needsUpdate = true;
+      bands.instanceMatrix.needsUpdate = true;
+    };
+    stock({});
+  }
+
   const scene = new THREE.Scene();
   scene.name = `interior-scene:${spec.id}`;
   scene.background = new THREE.Color(0x15110e);
@@ -975,6 +1512,14 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     box.expandByPoint(new THREE.Vector3(p.x, ROOM.height, p.z));
   }
   const centre = toWorld((minX + maxX) / 2, back / 2);
+  /* Where she stands to be served, if this shop serves anything: a strip
+     along the front of its counter, in the room's frame. */
+  const zone = design.counterZone ?? null;
+  const atCounter = (x, z) => {
+    if (!zone) return false;
+    const l = toLocal(x, z);
+    return l.x >= zone.x[0] && l.x <= zone.x[1] && l.z >= zone.z[0] && l.z <= zone.z[1];
+  };
 
   let lit = 0;
   /* night: 0 by day, 1 at midnight, the scene's skyNight. dt: seconds. */
@@ -989,7 +1534,8 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   update(0, 0);
 
   return {
-    scene, solids, walk, door, toLocal, update,
+    scene, solids, walk, door, toLocal, update, atCounter, stock,
+    stockShown: () => JSON.parse(JSON.stringify(shown)),
     greeting: design.greeting, // (hour 0-24) => what the shopkeeper says
     view: { box, centre: { x: centre.x, y: 0.9, z: centre.z }, out: door.out },
     state: () => ({ lit, sun: sun.intensity, lamps: lamps.map((l) => l.intensity), glow: mats.glow.emissiveIntensity }),
@@ -1000,6 +1546,8 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
       door,
       walk,
       counter: toWorld(design.counter.x, design.counter.z),
+      counterZone: zone ? worldRect(zone.x, zone.z) : null,
+      lines: slots.map((sl) => sl.id),
       keeper: toWorld(design.keeper.x, design.keeper.z),
       furniture: [...new Set(kit.furniture)],
       triangles,

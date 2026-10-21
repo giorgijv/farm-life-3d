@@ -2706,12 +2706,6 @@ ${shader.fragmentShader.replace(
     ];
   })();
 
-  /* Where the tool shop is now: on the pavement in front of Hardware &
-     Feed, not the middle of the old square. The radius takes in the street
-     in front of the shop and the pavement she would stand on, and not the
-     square forty units west — so driving into town and stopping in the
-     square is no longer shopping. */
-  const TOOL_SHOP = { x: blockOf('hardware').x, z: -30.2, radius: 6.5 };
 
   /* -------------------------------------------------------------- */
   /* Farm City's City Hall, Police Station and civic square            */
@@ -5878,8 +5872,8 @@ ${lit}`;
 
      The walkable town is the levelled ground itself, held half a unit in
      from its edges for the same float reason the circles are. The shop is a
-     separate question, and TOOL_SHOP answers it: the tools are sold at
-     Hardware & Feed on High Street.
+     separate question, and syncShop answers it: the tools are sold over
+     the counter inside Hardware & Feed on High Street.
 
      And the civic square's own level ground with it, which reaches three
      and a half units further south than the town's: the walk was the town's
@@ -6298,8 +6292,12 @@ ${lit}`;
       shopOpen = open;
       bridge.setMarketOpen?.(open);
     }
-    // The tools are sold at Hardware & Feed, not anywhere in town.
-    const cityNow = atPlace(TOOL_SHOP, TOOL_SHOP.radius);
+    /* The tools are sold over Hardware & Feed's counter: she has to be
+       standing at it, inside. It used to be a circle 6.5 across on the
+       pavement out front, which made stopping the car outside the shop
+       the same thing as shopping in it — and made the counter in there,
+       once there was one, a piece of furniture. */
+    const cityNow = !!(inside && inside.sells === 'tools' && inside.atCounter(at.x, at.z));
     if (cityNow !== cityOpen) {
       cityOpen = cityNow;
       bridge.setCityOpen?.(cityNow);
@@ -6702,7 +6700,12 @@ ${lit}`;
        the mat inside the door. */
     if (inside) {
       const d = Math.hypot(inside.door.inside.x - at.x, inside.door.inside.z - at.z);
-      return d <= DOOR_REACH ? { type: 'leave', id: inside.report.id, name: inside.report.name, distance: d } : null;
+      if (d <= DOOR_REACH) return { type: 'leave', id: inside.report.id, name: inside.report.name, distance: d };
+      /* And at a counter that sells something, to be served. */
+      if (inside.sells && inside.atCounter(at.x, at.z)) {
+        return { type: 'counter', id: inside.report.id, name: inside.report.name, sells: inside.sells, distance: 0 };
+      }
+      return null;
     }
 
     let best = null;
@@ -6800,11 +6803,27 @@ ${lit}`;
       kind: 'grocer',
       block: 'grocer',
       colours: { wall: '#6f9a6c', dado: '#eeeadf', rail: '#2f5d3a' },
-      chalkTitle: 'Today\'s prices',
-      prices: () => ['wheat', 'corn', 'carrot', 'pumpkin']
-        .map((k) => [bridge.CROPS[k].name, bridge.CROPS[k].sellPrice]),
-      posterTitle: 'Grown in Farm City',
-      posterLines: ['Fresh from the farms', 'round town, picked', 'this morning'],
+      details: () => ({
+        chalkTitle: 'Today\'s prices',
+        prices: ['wheat', 'corn', 'carrot', 'pumpkin']
+          .map((k) => [bridge.CROPS[k].name, bridge.CROPS[k].sellPrice]),
+        posterTitle: 'Grown in Farm City',
+        posterLines: ['Fresh from the farms', 'round town, picked', 'this morning'],
+      }),
+    },
+    /* Where the tools are sold, at the counter — see syncShop. Its six
+       lines are the game's own upgrade table, in the order the Farm City
+       tab lists them, so a line added there is a card added here. */
+    hardware: {
+      kind: 'hardware',
+      block: 'hardware',
+      sells: 'tools',
+      colours: { wall: '#dccba3', dado: '#7b5636', rail: '#4e321b', shade: '#e6dfcc' },
+      details: () => ({
+        upgrades: bridge.UPGRADE_ORDER.map((id) => ({
+          id, name: bridge.UPGRADES[id].name, max: bridge.UPGRADES[id].maxLevel,
+        })),
+      }),
     },
   };
 
@@ -6873,10 +6892,7 @@ ${lit}`;
       },
       door: { x: f.toLocal(f.built.door.x, f.built.door.z).x, w: FRONT.door.w },
       colours: { ...def.colours, paint: f.unit.colours.paint, trim: f.unit.colours.trim },
-      chalkTitle: def.chalkTitle,
-      prices: def.prices(),
-      posterTitle: def.posterTitle,
-      posterLines: def.posterLines,
+      ...def.details(),
     };
   }
 
@@ -6894,6 +6910,7 @@ ${lit}`;
     } catch (err) {
       console.warn(`farm: the inside of the ${spec.name} did not build`, err);
     }
+    if (room) room.sells = ENTERABLE[id].sells ?? null;
     interiors.set(id, room);
     return room;
   }
@@ -7571,8 +7588,10 @@ ${lit}`;
        shop. */
     atCity: () => cityOpen,
     city: () => ({ x: CITY.x, z: CITY.z, radius: CITY_RADIUS }),
-    // Where the tools are sold, which is no longer the square.
-    toolShop: () => ({ ...TOOL_SHOP }),
+    /* Where the tools are sold: the strip along the front of Hardware &
+       Feed's counter, inside the shop, as a world rectangle. */
+    toolShop: () => ({ shop: 'hardware', ...(interiorOf('hardware')?.report.counterZone ?? {}) }),
+    interiorStock: () => inside?.stockShown() ?? null,
     /* The City Hall, the Police Station and the square, as built — and the
        clock, as it stands this frame: the hour it shows and the angle of
        each hand. */
@@ -8277,6 +8296,7 @@ ${lit}`;
       // A shop's own camera, and its lamps, by the farm's own clock.
       frameInterior();
       inside.update(skyNight, lastInteriorDraw ? (now - lastInteriorDraw) / 1000 : 0);
+      inside.stock(bridge.getState().upgrades);
       lastInteriorDraw = now;
     } else {
       followFarmer();
