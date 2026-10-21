@@ -6811,6 +6811,16 @@ ${lit}`;
         posterLines: ['Fresh from the farms', 'round town, picked', 'this morning'],
       }),
     },
+    bakery: {
+      kind: 'bakery',
+      block: 'bakery',
+      floor: 'checker',
+      colours: {
+        wall: '#f4e6d8', dado: '#f1ede4', rail: '#2a3f6b', pattern: 'floral',
+        bloom: '#d88aa0', bloom2: '#7f9bd0', leaf: '#86a477', tileA: '#efe6d2', tileB: '#2a3f6b',
+      },
+      details: () => ({}),
+    },
     /* Where the tools are sold, at the counter — see syncShop. Its six
        lines are the game's own upgrade table, in the order the Farm City
        tab lists them, so a line added there is a card added here. */
@@ -6892,6 +6902,7 @@ ${lit}`;
       },
       door: { x: f.toLocal(f.built.door.x, f.built.door.z).x, w: FRONT.door.w },
       colours: { ...def.colours, paint: f.unit.colours.paint, trim: f.unit.colours.trim },
+      floor: def.floor ?? 'boards',
       ...def.details(),
     };
   }
@@ -7008,7 +7019,10 @@ ${lit}`;
       const dz = at.z - door.z;
       const across = Math.abs(dx * door.out.z - dz * door.out.x);
       const off = dx * door.out.x + dz * door.out.z;
-      if (across > door.half || off < 0 || off > 0.6) continue;
+      /* Within a step of the wall: the blocks stand up to 0.35 proud of
+         the shopfront at the plinth, so she is held 0.6 out from the door
+         at the Bakery against 0.36 at the Greengrocer. */
+      if (across > door.half || off < 0 || off > 0.95) continue;
       if (-(stickWant.x * door.out.x + stickWant.z * door.out.z) < 0.6) continue;
       enterShop(id);
       return;

@@ -4461,7 +4461,33 @@ test.describe('driving her yourself', () => {
        inherited the farmhouse's footprint along with its site. */
     await drivePast(0, -1, () => window.Farm3DScene.farmerAt().z < -9, 'the orchard');
     await drivePast(0, 1, () => window.Farm3DScene.farmerAt().z > 7, 'the dooryard');
-    await drivePast(-1, 0, () => window.Farm3DScene.farmerAt().x < -9, 'the farmhouse');
+    /* Steered along that line rather than pushed west from wherever the
+       last leg let go of her. On a slow machine she ran on past z 7 before
+       the stick was released — as far as 9.1, measured — and west from
+       there is a crate in the dooryard, solid since the props were, which
+       she walked into face-on and stood against until the timeout. That
+       was the flake this test had carried since: the farm was fine, the
+       route was not. So back up to z 7.3 first, and then west. */
+    const reached = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const route = [[s.farmerAt().x, 7.3], [-10.5, 7.3]];
+      const started = performance.now();
+      await new Promise((resolve) => {
+        const tick = () => {
+          const p = s.farmerAt();
+          if (route.length && Math.hypot(route[0][0] - p.x, route[0][1] - p.z) < 0.3) route.shift();
+          if (!route.length || p.x < -9 || performance.now() - started > 20_000) { s.drive(0, 0); resolve(); return; }
+          const dx = route[0][0] - p.x;
+          const dz = route[0][1] - p.z;
+          const d = Math.hypot(dx, dz);
+          s.drive(dx / d, dz / d); // the default camera: the stick is the world
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      return s.farmerAt();
+    });
+    expect(reached.x, 'she never reached the farmhouse').toBeLessThan(-9);
   });
 
   test('taking the stick drops the round she was walking', async ({ page }) => {
@@ -8760,7 +8786,7 @@ test('the page loads with no console errors', async ({ page }) => {
 /* ------------------------------------------------------------------ */
 
 test.describe('Farm City: inside the shops', () => {
-  const SHOPS = ['grocer', 'hardware'];
+  const SHOPS = ['grocer', 'bakery', 'hardware'];
   const ready = async (page) => {
     await page.waitForFunction(() => !!window.Farm3DScene);
     await page.evaluate(() => window.Farm3DScene.solidsReady());
@@ -8792,14 +8818,18 @@ test.describe('Farm City: inside the shops', () => {
       await page.evaluate(() => window.Farm3DScene.leave());
     }
 
-    // And the other shops' doors offer nothing yet.
-    const bakery = await page.evaluate(async () => {
+    // And the shops that do not open yet offer nothing at their doors.
+    const shut = await page.evaluate(async (open) => {
       const s = window.Farm3DScene;
-      const u = (await s.highStreet()).units.find((v) => v.id === 'bakery');
-      s.putFarmerAt(u.door.x + u.faceX * 0.7, u.door.z + u.faceZ * 0.7);
-      return s.reachable();
-    });
-    expect(bakery?.type).not.toBe('enter');
+      const out = {};
+      for (const u of (await s.highStreet()).units.filter((v) => !open.includes(v.id))) {
+        s.putFarmerAt(u.door.x + u.faceX * 0.7, u.door.z + u.faceZ * 0.7);
+        out[u.id] = s.reachable()?.type ?? null;
+      }
+      return out;
+    }, SHOPS);
+    expect(Object.keys(shut).length).toBeGreaterThan(0);
+    for (const [id, type] of Object.entries(shut)) expect(type, id).not.toBe('enter');
   });
 
   test('in every shop, all of the floor can be reached from the door, and nothing solid walked through', async ({ page }) => {
@@ -8809,6 +8839,7 @@ test.describe('Farm City: inside the shops', () => {
     const FURNITURE = {
       grocer: ['window-display', 'side-stand', 'table', 'counter', 'sacks', 'preserves'],
       hardware: ['window-left', 'window-right', 'lines-left', 'lines-right', 'counter', 'tool-wall', 'feed-stack'],
+      bakery: ['window-display', 'bread-stand', 'counter', 'tea-table-1', 'tea-table-2', 'dresser'],
     };
     for (const id of SHOPS) {
       const r = await page.evaluate((k) => {
@@ -8937,8 +8968,8 @@ test.describe('Farm City: inside the shops', () => {
       await twoFrames(page);
       const cost = await page.evaluate(() => window.Farm3DScene.drawCost());
       /* Measured at 80 calls and 15,100 triangles in the Greengrocer, 83
-         and 12,000 in Hardware & Feed: each room's materials, her, and its
-         shopkeeper. The street from the pavement outside is 38,000
+         and 12,000 in Hardware & Feed, 82 and 15,900 in the Bakery: each
+         room's materials, her, and its shopkeeper. The street from the pavement outside is 38,000
          triangles; the farm's ceilings are 300 and 100,000. */
       expect(cost.calls, id).toBeGreaterThan(0);
       expect(cost.calls, id).toBeLessThanOrEqual(120);
@@ -9067,5 +9098,29 @@ test.describe('Farm City: inside the shops', () => {
     await page.evaluate(() => buyUpgrade('pesticide'));
     await twoFrames(page);
     expect((await page.evaluate(() => window.Farm3DScene.interiorStock())).pesticide).toEqual({ pips: 1, soldOut: false });
+  });
+
+  test("the Bakery's tea room is on the side of the door its table outside is on", async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const outside = s.solids().boxes.find((b) => b.id === 'terrace:bakery');
+      s.enter('bakery');
+      const room = s.interior();
+      return { outside, door: room.door, pieces: room.pieces };
+    });
+    /* Across the frontage, measured from the door: the table on the
+       pavement and both tables inside it are on the same side, so the tea
+       room is behind the window it is served at. */
+    const across = (b) => ((b.minX + b.maxX) / 2 - r.door.inside.x) * r.door.out.z
+      - ((b.minZ + b.maxZ) / 2 - r.door.inside.z) * r.door.out.x;
+    const side = Math.sign(across(r.outside));
+    expect(side).not.toBe(0);
+    for (const id of ['tea-table-1', 'tea-table-2']) expect(Math.sign(across(r.pieces[id])), id).toBe(side);
+    // And the cake counter is nearer the door's own side than either.
+    for (const id of ['tea-table-1', 'tea-table-2']) {
+      expect(across(r.pieces.counter) * side).toBeLessThan(across(r.pieces[id]) * side);
+    }
   });
 });

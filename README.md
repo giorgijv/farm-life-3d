@@ -154,7 +154,17 @@ card with a gold pip for every level the farm has bought, and SOLD OUT
 across it once all three are. There is a pegboard of tools down one wall,
 feed sacks and hay bales down the other, a wheelbarrow and watering cans in
 the window, and the stock on shelves behind the counter under the shop's
-board. The other four shops are still seen from outside only.
+board.
+
+**The Bakery & Tea Room opens too.** Its floor is tiled navy and cream in
+the shop's own blue, under floral paper. A glass counter of cakes runs
+across the back on the door's side, with the baker behind it, loaves on
+sloping racks, and the bakehouse through a doorway with its oven alight.
+On the other side, where the table outside is, is the tea room: two tables
+with lace cloths, teapots and cups, one with a stand of cakes and scones,
+and a dresser of blue-and-white china between them. A three-tier cake sits
+in the window. The Café, the Restaurant and the Pharmacy are still seen
+from outside only.
 
 High Street ends at the **City Hall**: a stone building on a podium, six
 columns under a pediment with the town's wheat-sheaf in it, and a clock
@@ -546,7 +556,8 @@ with the windows brightening alongside, that the crossings' beacons blink,
 that the shop blocks and the police cars are merged into one mesh each,
 and that the town holds to the farm's draw budget from inside it, that a
 car parked just short of the town or the farm can be walked back to, that
-each shop that opens — the Greengrocer and Hardware & Feed — is offered
+each shop that opens — the Greengrocer, the Bakery and Hardware & Feed —
+is offered
 from the pavement and takes her in by the prompt or by walking on into its
 door, that every part of each one's floor can be reached from the door with
 nothing solid walked through, that the camera inside frames the whole room
@@ -555,8 +566,9 @@ onto High Street, that inside only the room is drawn, that the farm's
 errands wait while she is in a shop, that each one's lamps light it after
 dark and its shopkeeper knows the time of day, that the tools are sold over
 Hardware & Feed's counter and not on the pavement outside or anywhere else
-in the shop, and that its six cards show the levels the farm has bought,
-that
+in the shop, that its six cards show the levels the farm has bought, and
+that the Bakery's tea room is on the side of the door its table outside is
+on, that
 she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —

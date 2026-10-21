@@ -4876,6 +4876,102 @@ it is drawn, and it only touches the matrices when they have changed.
 - **The interiors cannot be seen through the shop windows**, as §47
   recorded.
 
+## 49. Inside the shops, step three: the Bakery & Tea Room
+
+The third shop that opens: a bakery with a tea room in it, the way market
+towns keep both under one roof.
+
+### The room
+
+5.0 by 5.45, with the door on the left of the frontage. It is the first
+room that needed four new things from the shared builder:
+
+- **A tiled floor.** It is chequered navy and cream, a quarter of a repeat
+  to each tile, in the Bakery's own blue.
+- **Wallpaper.** Small flowers in a half-drop repeat over the white
+  boarding, drawn into the same wall texture as the paint, so the dado
+  rail stays at 1.0.
+- **Glass.** The cake counter's case is the only see-through thing in any
+  room so far, on a material of its own, drawn after everything else.
+- **A doorway through the back wall,** to the bakehouse. The wall is
+  built in three pieces around it.
+
+What is in it:
+
+- **The counter side**, which is the door's side: a glass counter of
+  cakes runs across the back, with buns on a tray and a till at the end.
+  Behind it are the baker, in white with the shop's navy apron, and
+  loaves on sloping wicker racks either side of the bakehouse door. Her
+  figure is the farmer's own female figure: `design.keeper.figure` picks
+  it, where the first two shopkeepers were both his.
+- **The tea room**, on the side the table outside is on: two tables with
+  lace cloths, teapots and cups. One is by the window; the other is
+  against the back wall under the chalked menu, with a stand of cakes and
+  scones. A dresser of blue-and-white china stands between them.
+- **The window** has a three-tier celebration cake on a stand and baskets
+  of bread.
+- **The left wall** has a wicker stand of bread.
+- **The bakehouse**, through the doorway, has a brick oven with its mouth
+  alight. It is one of the glowing things, and it has its own light.
+
+A new test holds the tea room to the outside: across the frontage, measured
+from the door, both tables inside are on the same side as the table on the
+pavement, and the cake counter is nearer the door's side than either.
+
+### What the screenshots and the tests found
+
+- **A chimney.** The bakehouse's back wall first stood the room's full
+  2.7. From the camera's 56 degrees, a ray over the top of the shop's back
+  wall has come down to 0.9 by 1.2 behind it, so a full-height wall back
+  there stood up above the shop like a chimney. Through the doorway the
+  camera sees no higher than 0.2 at that depth, so none of the wall's
+  height could be seen anyway. The bakehouse walls are 0.9 now.
+- **White discs on the wallpaper.** The room is lit by wall lamps,
+  because a shade hung anywhere in a room this size hides a table or the
+  counter from the camera. Their lights at first sat at the bulbs, a third
+  of a unit off the paper, and each burned a white disc into it. The
+  lights now sit 0.8 out from the wall, and a design can turn its lamps
+  down (`lampPower`): this one runs them at 0.6.
+- **A fenced corner.** The first tea room had both tables out on the
+  floor, chairs either side, and the dresser behind the second. Those
+  chairs met the counter's screen, so the floor in front of the dresser
+  could not be reached. The flood fill found it, 42 points. The second
+  table moved to the back wall under the menu, with the dresser between
+  the tables.
+- **A door she could not press into.** Walking on into a door from the
+  pavement only counted within 0.6 of the wall. The Bakery's block stands
+  0.35 proud of its shopfront at the plinth, so she is held 0.6 out, and
+  the check missed her by the solid's own hair. It counts within 0.95
+  now.
+
+### Two old flakes, looked at rather than retried
+
+- **The farmhouse walk** ("the farm she can walk is bigger than the field
+  she works") failed on CI on Step 2's commit, on its retry as well. The
+  replay found the cause: on a slow machine she ran on past the dooryard
+  mark before the stick was let go, as far as z 9.1. West from there
+  stands a crate, solid since §40 made the props solid, which she walked
+  into face-on and stood against until the timeout. That has been the
+  flake since §40. The farm is right; the test's route was not. It now
+  steers back to z 7.3 and then west along that line, and has passed four
+  runs in four.
+- **"Shelf life does not burn down while the game is closed"** failed
+  twice locally while two other runs shared the machine. It reads a clock
+  started in Node before the page loads, so it has about eighteen seconds
+  of loading to spare. With the machine to itself, it passes.
+
+### Measured
+
+| | Draw calls | Triangles |
+|---|---|---|
+| Inside the Bakery & Tea Room, by day | 82 | 15,886 |
+| Inside Hardware & Feed | 83 | 12,010 |
+| Inside the Greengrocer | 80 | 15,128 |
+
+### Still open
+
+The Café, the Restaurant and the Pharmacy are still painted doors.
+
 ---
 
 ## Verified, not assumed

@@ -111,6 +111,20 @@ const PAINT = {
   boxRed: '#c84a3f',
   boxBlue: '#3f6fa8',
   wheat: '#d9b45a',
+  crust: '#b97a3c',
+  crustDark: '#8a5428',
+  flour: '#efe4cc',
+  icing: '#fbf3e6',
+  pinkIcing: '#f2b8c6',
+  chocolate: '#5a3522',
+  lemonIcing: '#f4e18a',
+  berry: '#b8263a',
+  lace: '#fbf8f2',
+  china: '#f7f5f0',
+  chinaBlue: '#3f5f9a',
+  brick: '#8e3b2a',
+  brickDark: '#5e2418',
+  soot: '#2a201b',
 };
 
 /* -------------------------------------------------------------------- */
@@ -145,6 +159,33 @@ function wallCanvas(colours) {
     const b = noise(k * 7.7 + 1);
     ctx.fillStyle = `rgba(0,0,0,${0.025 + a * 0.03})`;
     ctx.fillRect(a * W, b * yOf(1.05), 10 + b * 18, 6 + a * 10);
+  }
+  /* Or a wallpaper of small flowers in a half-drop repeat: a sprig every
+     fifth of a unit, the rows offset by half, so the tile joins itself. */
+  if (colours.pattern === 'floral') {
+    const cols = 6;
+    const sx = W / cols;
+    const sy = sx * 1.1;
+    for (let r = 0; r * sy < yOf(1.06); r += 1) {
+      for (let k = 0; k < cols; k += 1) {
+        const x = k * sx + (r % 2 ? sx / 2 : 0) + sx / 4;
+        const y = r * sy + sy / 2;
+        ctx.fillStyle = colours.leaf ?? '#7a9a6a';
+        ctx.fillRect(x - 1, y, 2, 10);
+        ctx.fillRect(x, y + 5, 6, 2);
+        ctx.fillStyle = (r + k) % 3 ? colours.bloom ?? '#d88aa0' : colours.bloom2 ?? '#8aa3d0';
+        for (let p = 0; p < 5; p += 1) {
+          const a = (p / 5) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(a) * 3.4, y + Math.sin(a) * 3.4, 2.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = '#f2d36a';
+        ctx.beginPath();
+        ctx.arc(x, y, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
   // The boarding.
   const boards = 12;
@@ -190,6 +231,25 @@ function floorCanvas() {
       // The grain.
       ctx.fillStyle = 'rgba(70,40,20,0.18)';
       for (let g = 0; g < 4; g += 1) ctx.fillRect(k * bw + 4 + g * 6, off + seg * 200 + 10, 1, 180);
+    }
+  }
+  return c;
+}
+
+/* Square tiles, a quarter of FLOOR_TILE each, in two colours. */
+function checkerCanvas(a, b) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  const n = 4;
+  const t = 256 / n;
+  for (let i = 0; i < n; i += 1) {
+    for (let j = 0; j < n; j += 1) {
+      ctx.fillStyle = (i + j) % 2 ? a : b;
+      ctx.fillRect(i * t, j * t, t, t);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(i * t, j * t, t, 2);
+      ctx.fillRect(i * t, j * t, 2, t);
     }
   }
   return c;
@@ -386,6 +446,24 @@ const DRAW = {
     ctx.fillText(spec.name.toUpperCase(), c.x + c.w / 2, c.y + c.h * 0.55);
   },
 
+  /* The tea room's menu, in chalk on the back wall. */
+  teaboard(ctx, c) {
+    ctx.fillStyle = '#2b2f2c';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.strokeStyle = '#f1e8cf';
+    ctx.lineWidth = 10;
+    ctx.strokeRect(c.x + 5, c.y + 5, c.w - 10, c.h - 10);
+    ctx.fillStyle = '#f4f1e6';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fit(ctx, 'Tea Room', 44, c.w - 40, SERIF, 'italic bold');
+    ctx.fillText('Tea Room', c.x + c.w / 2, c.y + 40);
+    ctx.font = `bold 24px ${SANS}`;
+    ['Pot of tea', 'Scones & cream', 'Cake of the day', 'Toasted teacake'].forEach((line, i) => {
+      ctx.fillText(line, c.x + c.w / 2, c.y + 92 + i * 38);
+    });
+  },
+
   /* Hardware & Feed's board over the shelves behind its counter. */
   signboard(ctx, c, spec) {
     ctx.fillStyle = spec.colours.paint;
@@ -528,6 +606,11 @@ const CELLS = {
     { kind: 'till', w: 128, h: 112 },
     { kind: 'bag', w: 128, h: 96 },
   ],
+  bakery: () => [
+    { kind: 'teaboard', w: 320, h: 256 },
+    { kind: 'bag', w: 128, h: 96 },
+    { kind: 'till', w: 128, h: 112 },
+  ],
   hardware: (spec) => [
     { kind: 'signboard', w: 768, h: 96 },
     { kind: 'pegboard', w: 256, h: 128 },
@@ -669,7 +752,7 @@ const PRODUCE = {
 /* -------------------------------------------------------------------- */
 
 function makeKit(A) {
-  const parts = { atlas: [], wall: [], floor: [], pave: [], glow: [] };
+  const parts = { atlas: [], wall: [], floor: [], pave: [], glow: [], glass: [] };
   const solids = [];
   const furniture = [];
   const sw = (k) => A.swatch[k];
@@ -757,13 +840,29 @@ function makeKit(A) {
   const bulb = (x, y, z, r = 0.05) => {
     parts.glow.push(new THREE.IcosahedronGeometry(r, 1).translate(x, y, z));
   };
+  // Something that glows that is not a bulb: an oven's mouth.
+  const glowBox = ([x0, x1], [y0, y1], [z0, z1]) => {
+    parts.glow.push(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).toNonIndexed()
+      .translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
+  };
+  // A sheet of glass, which is drawn see-through.
+  const pane = ([x0, x1], [y0, y1], [z0, z1]) => {
+    parts.glass.push(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).toNonIndexed()
+      .translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
+  };
 
-  return { A, parts, solids, furniture, sw, block, cylinder, solid, fruitAt, crate, basket, jar, bulb };
+  return { A, parts, solids, furniture, sw, block, cylinder, solid, fruitAt, crate, basket, jar, bulb, glowBox, pane };
 }
 
 /* -------------------------------------------------------------------- */
 /* The shell every room has                                              */
 /* -------------------------------------------------------------------- */
+
+/* Doorways through a room's back wall, where a shop has a room behind
+   it: [from x, to x, height], in the room's frame. */
+const OPENINGS = {
+  bakery: { back: [-0.5, 0.3, 2.0] },
+};
 
 function buildShell(kit, spec) {
   const { minX, maxX, back } = spec.room;
@@ -772,7 +871,15 @@ function buildShell(kit, spec) {
   const W = kit.parts.wall;
   // Three full-height walls, inner faces only: from the camera's side of
   // the room nothing else of them can be seen. Each wound to face inwards.
-  W.push(wallQuad(minX, back, maxX, back, 0, height));             // back, facing +z
+  const opening = OPENINGS[spec.kind]?.back;
+  if (opening) {
+    const [o0, o1, oh] = opening;
+    W.push(wallQuad(minX, back, o0, back, 0, height));
+    W.push(wallQuad(o1, back, maxX, back, 0, height, o1 - minX));
+    W.push(wallQuad(o0, back, o1, back, oh, height, o0 - minX));
+  } else {
+    W.push(wallQuad(minX, back, maxX, back, 0, height));           // back, facing +z
+  }
   W.push(wallQuad(minX, front, minX, back, 0, height, 0));          // left, facing +x
   W.push(wallQuad(maxX, back, maxX, front, 0, height, 0));          // right, facing -x
   // Their tops, cut and capped dark, and the side walls' front ends above
@@ -1321,7 +1428,249 @@ const ITEMS = {
   },
 };
 
-const DESIGNS = { grocer, hardware };
+/* -------------------------------------------------------------------- */
+/* The Bakery & Tea Room                                                 */
+/* -------------------------------------------------------------------- */
+
+/* A bakery with a tea room in it, the way market towns keep both under one
+   roof: a glass counter of cakes across the back on the door's side, loaves
+   on sloping racks behind it and the bakehouse through a doorway beyond,
+   and on the other side — the side the table outside is on — two little
+   tables with lace cloths and a dresser of china. Floral paper over white
+   boarding, a navy and cream tiled floor in the shop's own blue.
+
+   The room is 5.0 by 5.45, the door on the left of the frontage, the
+   window to its right with a celebration cake in it. The way in is the
+   open floor between the window and the counter, which the tea room opens
+   off. Lit by wall lamps rather than hanging ones: a shade hung anywhere
+   in a room this size hides a table or the counter from the camera. */
+function bakery(kit, spec) {
+  const { minX, maxX, back } = spec.room;
+  const front = -ROOM.wall;
+  const { block, cylinder, solid, pane } = kit;
+
+  // A loaf, a roll, a baguette: crust on a squashed or stretched solid.
+  const loaf = (x, y, z, kind, seed) => {
+    const shapes = {
+      cob: { r: 0.09, s: [1, 0.7, 1] },
+      roll: { r: 0.045, s: [1, 0.7, 1] },
+      bloomer: { r: 0.07, s: [2.0, 0.75, 1] },
+      baguette: { r: 0.035, s: [6.5, 0.8, 1] },
+    }[kind];
+    const g = paint(new THREE.IcosahedronGeometry(shapes.r, 1), kit.sw(seed % 3 ? 'crust' : 'crustDark'));
+    g.scale(...shapes.s).rotateY((noise(seed) - 0.5) * 0.4);
+    kit.parts.atlas.push(g.translate(x, y + shapes.r * shapes.s[1] * 0.8, z));
+  };
+  // A cake: a sponge, its icing, and a ring of piping on top.
+  const cake = (x, y, z, r, h, icing, seed = 0) => {
+    cylinder('flour', r, r, h * 0.7, x, y, z, 14);
+    cylinder(icing, r * 1.02, r * 1.02, h * 0.3, x, y + h * 0.7, z, 14);
+    const piping = paint(new THREE.TorusGeometry(r * 0.85, r * 0.08, 4, 12), kit.sw('icing'));
+    kit.parts.atlas.push(piping.rotateX(Math.PI / 2).translate(x, y + h, z));
+    if (seed % 2) kit.fruitAt('tomato', x, y + h, z, seed); // a cherry on top
+  };
+
+  // The window: a lace runner on a low shelf, baskets of bread, and a
+  // three-tier cake on a stand in the middle.
+  block('paint', [-0.85, maxX], [0, 0.42], [-0.74, front]);
+  block('lace', [-0.82, maxX - 0.02], [0.42, 0.43], [-0.7, front - 0.02]);
+  solid('window-display', [-0.85, maxX], [-0.76, front], 1.0);
+  cylinder('china', 0.03, 0.05, 0.08, 0.85, 0.43, -0.42, 8);
+  cylinder('china', 0.2, 0.2, 0.015, 0.85, 0.51, -0.42, 16);
+  cake(0.85, 0.525, -0.42, 0.17, 0.14, 'icing');
+  cake(0.85, 0.665, -0.42, 0.12, 0.12, 'pinkIcing');
+  cake(0.85, 0.785, -0.42, 0.075, 0.1, 'icing', 1);
+  for (const [x, kind] of [[-0.4, 'cob'], [1.7, 'bloomer'], [2.2, 'roll']]) {
+    kit.cylinder('wicker', 0.2, 0.16, 0.12, x, 0.43, -0.4, 10, true);
+    for (let k = 0; k < (kind === 'roll' ? 5 : 3); k += 1) {
+      loaf(x + (k - 1) * (kind === 'roll' ? 0.07 : 0.1), 0.48, -0.4 + (k % 2) * 0.05, kind, k + 3);
+    }
+  }
+
+  // Bread on a three-tier wicker stand down the left wall.
+  const bz = [-3.3, -1.25];
+  for (let t = 0; t < 3; t += 1) {
+    const y = 0.45 + t * 0.35;
+    const x0 = minX + 0.02 + t * 0.12;
+    block('wood', [x0, minX + 0.42], [y - 0.03, y], bz);
+    for (let z = bz[0] + 0.12; z < bz[1] - 0.08; z += t === 1 ? 0.3 : 0.2) {
+      loaf(x0 + 0.17, y, z, ['cob', 'bloomer', 'roll'][t], Math.round(z * 31) + t);
+    }
+  }
+  for (const z of bz) block('woodDark', [minX, minX + 0.42], [0, 1.2], [z - 0.02, z + 0.02]);
+  solid('bread-stand', [minX, minX + 0.44], bz, 1.3);
+
+  // The glass counter of cakes, across the back on the door's side.
+  const cx = [minX, 0.55];
+  const cz = [-4.05, -3.45];
+  block('paint', cx, [0, 0.6], cz);
+  for (let x = cx[0] + 0.1; x < cx[1] - 0.4; x += 0.6) block('cream', [x, x + 0.48], [0.1, 0.5], [cz[1], cz[1] + 0.012]);
+  block('wood', [cx[0], cx[1]], [0.6, 0.63], cz);
+  // Cakes in the case, then the glass over them.
+  const caseX = [cx[0] + 0.04, cx[1] - 0.55];
+  let k = 0;
+  for (let x = caseX[0] + 0.16; x < caseX[1] - 0.1; x += 0.34) {
+    k += 1;
+    const icing = ['chocolate', 'pinkIcing', 'lemonIcing', 'icing'][k % 4];
+    if (k % 3 === 0) {
+      // A tray of iced buns.
+      block('iron', [x - 0.13, x + 0.13], [0.63, 0.64], [-3.95, -3.6]);
+      for (let b = 0; b < 4; b += 1) {
+        const bx = x - 0.07 + (b % 2) * 0.14;
+        const bz2 = -3.86 + Math.floor(b / 2) * 0.16;
+        loaf(bx, 0.64, bz2, 'roll', b);
+        cylinder(icing, 0.035, 0.04, 0.012, bx, 0.69, bz2, 8);
+      }
+    } else cake(x, 0.63, -3.75, 0.12, 0.11, icing, k);
+  }
+  pane([caseX[0], caseX[1]], [0.63, 1.02], [cz[1] - 0.02, cz[1]]);
+  pane([caseX[0], caseX[1]], [1.0, 1.02], [cz[0] + 0.05, cz[1]]);
+  for (const x of caseX) block('brass', [x - 0.012, x + 0.012], [0.63, 1.02], [cz[1] - 0.025, cz[1]]);
+  // The till end of the counter, and a cake under a dome on it.
+  block('wood', [caseX[1], cx[1]], [0.63, 0.95], cz);
+  block('woodDark', [caseX[1] - 0.01, cx[1] + 0.01], [0.95, 0.98], [cz[0] - 0.01, cz[1] + 0.02]);
+  kit.parts.atlas.push(placed(
+    labelledBox(0.32, 0.18, 0.26, { front: kit.A.uv.till, back: kit.sw('iron') }, kit.sw('iron')), cx[1] - 0.22, 1.07, -3.8,
+  ));
+  solid('counter', cx, cz, 1.05);
+  // A screen from the counter's end back to the wall, and behind it the
+  // baker's side of the shop.
+  block('woodDark', [0.68, 0.74], [0, 1.45], [back, cz[0]]);
+  block('woodDark', [0.62, 0.8], [1.45, 1.5], [back, cz[0]]);
+  solid('behind-counter', [minX, 0.76], [back, cz[0]], 1.5);
+
+  // Loaves on sloping racks on the back wall, either side of the doorway.
+  const racks = [[minX + 0.1, -0.65], [0.38, 0.62]];
+  for (const [x0, x1] of racks) {
+    for (const y of [0.95, 1.4, 1.85]) {
+      const shelf = paint(new THREE.BoxGeometry(x1 - x0, 0.03, 0.36), kit.sw('wicker'));
+      kit.parts.atlas.push(shelf.rotateX(0.32).translate((x0 + x1) / 2, y, back + 0.2));
+      for (let x = x0 + 0.12; x < x1 - 0.06; x += 0.2) {
+        loaf(x, y + 0.02, back + 0.22, y > 1.6 ? 'baguette' : (y > 1.2 ? 'cob' : 'bloomer'), Math.round(x * 17 + y * 5));
+      }
+    }
+  }
+
+  /* The bakehouse through the doorway: a brick oven with its mouth alight.
+     Its walls are low on purpose. From the camera's 56 degrees, a ray
+     over the top of the shop's back wall comes down to 0.9 by the time it
+     is 1.2 behind it, and through the doorway it sees no higher than 0.2
+     there — so anything taller at the back of the bakehouse stood up
+     above the shop like a chimney, and none of it could be seen through
+     the door anyway. */
+  const [o0, o1, oh] = OPENINGS.bakery.back;
+  block('woodDark', [o0 - 0.06, o0], [0, oh], [back - 0.02, back + 0.03]);
+  block('woodDark', [o1, o1 + 0.06], [0, oh], [back - 0.02, back + 0.03]);
+  block('woodDark', [o0 - 0.06, o1 + 0.06], [oh, oh + 0.08], [back - 0.02, back + 0.03]);
+  block('soot', [o0 - 0.4, o1 + 0.4], [0, 0.01], [back - 1.2, back]);
+  block('brickDark', [o0 - 0.4, o1 + 0.4], [0, 0.9], [back - 1.24, back - 1.2]);
+  block('brick', [o0 - 0.25, o1 + 0.25], [0, 1.4], [back - 1.2, back - 0.75]);
+  block('soot', [o0 + 0.05, o1 - 0.05], [0.5, 0.9], [back - 0.76, back - 0.74]);
+  kit.glowBox([o0 + 0.12, o1 - 0.12], [0.55, 0.82], [back - 0.775, back - 0.755]);
+  for (const x of [o0 - 0.4, o1 + 0.4]) block('brickDark', [x - 0.02, x + 0.02], [0, 0.9], [back - 1.2, back]);
+
+  /* The tea room: two tables with lace cloths, two chairs at each, one by
+     the window and one against the back wall under the menu, with the
+     dresser between them on the side wall. The first layout had both
+     tables in the middle of the floor and the dresser behind the second,
+     and the second table's chairs met the counter's screen: the corner in
+     front of the dresser was floor nobody could reach, which the test that
+     floods every room from its door found. */
+  const tables = [[1.5, -1.68], [1.65, -5.0]];
+  tables.forEach(([x, z], i) => {
+    cylinder('iron', 0.18, 0.2, 0.03, x, 0, z, 10);
+    cylinder('iron', 0.025, 0.025, 0.7, x, 0.03, z, 6);
+    cylinder('lace', 0.38, 0.38, 0.02, x, 0.72, z, 16);
+    cylinder('lace', 0.385, 0.4, 0.16, x, 0.57, z, 16, true);
+    for (const side of [-1, 1]) {
+      const chx = x + side * 0.6;
+      cylinder('woodDark', 0.17, 0.17, 0.04, chx, 0.44, z, 12);
+      for (const [lx, lz] of [[-0.11, -0.11], [0.11, -0.11], [-0.11, 0.11], [0.11, 0.11]]) {
+        block('woodDark', [chx + lx - 0.012, chx + lx + 0.012], [0, 0.44], [z + lz - 0.012, z + lz + 0.012]);
+      }
+      const bx = chx + side * 0.16;
+      block('woodDark', [bx - 0.015, bx + 0.015], [0.48, 0.86], [z - 0.14, z + 0.14]);
+      const hoop = paint(new THREE.TorusGeometry(0.13, 0.014, 4, 12, Math.PI), kit.sw('woodDark'));
+      kit.parts.atlas.push(hoop.rotateY(Math.PI / 2).translate(bx, 0.86, z));
+    }
+    // Tea for two.
+    const teapot = paint(new THREE.IcosahedronGeometry(0.075, 1), kit.sw(i ? 'chinaBlue' : 'china'));
+    kit.parts.atlas.push(teapot.scale(1, 0.85, 1).translate(x - 0.06, 0.8, z - 0.08));
+    const spout = paint(new THREE.CylinderGeometry(0.01, 0.018, 0.1, 6), kit.sw(i ? 'chinaBlue' : 'china'));
+    kit.parts.atlas.push(spout.rotateZ(-0.9).translate(x + 0.03, 0.82, z - 0.08));
+    for (const side of [-1, 1]) {
+      cylinder('china', 0.055, 0.055, 0.008, x + side * 0.2, 0.74, z + 0.06, 10);
+      cylinder('chinaBlue', 0.03, 0.025, 0.045, x + side * 0.2, 0.748, z + 0.06, 8);
+    }
+    if (i === 1) {
+      // A cake stand: three plates on a rod, cakes and scones on them.
+      cylinder('brass', 0.008, 0.008, 0.34, x + 0.12, 0.74, z + 0.12, 5);
+      [0.1, 0.08, 0.06].forEach((r, t) => {
+        const y = 0.76 + t * 0.12;
+        cylinder('china', r, r, 0.008, x + 0.12, y, z + 0.12, 12);
+        for (let c = 0; c < 3; c += 1) {
+          const a = (c / 3) * Math.PI * 2 + t;
+          loaf(x + 0.12 + Math.cos(a) * r * 0.55, y + 0.008, z + 0.12 + Math.sin(a) * r * 0.55, 'roll', c + t * 3);
+        }
+      });
+    } else {
+      cylinder('china', 0.02, 0.025, 0.08, x + 0.14, 0.74, z + 0.1, 6);
+      kit.fruitAt('tomato', x + 0.14, 0.82, z + 0.1, 3);
+    }
+    solid(`tea-table-${i + 1}`, [x - 0.8, x + 0.8], [z - 0.4, z + 0.4], 0.9);
+  });
+
+  // The dresser on the right-hand wall, between the tables: a cupboard,
+  // and open shelves of plates and cups above it.
+  const dz = [-3.9, -2.7];
+  const dx = [maxX - 0.44, maxX];
+  block('paint', dx, [0, 0.85], dz);
+  block('wood', [dx[0] - 0.02, dx[1]], [0.85, 0.89], [dz[0] - 0.02, dz[1] + 0.02]);
+  block('paint', [dx[1] - 0.04, dx[1]], [0.89, 2.1], dz);
+  for (const z of dz) block('paint', [dx[0] + 0.12, dx[1]], [0.89, 2.1], [z - 0.02, z + 0.02]);
+  block('paint', [dx[0] + 0.1, dx[1]], [2.1, 2.16], [dz[0] - 0.03, dz[1] + 0.03]);
+  for (const y of [1.3, 1.7]) block('wood', [dx[0] + 0.14, dx[1]], [y - 0.02, y], dz);
+  for (const y of [0.89, 1.3, 1.7]) {
+    for (let z = dz[0] + 0.15; z < dz[1] - 0.1; z += 0.2) {
+      const plate = paint(new THREE.CylinderGeometry(0.09, 0.09, 0.012, 14), kit.sw('china'));
+      kit.parts.atlas.push(plate.rotateZ(Math.PI / 2 - 0.25).translate(dx[1] - 0.09, y + 0.1, z));
+      const rim = paint(new THREE.TorusGeometry(0.075, 0.008, 3, 14), kit.sw('chinaBlue'));
+      kit.parts.atlas.push(rim.rotateY(Math.PI / 2).rotateZ(-0.25).translate(dx[1] - 0.085, y + 0.1, z));
+    }
+  }
+  solid('dresser', [dx[0] - 0.02, maxX], [dz[0] - 0.02, dz[1] + 0.02], 2.16);
+
+  // The tea room's menu on the back wall.
+  kit.parts.atlas.push(placed(
+    labelledBox(0.95, 0.76, 0.03, { front: kit.A.uv.teaboard, back: kit.sw('woodDark') }, kit.sw('woodDark')),
+    1.35, 1.75, back + 0.02,
+  ));
+
+  // Wall lamps: one by each table, one by the bread.
+  const sconces = [[maxX, -1.68, -1], [maxX, -4.55, -1], [minX, -2.3, 1]];
+  for (const [x, z, side] of sconces) {
+    const lx = x + side * 0.16;
+    block('brass', [Math.min(x, x + side * 0.12), Math.max(x, x + side * 0.12)], [1.86, 1.89], [z - 0.015, z + 0.015]);
+    cylinder('pinkIcing', 0.05, 0.1, 0.12, lx, 1.84, z, 10, true);
+    kit.bulb(lx, 1.86, z, 0.04);
+  }
+
+  return {
+    keeper: {
+      x: -1.2, z: -4.75, figure: 'female',
+      look: { shirt: 0xf4f1ea, apron: 0x2a3f6b, trousers: 0x3a3a3e, hair: 0xc9a25a },
+    },
+    /* Each wall lamp's light a long step out from its wall rather than at
+       the bulb, and dimmer than a hanging lamp's: at the bulb, a third of
+       a unit off the paper, it burned a white disc into the wallpaper. */
+    lamps: [...sconces.map(([x, z, side]) => [x + side * 0.8, 1.9, z]), [(o0 + o1) / 2, 0.75, back - 0.5]],
+    lampPower: 0.6,
+    counter: { x: -1.0, z: -3.15 },
+    greeting: (hour) => `🥐 “${hello(hour)}! The bread's still warm — and there's a pot of tea on, if you'd like to sit.”`,
+  };
+}
+
+const DESIGNS = { grocer, hardware, bakery };
 
 /* Good morning, by the farm's own clock: the day is ninety seconds long,
    and a shopkeeper who says morning at midnight has not been looking out
@@ -1367,10 +1716,16 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   atlasTex.anisotropy = anisotropy;
   const mats = {
     wall: material('wall', { map: tiled(wallCanvas(spec.colours), anisotropy, false), roughness: 0.92 }),
-    floor: material('floor', { map: tiled(floorCanvas(), anisotropy), roughness: 0.78 }),
+    floor: material('floor', {
+      map: tiled(spec.floor === 'checker' ? checkerCanvas(spec.colours.tileA, spec.colours.tileB) : floorCanvas(), anisotropy),
+      roughness: spec.floor === 'checker' ? 0.5 : 0.78,
+    }),
     pave: material('pave', { map: tiled(paveCanvas(), anisotropy), roughness: 0.95 }),
     atlas: material('atlas', { map: atlasTex, roughness: 0.74, side: THREE.DoubleSide }),
     glow: material('glow', { color: 0xfff1d6, emissive: 0xffc77a, emissiveIntensity: 1 }),
+    glass: material('glass', {
+      color: 0xe6f2f2, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false,
+    }),
   };
   let triangles = 0;
   for (const [key, list] of Object.entries(kit.parts)) {
@@ -1380,15 +1735,16 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     for (const g of list) g.dispose();
     const mesh = new THREE.Mesh(merged, mats[key]);
     mesh.name = `interior-${spec.id}-${key}`;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = key !== 'glass';
     mesh.castShadow = key === 'atlas';
+    if (key === 'glass') mesh.renderOrder = 1;
     group.add(mesh);
     triangles += merged.getAttribute('position').count / 3;
   }
 
   /* The shopkeeper, behind the counter, idling. The same figure as the
      farmer in the shop's colours, so the town's people are the farm's. */
-  const keeper = buildFarmer('male', design.keeper.look);
+  const keeper = buildFarmer(design.keeper.figure ?? 'male', design.keeper.look);
   keeper.object.traverse((o) => {
     for (const m of [o.material ?? []].flat()) m.toneMapped = false;
   });
@@ -1527,7 +1883,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     lit = THREE.MathUtils.smoothstep(night, 0.25, 0.65);
     sun.intensity = 0.25 + 1.45 * (1 - lit);
     hemi.intensity = 0.55 + 0.5 * (1 - lit);
-    for (const l of lamps) l.intensity = 2.5 + 7 * lit;
+    for (const l of lamps) l.intensity = (2.5 + 7 * lit) * (design.lampPower ?? 1);
     mats.glow.emissiveIntensity = 0.8 + 2.2 * lit;
     keeper.mixer.update(Math.min(dt, 0.1));
   }
@@ -1550,6 +1906,8 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
       lines: slots.map((sl) => sl.id),
       keeper: toWorld(design.keeper.x, design.keeper.z),
       furniture: [...new Set(kit.furniture)],
+      // Where each piece stands, as world rectangles, by its name.
+      pieces: Object.fromEntries(kit.solids.map((b) => [b.id, worldRect([b.x0, b.x1], [b.z0, b.z1])])),
       triangles,
       atlas: { width: A.width, height: A.height },
     },
