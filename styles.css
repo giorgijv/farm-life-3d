@@ -3365,6 +3365,28 @@ body {
    a worse bug than the blank screen it was written to explain. Caught by
    screenshotting the restore rather than by reading `el.hidden` back, which
    said `true` the whole time. */
+/* The fade in and out of a shop (scene.js, fadeThrough): black at once,
+   then clearing. Above the canvas and under every control drawn over it,
+   and never in the way of a touch. */
+.scene-fade {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: #15110e;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease-out;
+}
+
+.scene-fade.on {
+  opacity: 1;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-fade { transition: none; }
+}
+
 .scene-lost[hidden] {
   display: none;
 }

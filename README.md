@@ -132,9 +132,18 @@ pavement, a Bakery with a tea-room table, a Café and a Restaurant with
 tables under parasols, Hardware & Feed with sacks and barrels at the door,
 and a Pharmacy across the road. Each has its name signwritten over a
 painted shopfront, a striped awning, a hanging sign with a picture of its
-trade, and lit windows with the goods drawn inside. They are seen from
-outside, not entered. **Hardware & Feed is where the tools are sold** —
-drive up and stop outside it.
+trade, and lit windows with the goods drawn inside. **The Greengrocer can
+be walked into:** go up to its door and press on, or use the "Go into the
+Greengrocer" prompt. Inside is a room seen from above with its street wall
+cut away, like a dollhouse. Crates of fruit and vegetables are stepped up
+behind the window, and a stand of the farm's own crops runs down the side
+wall. There are baskets on a table, garlic and herbs on a rail, sacks of
+potatoes, and a counter with a brass scale, a till and the shopkeeper
+behind it. The chalkboard over the counter shows what the market pays for
+each crop. The lamps light the room after dark, and walking back out
+through the door puts her on the pavement outside. The other shops are
+still seen from outside only. **Hardware & Feed is where the tools are
+sold**: drive up and stop outside it.
 
 High Street ends at the **City Hall**: a stone building on a podium, six
 columns under a pediment with the town's wheat-sheaf in it, and a clock
@@ -434,6 +443,9 @@ offline once loaded.
   the civic square, in three materials: tiled stone, tiled brick, one atlas
 - `streetscape.js` — Farm City's pavements and kerbs, street lamps, zebra
   crossings and bunting, and the town's lights after dark
+- `interiors.js` — the inside of the shops that open, each a room of its
+  own with its own lights, built where the shop stands and drawn instead
+  of the world while she is inside
 - `assets.js` — loads the 3D models, and normalises them to a world scale
 - `assets/` — the models themselves (CC0, from Kenney), and a manifest the
   service worker precaches from
@@ -523,6 +535,13 @@ with the windows brightening alongside, that the crossings' beacons blink,
 that the shop blocks and the police cars are merged into one mesh each,
 and that the town holds to the farm's draw budget from inside it, that a
 car parked just short of the town or the farm can be walked back to, that
+the Greengrocer's door is offered from the pavement and takes her in by the
+prompt or by walking on into it, that every part of its floor can be
+reached from the door with nothing solid walked through, that the camera
+inside frames the whole room on a desktop and on a phone, that walking out
+of the door brings her back onto High Street, that inside only the room is
+drawn, that the farm's errands wait while she is in the shop, and that its
+lamps light it after dark and its shopkeeper knows the time of day, that
 she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —

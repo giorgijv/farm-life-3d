@@ -44,9 +44,10 @@ import { loadModel, loadMeshes, preload, overrideKitColor, overrideKitFinish } f
 import { buildFarmer, FARMER_HEIGHT } from './farmer.js';
 import { buildBarn, BARN_WIDTH, BARN_DEPTH } from './barn.js';
 import { buildSigns } from './signs.js';
-import { buildHighStreet } from './highstreet.js';
+import { buildHighStreet, FRONT } from './highstreet.js';
 import { buildCivic } from './civic.js';
 import { buildStreetscape } from './streetscape.js';
+import { buildInterior } from './interiors.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   buildStable, STABLE_WIDTH, STABLE_DEPTH,
@@ -3119,6 +3120,12 @@ ${shader.fragmentShader.replace(
      for the pine), which is the figure TRUNK_FRACTION carries. */
   const TRUNK_FRACTION = 0.085;
   const SOLIDS = { boxes: [], posts: [] };
+  /* The shop she is inside, or null. Declared up here, with the world's
+     solids, because it decides which solids she walks against: in a shop
+     the room's own furniture and walls are the only things there are, and
+     the street outside is as far away as the farm. See enterShop. */
+  let inside = null;
+  let activeScene = scene; // the scene drawn: the world's, or a shop's
 
   /* minY/maxY are carried on the boxes although nothing about walking into a
      wall consults them: they are how a test can ask whether the farmhouse is
@@ -5653,8 +5660,9 @@ ${lit}`;
   function keepOutOfSolids(x, z, out, fromX = x, fromZ = z) {
     out.x = x;
     out.z = z;
+    const solids = inside ? inside.solids : SOLIDS;
 
-    for (const b of SOLIDS.boxes) {
+    for (const b of solids.boxes) {
       const minX = b.minX - BODY_RADIUS;
       const maxX = b.maxX + BODY_RADIUS;
       const minZ = b.minZ - BODY_RADIUS;
@@ -5731,7 +5739,7 @@ ${lit}`;
        a rim from having her next step cancelled for grazing the tree she is
        already leaning on. Short steps are what make that safe, and
        moveWithCollision guarantees them. */
-    for (const p of SOLIDS.posts) {
+    for (const p of solids.posts) {
       const rim = p.r + BODY_RADIUS;
       const dx = out.x - p.x;
       const dz = out.z - p.z;
@@ -5773,11 +5781,12 @@ ${lit}`;
      safety net below, which is why it answers about the *place* rather than
      resolving a movement into it. */
   function insideSolid(x, z) {
-    for (const b of SOLIDS.boxes) {
+    const solids = inside ? inside.solids : SOLIDS;
+    for (const b of solids.boxes) {
       if (x > b.minX - BODY_RADIUS && x < b.maxX + BODY_RADIUS
         && z > b.minZ - BODY_RADIUS && z < b.maxZ + BODY_RADIUS) return true;
     }
-    for (const p of SOLIDS.posts) {
+    for (const p of solids.posts) {
       if (Math.hypot(x - p.x, z - p.z) < p.r + BODY_RADIUS) return true;
     }
     return false;
@@ -5958,6 +5967,14 @@ ${lit}`;
   };
 
   function clampToRegion(fromX, fromZ, x, z, out) {
+    /* In a shop, the room: its floor, held in from the walls. Nothing
+       outside it is anywhere she can get to on foot until she goes back
+       out through the door. */
+    if (inside) {
+      out.x = Math.max(inside.walk.minX, Math.min(inside.walk.maxX, x));
+      out.z = Math.max(inside.walk.minZ, Math.min(inside.walk.maxZ, z));
+      return;
+    }
     /* Wherever else she has left the car, so long as that is not on the
        farm — where the farm's own box is the right answer.
 
@@ -6051,6 +6068,11 @@ ${lit}`;
   const TURN_EASE = 14;
   const TURN_RATE = 10;
 
+  /* Which way, on the ground, the stick last asked her to go — a unit
+     vector, read by the doors: pressing on into a shop's door goes in, and
+     pressing on out through it comes back out. */
+  const stickWant = { x: 0, z: 0 };
+
   function steer(dt) {
     const mag = Math.min(1, Math.hypot(drive.x, drive.z));
     const step = walkSpeed() * mag * dt;
@@ -6076,6 +6098,8 @@ ${lit}`;
     const cos = Math.cos(yaw);
     const wantX = drive.x * cos + drive.z * sin;
     const wantZ = -drive.x * sin + drive.z * cos;
+    stickWant.x = wantX / mag;
+    stickWant.z = wantZ / mag;
 
     clampToWalkable(fromX, fromZ,
       fromX + (wantX / mag) * step, fromZ + (wantZ / mag) * step, walkTmp);
@@ -6110,6 +6134,16 @@ ${lit}`;
       activeJob = null;
       steer(dt);
       stance = 'walking';
+      throughDoor();
+      return;
+    }
+
+    /* In a shop, the farm's errands wait. A tile tapped from in here is a
+       walk across the town and the hills, and she would start it by walking
+       into the shop's back wall; they are kept, the way they are kept while
+       she is at the wheel, and started once she is back out on the street. */
+    if (inside) {
+      stance = 'idle';
       return;
     }
 
@@ -6664,6 +6698,13 @@ ${lit}`;
         : null;
     }
 
+    /* In a shop there is one thing to do, and it is to leave — offered on
+       the mat inside the door. */
+    if (inside) {
+      const d = Math.hypot(inside.door.inside.x - at.x, inside.door.inside.z - at.z);
+      return d <= DOOR_REACH ? { type: 'leave', id: inside.report.id, name: inside.report.name, distance: d } : null;
+    }
+
     let best = null;
     const consider = (candidate, pos) => {
       const d = Math.hypot(pos.x - at.x, pos.z - at.z);
@@ -6683,6 +6724,16 @@ ${lit}`;
         const intent = bridge.animalIntent(kind, animal.id);
         if (intent) consider({ type: 'animal', kind, id: animal.id, intent }, animalSlot(kind, index));
       });
+    }
+
+    /* A shop's door, from the pavement in front of it. */
+    for (const id of Object.keys(ENTERABLE)) {
+      const door = doorOf(id);
+      if (!door) continue;
+      const d = Math.hypot(door.outside.x - at.x, door.outside.z - at.z);
+      if (d <= DOOR_REACH && (!best || d < best.distance)) {
+        best = { type: 'enter', id, name: door.name, distance: d };
+      }
     }
 
     /* The car, offered last so a crop underfoot still wins. Its own reach is
@@ -6733,6 +6784,269 @@ ${lit}`;
     followTmp.set(at.x, 1.1, at.z).sub(controls.target).multiplyScalar(FOLLOW_EASE);
     controls.target.add(followTmp);
     camera.position.add(followTmp);
+  }
+
+  /* -------------------------------------------------------------- */
+  /* Inside the shops                                                  */
+  /* -------------------------------------------------------------- */
+
+  /* The shops that open, and how each is dressed inside. The rest of the
+     room — where its walls are, where its door is — is not written down
+     here but read off the street as built: the block's footprint for the
+     walls, the shopfront's painted door for the doorway, so the door she
+     walks in by is the one she walked up to. */
+  const ENTERABLE = {
+    grocer: {
+      kind: 'grocer',
+      block: 'grocer',
+      colours: { wall: '#6f9a6c', dado: '#eeeadf', rail: '#2f5d3a' },
+      chalkTitle: 'Today\'s prices',
+      prices: () => ['wheat', 'corn', 'carrot', 'pumpkin']
+        .map((k) => [bridge.CROPS[k].name, bridge.CROPS[k].sellPrice]),
+      posterTitle: 'Grown in Farm City',
+      posterLines: ['Fresh from the farms', 'round town, picked', 'this morning'],
+    },
+  };
+
+  /* How near the door she has to be for it to be offered: the reach she has
+     for anything, and the step from the mat to the threshold. */
+  const DOOR_REACH = REACH + 0.3;
+
+  /* A shop's frame — the one highstreet.js and interiors.js both build in:
+     x along the frontage, +z out to the street — and what is in it. */
+  function shopFrame(id) {
+    const unit = SHOPFRONTS.find((u) => u.id === id);
+    const built = streetReport?.units.find((u) => u.id === id);
+    if (!unit || !built) return null;
+    const c = Math.cos(unit.yaw);
+    const s = Math.sin(unit.yaw);
+    const toLocal = (x, z) => {
+      const dx = x - unit.x;
+      const dz = z - unit.z;
+      return { x: dx * c - dz * s, z: dx * s + dz * c };
+    };
+    return { unit, built, toLocal, out: { x: s, z: c } };
+  }
+
+  /* The door, from outside: its middle on the face of the wall, the spot on
+     the pavement it is offered from, and the way out. */
+  const doorCache = new Map();
+  function doorOf(id) {
+    if (doorCache.has(id)) return doorCache.get(id);
+    const f = shopFrame(id);
+    if (!f) return null;
+    const door = {
+      name: f.unit.name,
+      x: f.built.door.x,
+      z: f.built.door.z,
+      outside: { x: f.built.door.x + f.out.x * 0.7, z: f.built.door.z + f.out.z * 0.7 },
+      out: f.out,
+      half: FRONT.door.w / 2 - 0.1,
+    };
+    doorCache.set(id, door);
+    return door;
+  }
+
+  /* The room the shop's block leaves inside its walls. */
+  function roomSpec(id) {
+    const def = ENTERABLE[id];
+    const f = shopFrame(id);
+    const block = blockOf(def.block);
+    if (!f || !block) return null;
+    const k = COMMERCIAL_KIT[block.id];
+    const hw = (k.w * COMMERCIAL_SCALE) / 2;
+    const hd = (k.d * COMMERCIAL_SCALE) / 2;
+    const corners = [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd]]
+      .map(([dx, dz]) => f.toLocal(block.x + dx, block.z + dz));
+    const wall = 0.12;
+    return {
+      id,
+      kind: def.kind,
+      name: f.unit.name,
+      x: f.unit.x,
+      z: f.unit.z,
+      yaw: f.unit.yaw,
+      room: {
+        minX: Math.min(...corners.map((p) => p.x)) + wall,
+        maxX: Math.max(...corners.map((p) => p.x)) - wall,
+        back: Math.min(...corners.map((p) => p.z)) + wall,
+      },
+      door: { x: f.toLocal(f.built.door.x, f.built.door.z).x, w: FRONT.door.w },
+      colours: { ...def.colours, paint: f.unit.colours.paint, trim: f.unit.colours.trim },
+      chalkTitle: def.chalkTitle,
+      prices: def.prices(),
+      posterTitle: def.posterTitle,
+      posterLines: def.posterLines,
+    };
+  }
+
+  /* Built the first time she goes in, not at load: a room is fifteen
+     thousand triangles and a new set of shaders nobody needs who never opens
+     the door. The fade covers the frame it costs. */
+  const interiors = new Map();
+  function interiorOf(id) {
+    if (interiors.has(id)) return interiors.get(id);
+    const spec = roomSpec(id);
+    if (!spec) return null;
+    let room = null;
+    try {
+      room = buildInterior(spec, { anisotropy: textureAnisotropy(), shadows: shadowsAfforded });
+    } catch (err) {
+      console.warn(`farm: the inside of the ${spec.name} did not build`, err);
+    }
+    interiors.set(id, room);
+    return room;
+  }
+
+  /* The fade between outside and in: black at once, then clearing over
+     four tenths of a second. Purely a picture — the swap itself has already
+     happened, so nothing waits on it, and a player who has asked for less
+     motion gets the cut without it. */
+  const fadeEl = document.createElement('div');
+  fadeEl.className = 'scene-fade';
+  fadeEl.setAttribute('aria-hidden', 'true');
+  canvas.parentElement?.appendChild(fadeEl);
+  function fadeThrough() {
+    if (reducedMotion()) return;
+    fadeEl.classList.add('on');
+    void fadeEl.offsetWidth; // commit the black before the transition back
+    fadeEl.classList.remove('on');
+  }
+
+  /* Which scene the frame draws, the composer's passes included: both of
+     them render a scene they were given at construction, and the ambient
+     occlusion would otherwise go on shading the street behind a shop. */
+  function setActiveScene(next) {
+    activeScene = next;
+    if (post) {
+      post.renderPass.scene = next;
+      post.ssao.scene = next;
+    }
+  }
+
+  /* Where the camera was relative to her outside, to put it back there. */
+  let outsideView = null;
+
+  function enterShop(id) {
+    if (inside || inCar || !ENTERABLE[id]) return false;
+    const room = interiorOf(id);
+    if (!room) return false;
+    outsideView = camera.position.clone().sub(controls.target);
+    /* An errand under way is put back at the head of the queue rather than
+       dropped: it was the player's, and it is still waiting when she comes
+       out. */
+    if (activeJob) { jobQueue.unshift(activeJob); activeJob = null; }
+    stance = 'idle';
+    inside = room;
+    room.scene.add(farmer);
+    at.x = room.door.inside.x;
+    at.z = room.door.inside.z;
+    facing = Math.atan2(-room.door.out.x, -room.door.out.z);
+    setActiveScene(room.scene);
+    controls.enabled = false;
+    room.framedAt = null;
+    fadeThrough();
+    bridge.announce(room.greeting((12 + bridge.daySkyState().phase * 24) % 24));
+    return true;
+  }
+
+  function leaveShop() {
+    if (!inside) return false;
+    const room = inside;
+    inside = null;
+    scene.add(farmer);
+    at.x = room.door.outside.x;
+    at.z = room.door.outside.z;
+    facing = Math.atan2(room.door.out.x, room.door.out.z);
+    setActiveScene(scene);
+    controls.target.set(at.x, 1.1, at.z);
+    camera.position.copy(controls.target).add(outsideView ?? new THREE.Vector3(0, 9, 11));
+    controls.enabled = true;
+    controls.update();
+    fadeThrough();
+    return true;
+  }
+
+  /* Walking through a doorway: pressed on into a shop's door from the
+     pavement, or pressed on out of it from the mat. The prompt does the
+     same; this is for a player who walks up to a door expecting to walk
+     through it, which is everyone. */
+  function throughDoor() {
+    if (Math.hypot(stickWant.x, stickWant.z) < 0.5) return;
+    if (inside) {
+      const { door } = inside;
+      const l = inside.toLocal(at.x, at.z);
+      // Held at the front of the walk by the clamp, between the door's
+      // posts, and pressing on out.
+      if (l.z < door.frontZ - 0.03) return;
+      if (l.x < door.x0 || l.x > door.x1) return;
+      if (stickWant.x * door.out.x + stickWant.z * door.out.z < 0.6) return;
+      leaveShop();
+      return;
+    }
+    for (const id of Object.keys(ENTERABLE)) {
+      const door = doorOf(id);
+      if (!door) continue;
+      const dx = at.x - door.x;
+      const dz = at.z - door.z;
+      const across = Math.abs(dx * door.out.z - dz * door.out.x);
+      const off = dx * door.out.x + dz * door.out.z;
+      if (across > door.half || off < 0 || off > 0.6) continue;
+      if (-(stickWant.x * door.out.x + stickWant.z * door.out.z) < 0.6) continue;
+      enterShop(id);
+      return;
+    }
+  }
+
+  /* The camera in a shop: out over the pavement and up, looking down into
+     the room through where its street wall was, as far back as it has to
+     be for the whole room — floor and walls to their tops — to fit the
+     picture. Found by trying, rather than worked out from the field of
+     view, because the picture's shape is whatever the page has made it: 4:3
+     on a desktop, tall and narrow on a phone. Held still while she walks:
+     a room five units across does not need following, and a camera that
+     drifted would be the only thing in there that moved without reason. */
+  const INTERIOR_ELEVATION = 0.98; // about 56 degrees above the floor
+  const framePt = new THREE.Vector3();
+  function frameInterior() {
+    const room = inside;
+    const v = room.view;
+    controls.target.set(v.centre.x, v.centre.y, v.centre.z);
+    if (room.framedAt !== camera.aspect) {
+      room.framedAt = camera.aspect;
+      const dir = new THREE.Vector3(
+        v.out.x * Math.cos(INTERIOR_ELEVATION), Math.sin(INTERIOR_ELEVATION), v.out.z * Math.cos(INTERIOR_ELEVATION),
+      );
+      const corners = [];
+      for (const x of [v.box.min.x, v.box.max.x]) {
+        for (const y of [v.box.min.y, v.box.max.y]) {
+          for (const z of [v.box.min.z, v.box.max.z]) corners.push(new THREE.Vector3(x, y, z));
+        }
+      }
+      /* The bottom of the picture is where the stick and the prompt sit,
+         so the room is held off it by more than it is held off the top —
+         and by more again on a phone, where the two of them are a third of
+         a narrow picture's width each. */
+      const bottom = camera.aspect < 1 ? -0.6 : -0.7;
+      const fits = (dist) => {
+        camera.position.copy(controls.target).addScaledVector(dir, dist);
+        camera.lookAt(controls.target);
+        camera.updateMatrixWorld();
+        return corners.every((p) => {
+          framePt.copy(p).project(camera);
+          return Math.abs(framePt.x) <= 0.94 && framePt.y <= 0.92 && framePt.y >= bottom;
+        });
+      };
+      let lo = 2;
+      let hi = 60;
+      for (let k = 0; k < 24; k += 1) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) hi = mid; else lo = mid;
+      }
+      room.cameraAt = controls.target.clone().addScaledVector(dir, hi);
+    }
+    camera.position.copy(room.cameraAt);
+    camera.lookAt(controls.target);
   }
 
   /* Drawing time, not simulation time: the walk is stepped by advanceFarmer on
@@ -6898,7 +7212,8 @@ ${lit}`;
 
   function buildPostProcessing() {
     const composer = new EffectComposer(renderer);
-    composer.addPass(new RenderPass(scene, camera));
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
 
     /* Contact shadows in all but name, and the one effect here that pays for
        itself in the view the game actually opens on. With shadow mapping ruled
@@ -6953,7 +7268,7 @@ ${lit}`;
        the exact trap the art bible flagged for this step. */
     composer.addPass(new ShaderPass(GammaCorrectionShader));
 
-    return { composer, ssao, bloom };
+    return { composer, ssao, bloom, renderPass };
   }
 
   /* What the budget measures is how far apart the draws actually land, not
@@ -7211,6 +7526,44 @@ ${lit}`;
     // Which of the town's small things are being drawn this frame.
     townDetail: () => TOWN_DETAIL.map((d) => ({ name: d.object.name, visible: d.object.visible })),
     alight: () => leaveCar(),
+    /* The shops she can go into: their doors as seen from the pavement,
+       going in and coming out, and the room she is in. */
+    shopDoors: () => Object.keys(ENTERABLE).map((id) => ({ id, ...doorOf(id) })),
+    enter: (id) => enterShop(id),
+    leave: () => leaveShop(),
+    interior: () => (inside ? { ...inside.report, at: { ...at } } : null),
+    interiorReport: (id) => (ENTERABLE[id] ? (interiorOf(id)?.report ?? null) : null),
+    interiorLights: () => inside?.state() ?? null,
+    /* Where the room's corners and she herself land in the picture, in
+       normalised device coordinates — -1 to 1 across and up. */
+    interiorFraming: () => {
+      if (!inside) return null;
+      frameInterior();
+      camera.updateMatrixWorld();
+      const { box } = inside.view;
+      const pts = [];
+      for (const x of [box.min.x, box.max.x]) {
+        for (const y of [box.min.y, box.max.y]) {
+          for (const z of [box.min.z, box.max.z]) pts.push(new THREE.Vector3(x, y, z));
+        }
+      }
+      const ndc = (p) => { const q = p.clone().project(camera); return { x: q.x, y: q.y }; };
+      return {
+        corners: pts.map(ndc),
+        farmer: ndc(new THREE.Vector3(at.x, 1.0, at.z)),
+        aspect: camera.aspect,
+      };
+    },
+    /* Puts her down somewhere, as a test's starting point. Not a feature:
+       nothing in the game moves her but her own legs and the car. */
+    putFarmerAt: (x, z) => {
+      at.x = x;
+      at.z = z;
+      jobQueue.length = 0;
+      activeJob = null;
+      stance = 'idle';
+      return { ...at };
+    },
     atWheel: () => inCar,
     atMarket: () => shopOpen,
     /* The city's counterpart, and the pair being separate is the claim
@@ -7829,6 +8182,7 @@ ${lit}`;
     if (shadowsAfforded) renderer.shadowMap.needsUpdate = true;
   });
 
+  let lastInteriorDraw = 0;
   function frame(now) {
     requestAnimationFrame(frame);
 
@@ -7919,7 +8273,12 @@ ${lit}`;
        the duration, and calling update on a disabled control is a no-op that
        still costs a matrix. */
     if (inCar) followCar(); // which drives controls.update() itself
-    else {
+    else if (inside) {
+      // A shop's own camera, and its lamps, by the farm's own clock.
+      frameInterior();
+      inside.update(skyNight, lastInteriorDraw ? (now - lastInteriorDraw) / 1000 : 0);
+      lastInteriorDraw = now;
+    } else {
       followFarmer();
       controls.update();
     }
@@ -7939,7 +8298,7 @@ ${lit}`;
        needsUpdate is never read. */
     if (shadowsAfforded) renderer.shadowMap.needsUpdate = true;
     if (post && quality !== QUALITY.PLAIN) post.composer.render();
-    else renderer.render(scene, camera);
+    else renderer.render(activeScene, camera);
   }
   requestAnimationFrame(frame);
 }

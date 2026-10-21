@@ -8731,3 +8731,235 @@ test('the page loads with no console errors', async ({ page }) => {
 
   expect(errors).toEqual([]);
 });
+
+/* ------------------------------------------------------------------ */
+/* Inside the shops: the Greengrocer                                   */
+/* ------------------------------------------------------------------ */
+
+test.describe('Farm City: inside the Greengrocer', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const door = (page) => page.evaluate(() => window.Farm3DScene.shopDoors().find((d) => d.id === 'grocer'));
+  const standOutside = async (page) => {
+    const d = await door(page);
+    await page.evaluate((p) => window.Farm3DScene.putFarmerAt(p.x, p.z), d.outside);
+    return d;
+  };
+  const twoFrames = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+  test('its door is offered from the pavement, and the prompt takes her in', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    // The Greengrocer is the shop that opens; the rest are still painted doors.
+    expect(await page.evaluate(() => window.Farm3DScene.shopDoors().map((d) => d.id))).toEqual(['grocer']);
+
+    await standOutside(page);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.reachable()?.type)).toBe('enter');
+    const prompt = page.locator('#actionPrompt');
+    await expect(prompt).toHaveText('🚪 Go into the Greengrocer');
+    await prompt.click();
+
+    const r = await page.evaluate(() => ({ room: window.Farm3DScene.interior(), at: window.Farm3DScene.farmerAt() }));
+    expect(r.room.id).toBe('grocer');
+    // On the mat inside the door, where the way back out is offered.
+    expect(Math.hypot(r.at.x - r.room.door.inside.x, r.at.z - r.room.door.inside.z)).toBeLessThan(1e-6);
+    await expect(prompt).toHaveText('🚪 Back out to High Street');
+
+    // And the other shops' doors offer nothing yet.
+    const bakery = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      s.leave();
+      const u = (await s.highStreet()).units.find((v) => v.id === 'bakery');
+      s.putFarmerAt(u.door.x + u.faceX * 0.7, u.door.z + u.faceZ * 0.7);
+      return s.reachable();
+    });
+    expect(bakery?.type).not.toBe('enter');
+  });
+
+  test('inside, every part of the floor can be reached from the door, and nothing solid walked through', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      s.enter('grocer');
+      const room = s.interior();
+      const w = room.walk;
+      /* A flood fill over the room from the mat, each step through the
+         same clamp and the same solids her feet go through in here. Every
+         free point has to be reached — a free point that cannot be is a
+         corner fenced off by the furniture — and the counter's front, where
+         a customer stands, has to be one of them. */
+      const STEP = 0.1;
+      const nx = Math.round((w.maxX - w.minX) / STEP);
+      const nz = Math.round((w.maxZ - w.minZ) / STEP);
+      const P = (i, k) => [w.minX + i * STEP, w.minZ + k * STEP];
+      const seen = new Uint8Array((nx + 1) * (nz + 1));
+      const id = (i, k) => k * (nx + 1) + i;
+      const start = [Math.round((room.door.inside.x - w.minX) / STEP), Math.round((room.door.inside.z - w.minZ) / STEP)];
+      seen[id(...start)] = 1;
+      const queue = [start];
+      while (queue.length) {
+        const [i, k] = queue.pop();
+        const [fx, fz] = P(i, k);
+        for (const [di, dk] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const ni = i + di;
+          const nk = k + dk;
+          if (ni < 0 || ni > nx || nk < 0 || nk > nz || seen[id(ni, nk)]) continue;
+          const [x, z] = P(ni, nk);
+          const to = s.walkClamp(fx, fz, x, z);
+          if (Math.hypot(to.x - x, to.z - z) > 1e-6 || s.blocked(x, z)) continue;
+          seen[id(ni, nk)] = 1;
+          queue.push([ni, nk]);
+        }
+      }
+      let free = 0;
+      const fenced = [];
+      for (let i = 0; i <= nx; i += 1) {
+        for (let k = 0; k <= nz; k += 1) {
+          const [x, z] = P(i, k);
+          if (s.blocked(x, z)) continue;
+          free += 1;
+          if (!seen[id(i, k)]) fenced.push([+x.toFixed(2), +z.toFixed(2)]);
+        }
+      }
+      const near = (p) => {
+        for (let i = 0; i <= nx; i += 1) {
+          for (let k = 0; k <= nz; k += 1) {
+            const [x, z] = P(i, k);
+            if (seen[id(i, k)] && Math.hypot(x - p.x, z - p.z) < 0.15) return true;
+          }
+        }
+        return false;
+      };
+      // Whichever way she pushes at a wall, she is held inside the room.
+      const held = [[w.minX - 3, room.door.inside.z], [w.maxX + 3, room.door.inside.z], [room.door.inside.x, w.minZ - 3]]
+        .map(([x, z]) => s.walkClamp(room.door.inside.x, room.door.inside.z, x, z))
+        .every((p) => p.x >= w.minX - 1e-9 && p.x <= w.maxX + 1e-9 && p.z >= w.minZ - 1e-9);
+      return { free, fenced: fenced.slice(0, 10), counter: near(room.counter), held, furniture: room.furniture, room };
+    });
+    expect(r.free).toBeGreaterThan(400);
+    expect(r.fenced).toEqual([]);
+    expect(r.counter).toBe(true);
+    expect(r.held).toBe(true);
+    expect(r.furniture).toEqual(expect.arrayContaining(['window-display', 'side-stand', 'table', 'counter', 'sacks', 'preserves']));
+    // The room is the shop's block less its walls: five by five and a bit.
+    expect(r.room.floor.width).toBeGreaterThan(4.8);
+    expect(r.room.floor.depth).toBeGreaterThan(5);
+  });
+
+  test('the camera sees the whole room and her in it, on a desktop and on a phone', async ({ page }) => {
+    for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(viewport);
+      await load(page, makeSave());
+      await ready(page);
+      await page.evaluate(() => window.Farm3DScene.enter('grocer'));
+      await twoFrames(page);
+      const f = await page.evaluate(() => window.Farm3DScene.interiorFraming());
+      const inside = (p) => Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1;
+      for (const c of f.corners) expect(inside(c), `a corner of the room at ${viewport.width}px`).toBe(true);
+      expect(inside(f.farmer)).toBe(true);
+      // Clear of the stick and the prompt along the bottom of the picture.
+      expect(Math.min(...f.corners.map((c) => c.y))).toBeGreaterThan(-0.8);
+    }
+  });
+
+  test('walking on out through the door comes back out onto High Street', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const d = await door(page);
+    await page.evaluate(() => window.Farm3DScene.enter('grocer'));
+    // The camera looks in from the street, so down on the stick is out.
+    await page.evaluate(() => window.Farm3DScene.drive(0, 1));
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.interior()), { timeout: 15_000 }).toBeNull();
+    await page.evaluate(() => window.Farm3DScene.drive(0, 0));
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const at = s.farmerAt();
+      return { at, blocked: s.blocked(at.x, at.z) };
+    });
+    // Out on the pavement in front of the door, or on past it, and free.
+    expect(Math.abs(r.at.x - d.x)).toBeLessThan(0.6);
+    expect((r.at.z - d.z) * d.out.z + (r.at.x - d.x) * d.out.x).toBeGreaterThan(0.5);
+    expect(r.blocked).toBe(false);
+  });
+
+  test('pressing on into the door from the pavement takes her in', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await standOutside(page);
+    await page.evaluate(() => window.Farm3DScene.drive(0, -1));
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.interior()?.id), { timeout: 15_000 }).toBe('grocer');
+    await page.evaluate(() => window.Farm3DScene.drive(0, 0));
+  });
+
+  test('inside, only the room is drawn, and it costs less than the street', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.enter('grocer'));
+    await twoFrames(page);
+    await twoFrames(page);
+    const cost = await page.evaluate(() => window.Farm3DScene.drawCost());
+    /* Measured at 80 calls and 15,100 triangles: the room's five materials,
+       her, and the shopkeeper. The street from the pavement outside is
+       38,000 triangles; the farm's ceilings are 300 and 100,000. */
+    expect(cost.calls).toBeGreaterThan(0);
+    expect(cost.calls).toBeLessThanOrEqual(120);
+    expect(cost.triangles).toBeLessThanOrEqual(30_000);
+  });
+
+  test("the farm's errands wait while she is in the shop", async ({ page }) => {
+    await load(page, makeSave({
+      unlockedAchievements: [...ACHIEVEMENT_IDS],
+      plots: Array.from({ length: PLOT_COUNT }, (_, i) => (i === 0
+        ? { crop: 'wheat', plantedAt: secondsAgo(60) } : { crop: null, plantedAt: null })),
+    }));
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.enter('grocer'));
+    const before = await page.evaluate(() => window.Farm3DScene.farmerAt());
+    await tapPlot(page.locator('#plotsGrid > *').first());
+    await page.waitForTimeout(1200);
+    const r = await page.evaluate(() => ({
+      at: window.Farm3DScene.farmerAt(), pending: window.Farm3DScene.pendingActions(), room: window.Farm3DScene.interior()?.id,
+    }));
+    // Still in the shop, still on the mat, and the job still waiting.
+    expect(r.room).toBe('grocer');
+    expect(Math.hypot(r.at.x - before.x, r.at.z - before.z)).toBeLessThan(1e-6);
+    expect(r.pending).toBe(1);
+    // Out on the street, she sets off.
+    await page.evaluate(() => window.Farm3DScene.leave());
+    const out = await page.evaluate(() => window.Farm3DScene.farmerAt());
+    await expect.poll(async () => {
+      const now = await page.evaluate(() => window.Farm3DScene.farmerAt());
+      return Math.hypot(now.x - out.x, now.z - out.z);
+    }).toBeGreaterThan(0.5);
+  });
+
+  test('the lamps light the shop after dark, and the shopkeeper knows the time of day', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const at = async (phase) => {
+      await page.evaluate(async (p) => {
+        state.dayElapsedMs = p * 90_000;
+        window.Farm3DScene.leave();
+        window.Farm3DScene.enter('grocer');
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }, phase);
+      return {
+        lights: await page.evaluate(() => window.Farm3DScene.interiorLights()),
+        said: await page.locator('#toast').textContent(),
+      };
+    };
+    // Noon is phase 0, midnight a half, nine in the morning seven-eighths.
+    const noon = await at(0);
+    const night = await at(0.5);
+    const morning = await at(0.875);
+    expect(night.lights.lamps[0]).toBeGreaterThan(noon.lights.lamps[0] * 2);
+    expect(night.lights.sun).toBeLessThan(noon.lights.sun);
+    expect(night.lights.glow).toBeGreaterThan(noon.lights.glow);
+    expect(noon.said).toContain('Afternoon');
+    expect(night.said).toContain('Evening');
+    expect(morning.said).toContain('Morning');
+  });
+});

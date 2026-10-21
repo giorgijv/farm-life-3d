@@ -176,9 +176,14 @@ function bone(name, x = 0, y = 0, z = 0) {
   return b;
 }
 
-/** Builds one farmer. Returns the same shape the glTF path used to. */
-export function buildFarmer(gender) {
-  const look = LOOK[gender] ?? LOOK.female;
+/** Builds one farmer. Returns the same shape the glTF path used to.
+ *
+ * `overrides` changes the look without a third LOOK entry the farmer
+ * choice would then have to know about: it is how a shopkeeper is the same
+ * figure in a shop's own colours. An `apron` colour adds a bib and a skirt
+ * in it, over the shirt and the trousers. */
+export function buildFarmer(gender, overrides = {}) {
+  const look = { ...(LOOK[gender] ?? LOOK.female), ...overrides };
   const skin = mat(look.skin, 'farmer-skin');
   const hair = mat(look.hair, 'farmer-hair');
   const shirt = mat(look.shirt, 'farmer-shirt');
@@ -363,6 +368,19 @@ export function buildFarmer(gender) {
     ankle.add(boot);
 
     limbs[S] = { shoulder, elbow, wrist, hip, knee, ankle };
+  }
+
+  /* The apron: a bib on the chest and a skirt from the waist to just above
+     the knee, each a thin slab standing a hair proud of the body's front
+     face, so it rides the torso and the pelvis through every clip. */
+  if (look.apron !== undefined) {
+    const apron = mat(look.apron, 'farmer-apron');
+    const bib = new THREE.Mesh(new THREE.BoxGeometry(0.62 * HU, CHEST_UP * 0.85, 0.03 * HU), apron);
+    bib.position.set(0, NECK_UP - CHEST_UP * 0.5, 0.42 * HU);
+    chest.add(bib);
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.9 * HU, 1.55 * HU, 0.03 * HU), apron);
+    skirt.position.set(0, -0.62 * HU, 0.5 * HU);
+    hips.add(skirt);
   }
 
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });

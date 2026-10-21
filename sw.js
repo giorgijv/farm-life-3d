@@ -8,7 +8,7 @@
  * every older cache.
  */
 
-const CACHE_VERSION = 'farm-life-3d-v36';
+const CACHE_VERSION = 'farm-life-3d-v37';
 
 // Relative so the worker works both at a domain root and under a project
 // path such as /farm-game/ on GitHub Pages.
@@ -22,6 +22,7 @@ const SHELL = [
   './highstreet.js',
   './civic.js',
   './streetscape.js',
+  './interiors.js',
   './farmer.js',
   './barn.js',
   './stable.js',

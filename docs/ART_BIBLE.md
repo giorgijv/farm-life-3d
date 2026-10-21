@@ -4651,6 +4651,121 @@ chairs on the paving with her feet still in it. The flood that found the
 café also covers the rest of the town on foot, from Police Station to
 City Hall. It found no other spot that is free but cannot be reached.
 
+## 47. Inside the shops, step one: the Greengrocer, and the way in
+
+The first shop that opens, and the system every later one will use.
+
+### How going in works
+
+- **A room of its own.** Each interior is its own `THREE.Scene` with its
+  own lights (`interiors.js`). While she is inside, the frame draws that
+  scene instead of the world's, and so do the composer's render and
+  ambient-occlusion passes. So the street costs nothing in there, and the
+  room costs nothing out here. Cutting doorways into the kit blocks was
+  ruled out: the five blocks are one merged mesh with painted windows.
+- **Built where the shop stands.** The room is placed in world coordinates
+  inside the block's own footprint, not somewhere convenient. Every rule
+  that asks where she is (the reach to a plot, to the car, the tool
+  counter's radius) then gives the answer it would give on the pavement
+  outside, and none of them had to learn about indoors.
+- **Read off the street as built.** The room's walls come from the block's
+  measured footprint less a 0.12 wall. The doorway comes from the painted
+  door on the shopfront, so the door she walks in by is the one she walked
+  up to. For the Greengrocer that is a floor of 5.04 by 5.28, with the
+  door 1.59 right of the frontage's middle.
+- **Two ways in, two ways out.** The prompt offers "🚪 Go into the
+  Greengrocer" from the pavement outside the door and "🚪 Back out to High
+  Street" from the mat inside it. Pressing on into the door from the
+  pavement goes in, and pressing on out from the mat comes out. That is
+  the same rule the stick already follows everywhere, read against the
+  direction she was pushing.
+- **Her solids and her ground change with her.** Inside, collision is
+  against the room's furniture only, and the walk is clamped to the
+  room's floor, held 0.27 in from the walls. Farm errands queued while she
+  is inside wait, the way they wait while she is at the wheel, and start
+  once she is back out. Without that, a tile tapped from the shop was a
+  walk into its back wall.
+- **A dollhouse camera.** There is no ceiling, and the street wall is cut
+  to the 0.5 of the stall riser. The camera stands out over the pavement,
+  56 degrees up, looking in. Its distance is found by trying, not by
+  working it out from the field of view: the view is 4:3 on a desktop but
+  stretches to the free height on a phone. It backs off until the room's
+  floor and walls, to the tops of the walls, fit the picture, clear of the
+  stick and the prompt along the bottom.
+- **Built the first time she goes in**, not at load, and covered by a fade
+  to black that clears over four tenths of a second. A player who has
+  asked for less motion gets the cut without the fade.
+
+### The room
+
+Green paint above white tongue-and-groove boarding, a dado rail at 1.0 and
+a skirting board, all drawn into one wall texture at their real heights.
+Floorboards run back from the street.
+
+- **Behind the window:** crates are stepped up on three tiers: fruit
+  nearest the glass, then greens, then pumpkins and potatoes.
+- **Down the left wall:** a two-step stand of the farm's own crops under a
+  "Grown in Farm City" poster.
+- **In the middle:** a table with three wicker baskets, under a rail hung
+  with strings of garlic and bunches of herbs.
+- **Across the back:** the counter, with a brass scale facing the
+  customer, a till, and paper bags with the shop's name on them. Behind it
+  stands the shopkeeper: the farmer's own figure in a cream shirt and the
+  shop's green apron, idling. `buildFarmer` now takes look overrides,
+  including an apron, rather than a third character.
+- **On the back wall:** the chalkboard shows the market's price for each
+  crop, read from the game's own crop table rather than typed. Next to it
+  are shelves of jam, honey, pickles and marmalade.
+- **On the right-hand wall:** a rack of more jars between the door and the
+  counter.
+- **In the back corner:** sacks of potatoes.
+- **Light:** a hemisphere fill, daylight from the street side, and a warm
+  point at each of the two pendant lamps. The lamps take over through
+  dusk, and the bulbs glow brighter with them.
+
+Everything static is merged into five materials: walls, floor, the strip
+of pavement outside the cut wall, one atlas, and the bulbs.
+
+### Measured
+
+| | Draw calls | Triangles |
+|---|---|---|
+| Inside the Greengrocer, by day | 80 | 15,128 |
+| The street, from the pavement outside it | 25 | 38,220 |
+| The farm's ceiling | 300 | 100,000 |
+
+Most of the 80 calls are the two figures, which are built of separate
+parts. The room itself is five.
+
+### What the tests found
+
+- **A pocket behind the counter.** The first flood fill of the floor
+  found free floor nobody could reach: the space behind the counter, shut
+  off by the counter and its flap. That is right, since it is the
+  shopkeeper's, but free floor that can never be reached is what a fenced
+  corner looks like to a test. It is now a solid, named `behind-counter`,
+  so a fenced corner anywhere else still fails.
+- **"Morning!" at midnight.** The shopkeeper's greeting was one string. It
+  now reads the farm's clock (morning, afternoon or evening), and the test
+  enters at noon, midnight and nine in the morning.
+- **The stick covered the window display on a phone.** The first framing
+  held the room 0.78 off the bottom of the picture. On a phone the stick
+  and the prompt are each a third of the picture's width, and they sat
+  over the front row of crates. The margin is now 0.7 on a desktop and 0.6
+  on a phone, and the test checks both.
+- **The sacks were boxes.** The first potato sacks were labelled boxes and
+  read as crates from the camera's height. They are now soft eight-sided
+  sacks, narrowing to a rolled-down rim, with a label on the front.
+
+### Still open
+
+- **The interiors cannot be seen from the street.** The shop windows show
+  the goods drawn on the shopfront, not this room. Repainting each
+  window's picture to match its interior is a later step's job.
+- **The other five shops** are still painted doors. One step each, in the
+  order the plan set: Hardware & Feed, the Bakery, the Café, the
+  Restaurant, the Pharmacy.
+
 ---
 
 ## Verified, not assumed

@@ -2379,6 +2379,9 @@ function promptLabel(target) {
     return target.load ? '🚚 Load up and drive to market' : '🚗 Take the car out';
   }
   if (target.type === 'park') return '🅿️ Park and get out';
+  /* A shop's door, and the way back out of it. */
+  if (target.type === 'enter') return `🚪 Go into the ${target.name}`;
+  if (target.type === 'leave') return '🚪 Back out to High Street';
   if (target.type === 'plot') return PLOT_PROMPT[target.intent]?.() ?? '';
   const def = ANIMALS[target.kind];
   return target.intent === 'collect'
@@ -2433,6 +2436,8 @@ function runPrompt() {
   if (!target) return false;
   if (target.type === 'car') return !!window.Farm3DScene?.board();
   if (target.type === 'park') return !!window.Farm3DScene?.alight();
+  if (target.type === 'enter') return !!window.Farm3DScene?.enter(target.id);
+  if (target.type === 'leave') return !!window.Farm3DScene?.leave();
   if (target.type === 'plot') {
     const kind = plotIntent(target.plot);
     if (!kind) return false;
