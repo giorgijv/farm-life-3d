@@ -4523,6 +4523,52 @@ Ten runs in ten under load.
 Renaming City to Farm City in the interface and the help panel, and the
 last of the documentation.
 
+
+## 45. Farm City, step five: the name on the tab
+
+The town has been Farm City on its own signs since Step 1, and "City"
+everywhere a player taps. Now it is Farm City in both places: the tab, its
+entry in the help panel, and the label on every tool's button while the
+counter is shut.
+
+- **The tab** says "🏙️ Farm City". On a 360-pixel phone it wraps to two
+  lines inside its button, like its neighbours' icons and words already
+  stack there. Nothing overflows: the page is 360 wide at 360, every tab
+  51 by 63, and the mobile suite's touch-target and sideways-scroll checks
+  still hold. The tab's id and `data-tab` stay `city`, which is the code's
+  and the save's name for it.
+- **The buttons** say "🏙️ Farm City · 120💰" while the counter is shut. The
+  first wording, "In Farm City", wrapped the price onto a second line on
+  desktop, where each card is about 180 pixels wide. The wordier
+  explanation is the note above the list, which names Hardware & Feed and
+  the High Street.
+- **The tests** found the tab by the pattern `/City/`, which now also
+  matches the upgrade buttons' own labels, since they mention Farm City's
+  High Street. They select it by `data-tab` now, the way the Market tab
+  already was.
+
+### Farm City, all five steps
+
+| Step | What it built | Art bible |
+|---|---|---|
+| 1 | The town's level ground, High Street, the town road, fingerposts at every junction, the welcome boards | §41 |
+| 2 | Six shops on High Street, with shopfronts, awnings, hanging signs, lit windows and terraces; the tool shop moved into Hardware & Feed | §42 |
+| 3 | The City Hall with its working clock, the Police Station, the civic square; the town's cost to the frame found and paid | §43 |
+| 4 | Pavements, street lamps, zebra crossings, bunting, the town at night; the blocks and police cars merged | §44 |
+| 5 | The name in the interface, and this record | §45 |
+
+What is honestly still open:
+
+- **The view of the whole town from above the farm** costs 92,500 of its
+  100,000 triangles. That is the margin any more detail has to fit in.
+- **The phone test that plays the whole loop** has a five-minute budget,
+  for the reason recorded in §43. Its runs take one and a half to two
+  minutes.
+- **The farmhouse walk** fails now and then under load, as it did on
+  Step 1's commit before any of the town existed (§43). CI retries it.
+- **The cottage west of the town** still floats up to 1.18 over a hollow
+  (§41). Its grounds are not part of Farm City.
+
 ---
 
 ## Verified, not assumed

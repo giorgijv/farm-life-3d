@@ -1948,7 +1948,8 @@ test.describe('guardians', () => {
   /* ---------------------------------------------------------------- */
 
   const actors = (page, sel = '') => page.locator(`#fxLayer .raid-actor${sel}`);
-  const openFarm = (page) => page.getByRole('button', { name: /Farm/ }).click();
+  // By data-tab: since the City tab became "Farm City", /Farm/ names two tabs.
+  const openFarm = (page) => page.locator('.tab-btn[data-tab="farm"]').click();
   const openAnimals = (page) => page.getByRole('button', { name: /Animals/ }).click();
 
   const oneWheat = () => [
@@ -2955,7 +2956,7 @@ test.describe('upgrades', () => {
 
   test('buying a level charges the cost and records it', async ({ page }) => {
     await load(page, makeSave({ coins: 500 }));
-    await page.getByRole('button', { name: /City/ }).click();
+    await page.locator('.tab-btn[data-tab="city"]').click();
     await openCity(page);
 
     const sprinkler = upgradeCard(page, 'Sprinkler');
@@ -2969,7 +2970,7 @@ test.describe('upgrades', () => {
 
   test('each level costs more than the last', async ({ page }) => {
     await load(page, makeSave({ coins: 10_000 }));
-    await page.getByRole('button', { name: /City/ }).click();
+    await page.locator('.tab-btn[data-tab="city"]').click();
     await openCity(page);
 
     const sprinkler = upgradeCard(page, 'Sprinkler');
@@ -2988,7 +2989,7 @@ test.describe('upgrades', () => {
 
   test('a level cannot be bought without the coins', async ({ page }) => {
     await load(page, makeSave({ coins: 10 }));
-    await page.getByRole('button', { name: /City/ }).click();
+    await page.locator('.tab-btn[data-tab="city"]').click();
     await openCity(page);
 
     await expect(upgradeCard(page, 'Sprinkler').getByRole('button')).toBeDisabled();
@@ -6708,7 +6709,7 @@ test.describe('the tool merchants are in the city', () => {
     );
   };
   const rich = { coins: 9000 };
-  const cityTab = (page) => page.getByRole('button', { name: /City/ }).click();
+  const cityTab = (page) => page.locator('.tab-btn[data-tab="city"]').click();
   /* By data-tab rather than by name: the City tab's own list contains a
      "Market Contacts" upgrade, so a /Market/ role query matches two things
      the moment this tab has been rendered once. */
@@ -7538,7 +7539,7 @@ test.describe('the stable is stocked, the crop field is not', () => {
          another tab — the walk keeps running, the visuals do not — so asking
          from the Animals tab is asking about a frame that was never drawn.
          This is also the order a player does it in. */
-      await page.getByRole('button', { name: /Farm/ }).click();
+      await page.locator('.tab-btn[data-tab="farm"]').click();
 
       await expect.poll(() => page.evaluate(() => window.Farm3DScene.stableBedded()),
         { timeout: 10_000 }).toBe(true);
@@ -8547,8 +8548,10 @@ test('the page loads with no console errors', async ({ page }) => {
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
 
   await load(page, makeSave());
-  for (const tab of [/Animals/, /Market/, /Awards/, /Farm/]) {
-    await page.getByRole('button', { name: tab }).click();
+  // Every tab, Farm City's included, by data-tab rather than by a name
+  // pattern: /Farm/ matches two of them since the rename.
+  for (const tab of ['animals', 'market', 'city', 'achievements', 'dream', 'farm']) {
+    await page.locator(`.tab-btn[data-tab="${tab}"]`).click();
   }
   await page.waitForTimeout(1200);
 

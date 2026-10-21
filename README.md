@@ -151,7 +151,8 @@ with them. The two shops are deliberately not the same shop:
 
 - **The market village**, south, trades farming goods. It buys your harvest
   and it sells the barns you keep it in.
-- **The city**, north, sells the equipment that makes the farm better —
+- **Farm City**, north, sells the equipment that makes the farm better, on
+  its own tab and at Hardware & Feed —
   sprinklers, feed, fertiliser, contacts, and two things you can only get in
   town: a **tractor** that takes 15% a level off the time it takes to cross
   the farm, and **pesticide** that keeps a ripe crop standing 25% a level
@@ -162,8 +163,9 @@ the tools just make it easier, and each one costs a trip as well as coins.
 
 **Selling still works from the farm; buying does not.** Goods leave the farm
 over the same counter at the same prices they always did — a buyer comes to
-you. Barns are the market's and tools are the city's, and both show what they
-would cost while staying greyed out until she is standing in the right square,
+you. Barns are the market's and tools are Farm City's, and both show what they
+would cost while staying greyed out until she is standing in the right place —
+the market square, or outside Hardware & Feed —
 which means the car and the road. Everything else on the Market tab —
 difficulty, farmer, sound, save data — is a setting rather than a purchase and
 is reachable wherever she is.

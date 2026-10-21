@@ -1539,7 +1539,7 @@ function helpSections() {
       ],
     },
     {
-      emoji: '🏙️', title: 'City',
+      emoji: '🏙️', title: 'Farm City',
       lines: [
         'North past the orchard, at the end of the longest road on the map, is a '
         + 'town, Farm City, whose Hardware & Feed sells the tools. Going is optional; the whole game '
@@ -1548,7 +1548,7 @@ function helpSections() {
         + 'faster crops, faster animals, bigger harvests, better prices, a tractor '
         + 'that gets you round the farm quicker and pesticide that keeps a ripe crop '
         + 'standing longer. Three levels each, and every one of them is bought in '
-        + 'the city rather than at the market.',
+        + 'Farm City rather than at the market.',
       ],
     },
     {
@@ -3327,7 +3327,7 @@ let cityOpen = true;
    sells. */
 const SHUT_SHORT = '🚗 At the market';
 const SHUT_LONG = 'Drive the car to the market to buy this — selling works from the farm.';
-const CITY_SHORT = '🏙️ In the city';
+const CITY_SHORT = '🏙️ Farm City';
 const CITY_LONG = 'Drive to Hardware & Feed on Farm City\'s High Street to buy this — '
   + 'the tools are sold there, not at the farm.';
 

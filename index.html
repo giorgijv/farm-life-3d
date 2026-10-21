@@ -46,7 +46,7 @@
       <button class="tab-btn active" data-tab="farm"><span class="tab-icon">🌾</span> Farm</button>
       <button class="tab-btn" data-tab="animals"><span class="tab-icon">🐄</span> Animals</button>
       <button class="tab-btn" data-tab="market"><span class="tab-icon">🛒</span> Market</button>
-      <button class="tab-btn" data-tab="city"><span class="tab-icon">🏙️</span> City</button>
+      <button class="tab-btn" data-tab="city"><span class="tab-icon">🏙️</span> Farm City</button>
       <button class="tab-btn" data-tab="achievements"><span class="tab-icon">🏆</span> Awards</button>
       <button class="tab-btn" data-tab="dream"><span class="tab-icon">🏡</span> Dream</button>
     </nav>
@@ -153,10 +153,12 @@
     </section>
 
     <!-- MARKET TAB -->
-    <!-- CITY TAB — the tool merchants, twenty-five units north of the farm.
-         Separate from the Market because they sell different things: the
-         market village buys the harvest and sells barns, the city sells the
-         equipment that makes the farm better. -->
+    <!-- FARM CITY TAB — Hardware & Feed, on Farm City's High Street, north
+         of the farm. Separate from the Market because they sell different
+         things: the market village buys the harvest and sells barns, Farm
+         City sells the equipment that makes the farm better. The tab's id
+         and data-tab stay "city": they are the save's and the code's name for
+         it, and renaming them would be churn with nothing to show. -->
     <section id="cityTab" class="tab-screen hidden">
       <h2 class="group-title">🔧 Tools &amp; Chemicals</h2>
       <!-- Why the buy buttons are greyed out, shown only when they are. A
