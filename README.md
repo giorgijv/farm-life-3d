@@ -119,7 +119,7 @@ goes and its button says so instead of offering a price; once you have been,
 the card says what you found there and will sell it to you.
 
 **There is a town, Farm City, and it sells different things from the
-market.** North past the orchard, at the end of the longest road in the game,
+market.** North past the orchard, at the end of the longest drive in the game,
 is a town on its own level ground — a square, and a High Street running
 forty units east out of it. Two roads go there, and they make a loop: the
 city road arrives at the square, and a second road forks off it beside the
@@ -508,18 +508,22 @@ its six shops with their names over their doors in letters a fifth of a
 unit tall, that every shopfront faces High Street across a pavement, that
 every shop stands on level ground and none of them can be walked into, that
 the north pavement stays passable past every table and that nothing she
-walks under is lower than her head, that the tools are sold at Hardware &
+walks under is lower than her head, that she can walk up to every shop's
+door from the street, that the tools are sold at Hardware &
 Feed and not in the square, that the City Hall and the Police Station stand
 on level ground and cannot be walked into, that the City Hall's clock hands
 show the farm's time, that it closes the east end of High Street and faces
 its square and is the tallest thing in town, that the Police Station faces
 the old square with its lamp over the door and both cars on its forecourt,
 that the civic square is level with a solid fountain she can walk all
-the way round, that High Street has pavements, lamps and crossings with
-none of them in the road, that the lamps are off by day and on at night
+the way round and that she can walk to every part of it, that High Street
+has pavements, lamps and crossings with none of them in the road, that the
+north pavement runs unbroken from the old square to the City Hall, that the lamps are off by day and on at night
 with the windows brightening alongside, that the crossings' beacons blink,
 that the shop blocks and the police cars are merged into one mesh each,
-and that the town holds to the farm's draw budget from inside it, that she can drive the whole way out to each
+and that the town holds to the farm's draw budget from inside it, that a
+car parked just short of the town or the farm can be walked back to, that
+she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

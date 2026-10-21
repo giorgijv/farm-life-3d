@@ -3468,14 +3468,32 @@ ${shader.fragmentShader.replace(
      shop walls on the north side and two metres of paving on the south,
      narrowing where it has to: at the City Hall's steps, the pharmacy's
      front and the civic square's edge. It stops wherever another road comes
-     in, which on the north side is the city road's end in the square and on
-     the south the city road and the town road both: a kerb across the
-     mouth of a road is a kerb nobody can drive over. */
+     in, which is twice, both on the south side — the city road and the
+     town road, neither of which carries on past High Street's centre line:
+     a kerb across the mouth of a road is a kerb nobody can drive over. The
+     north side runs unbroken from the old square to the City Hall. */
   const STREET_LAMP_OUT = 2.85;
   function streetscapeLayout() {
     const hs = ROUTES.find((r) => r.id === 'high-street');
     const others = ROUTES.filter((r) => r.id === 'city' || r.id === 'town-road');
-    const clearOfOthers = (x, z) => others.every((r) => nearestOnRoute(r, x, z).distance > ROAD_WIDTH / 2 + 0.3);
+    /* Both roads end on High Street's centre line, so the nearest of their
+       samples to a point on the far pavement is the end itself, 2.5 units
+       away — and a test that asked only how far that was took the north
+       pavement up opposite both mouths, where there is no road to keep
+       clear of: in front of the Greengrocer and across the alley beside
+       Hardware & Feed. A point past the end, measured along the road's own
+       last step, is not on it however near the end it is. */
+    const onRoad = (r, x, z) => {
+      const hit = nearestOnRoute(r, x, z);
+      if (hit.distance > ROAD_WIDTH / 2 + 0.3) return false;
+      const n = r.samples.length - 1;
+      const i = Math.round(hit.along * ROAD_STEPS);
+      if (i !== 0 && i !== n) return true;
+      const end = r.samples[i];
+      const prev = r.samples[i === 0 ? 1 : n - 1];
+      return (x - end.x) * (end.x - prev.x) + (z - end.z) * (end.z - prev.z) <= 0;
+    };
+    const clearOfOthers = (x, z) => others.every((r) => !onRoad(r, x, z));
     const inner = ROAD_WIDTH / 2;
     const north = (q) => {
       const toLine = (z) => (z - q.z) / q.nz; // distance along +normal to a line of constant z
@@ -5829,7 +5847,8 @@ ${lit}`;
 
      The region is chosen by where she *is*, not where she is going, so there
      is no edge to cross that could teleport her: whichever one she is in, she
-     stays in until she drives out of it. */
+     stays in until she drives out of it — or walks into one that overlaps
+     it, which clampToRegion below explains. */
   /* Everywhere she may get out of the car and stand. The farm is a
      rectangle; the three places at the far ends of the roads are circles,
      and they are listed together because they are the same rule — one
@@ -5840,9 +5859,9 @@ ${lit}`;
      reason, even though there is nothing to do at either: she is meant to
      be able to walk round the outside and look at it. Being teleported home
      the moment her feet touch the gravel would be the whole feature, undone. */
-  /* Farm City is the one place that is not a circle, and it is checked
-     first. It used to be — CITY_RADIUS round the square — and a circle was
-     the right shape for a square. It is the wrong one for a town laid along
+  /* Farm City is the one place that is not a circle. It used to be —
+     CITY_RADIUS round the square — and a circle was the right shape for a
+     square. It is the wrong one for a town laid along
      a street: the old circle stops thirteen units from the square, which is
      halfway along High Street, so a player who parked at the east end and
      got out would have been walking inside a circle centred somewhere they
@@ -5851,14 +5870,23 @@ ${lit}`;
      The walkable town is the levelled ground itself, held half a unit in
      from its edges for the same float reason the circles are. The shop is a
      separate question, and TOOL_SHOP answers it: the tools are sold at
-     Hardware & Feed on High Street. */
-  const TOWN_WALK = {
-    minX: TOWN_LEVEL.minX + 0.5, maxX: TOWN_LEVEL.maxX - 0.5,
-    minZ: TOWN_LEVEL.minZ + 0.5, maxZ: TOWN_LEVEL.maxZ - 0.5,
-  };
-  const inTownWalk = (x, z) => x >= TOWN_WALK.minX && x <= TOWN_WALK.maxX
-    && z >= TOWN_WALK.minZ && z <= TOWN_WALK.maxZ;
+     Hardware & Feed on High Street.
 
+     And the civic square's own level ground with it, which reaches three
+     and a half units further south than the town's: the walk was the town's
+     rectangle alone, and it stopped her at z -21.5, a step past the
+     fountain, with the benches, two of the beds and the welcome board side
+     of the square beyond it. Measured before the fix: 55 of the square's
+     points out of reach on foot. The two have to overlap, or they are two
+     places rather than one, with a seam between them she cannot step
+     across — and the levelled ground overlaps by half a unit, which is
+     exactly what the half-unit inset takes off each of them. The first
+     version of this left that seam. So the square's walk keeps its other
+     three edges in from the ground's and runs its north edge on into the
+     town's. */
+  const inset = (r) => ({ minX: r.minX + 0.5, maxX: r.maxX - 0.5, minZ: r.minZ + 0.5, maxZ: r.maxZ - 0.5 });
+  const TOWN_WALK = inset(TOWN_LEVEL);
+  const TOWN_WALKS = [TOWN_WALK, { ...inset(PLAZA_LEVEL), minZ: TOWN_WALK.maxZ - 0.5 }];
   const AWAY = [
     { x: MARKET.x, z: MARKET.z, radius: MARKET_RADIUS },
     { x: DREAM_SITES.house.x, z: DREAM_SITES.house.z, radius: DREAM_SITES.house.radius },
@@ -5870,57 +5898,110 @@ ${lit}`;
      open hills become somewhere to explore on foot. */
   const PARKED_RADIUS = 5;
 
-  /* Which region she is held inside — the farm, one of the places at the
-     end of a road, or a circle round a car parked somewhere else. */
-  function clampToRegion(fromX, fromZ, x, z, out) {
-    if (inTownWalk(fromX, fromZ)) {
-      out.x = Math.max(TOWN_WALK.minX, Math.min(TOWN_WALK.maxX, x));
-      out.z = Math.max(TOWN_WALK.minZ, Math.min(TOWN_WALK.maxZ, z));
-      return;
-    }
-    for (const place of AWAY) {
-      if (Math.hypot(fromX - place.x, fromZ - place.z) > place.radius) continue;
-      /* Half a unit inside the radius the place is tested at rather than on
-         it — see MARKET_WALK_RADIUS for the float that taught this lesson:
-         a clamp to a radius puts her exactly on the circle, and exactly on
-         the circle rounds to just outside it often enough to matter. */
-      const walk = place.radius - 0.5;
-      const dx = x - place.x;
-      const dz = z - place.z;
-      const d = Math.hypot(dx, dz);
-      if (d <= walk) { out.x = x; out.z = z; return; }
-      out.x = place.x + (dx / d) * walk;
-      out.z = place.z + (dz / d) * walk;
-      return;
-    }
+  /* Which ground she is held to. Every place she may stand is one shape —
+     the farm's rectangle, the town's two, a circle at each place at the end
+     of a road, and one round the car wherever it is parked off the farm —
+     and she is held to the shapes she is standing in, together with any
+     that overlap them.
 
-    /* And wherever else she has left the car, so long as that is not on the
-       farm — where the farm's own box is the right answer and a circle
-       round the car would pen her in beside it.
+     It used to be one region at a time, chosen by where she was: the town
+     first, then the places, then the parked car, then the farm. One at a
+     time is the right rule while the places are apart, and it was wrong
+     wherever two of them meet, because the order decided which one won
+     and the other became a wall. Measured, with the car left on the city
+     road 3.3 units short of the town's edge: she could get out and walk up
+     into town — the circle round the car reached that far — and then not
+     back, since in town the town's rectangle was the only region, and it
+     held her 3.2 units from the car against a reach of 2.35. A car parked
+     to look at the town lost for good, the thing PARKED_RADIUS exists to
+     prevent. And the same order penned her inside the circle round a car
+     left just outside the farm's fence, with the farm a step away.
+
+     Only shapes that overlap the ones she is in, never the rest, so this
+     is still not a union she could cross: the farm and the town are six
+     units of hillside apart, and a long frame — the step is real elapsed
+     time, unclamped — must not carry her over it. Off every shape (getting
+     out beside a car parked on the farm's very edge, say) she is held to
+     the one nearest her. */
+  const WALK_SHAPES = [
+    ROAM,
+    ...TOWN_WALKS,
+    /* Half a unit inside each radius rather than on it — see
+       MARKET_WALK_RADIUS for the float that taught this lesson. */
+    ...AWAY.map((p) => ({ x: p.x, z: p.z, r: p.radius - 0.5 })),
+  ];
+  const parkedShape = { x: 0, z: 0, r: PARKED_RADIUS - 0.5 };
+  const shapesNow = [...WALK_SHAPES, parkedShape];
+  const standingIn = new Uint8Array(shapesNow.length);
+  const shapeTmp = { x: 0, z: 0 };
+  function nearestIn(sh, x, z, o) {
+    if (sh.r === undefined) {
+      o.x = Math.max(sh.minX, Math.min(sh.maxX, x));
+      o.z = Math.max(sh.minZ, Math.min(sh.maxZ, z));
+      return;
+    }
+    const dx = x - sh.x;
+    const dz = z - sh.z;
+    const d = Math.hypot(dx, dz);
+    if (d <= sh.r) { o.x = x; o.z = z; return; }
+    o.x = sh.x + (dx / d) * sh.r;
+    o.z = sh.z + (dz / d) * sh.r;
+  }
+  const gapTo = (sh, x, z) => {
+    nearestIn(sh, x, z, shapeTmp);
+    return Math.hypot(shapeTmp.x - x, shapeTmp.z - z);
+  };
+  const shapesMeet = (a, b) => {
+    if (a.r !== undefined) return gapTo(b, a.x, a.z) <= a.r;
+    if (b.r !== undefined) return gapTo(a, b.x, b.z) <= b.r;
+    return a.minX <= b.maxX && b.minX <= a.maxX && a.minZ <= b.maxZ && b.minZ <= a.maxZ;
+  };
+
+  function clampToRegion(fromX, fromZ, x, z, out) {
+    /* Wherever else she has left the car, so long as that is not on the
+       farm — where the farm's own box is the right answer.
 
        Without this, getting out anywhere but a named place was a trap. She
-       steps down beside the car, takes one step, and the fall-through below
-       clamps her into the farm: measured at ten and a half units of
-       teleport in a single stride, from halfway down the market road back
-       to the top of the field. The car stays where it was, eleven units
-       outside anywhere she can walk, and on foot she can never reach it
-       again. Parking to look at something is a thing players do, and it
-       should not lose them the car. */
+       steps down beside the car, takes one step, and the clamp put her back
+       in the farm: measured at ten and a half units of teleport in a single
+       stride, from halfway down the market road back to the top of the
+       field. The car stays where it was, eleven units outside anywhere she
+       can walk, and on foot she can never reach it again. Parking to look
+       at something is a thing players do, and it should not lose them the
+       car. */
     const parkedOff = carAt.x < ROAM.minX || carAt.x > ROAM.maxX
       || carAt.z < ROAM.minZ || carAt.z > ROAM.maxZ;
-    if (parkedOff && Math.hypot(fromX - carAt.x, fromZ - carAt.z) <= PARKED_RADIUS) {
-      const walk = PARKED_RADIUS - 0.5;
-      const dx = x - carAt.x;
-      const dz = z - carAt.z;
-      const d = Math.hypot(dx, dz);
-      if (d <= walk) { out.x = x; out.z = z; return; }
-      out.x = carAt.x + (dx / d) * walk;
-      out.z = carAt.z + (dz / d) * walk;
-      return;
-    }
+    const count = parkedOff ? shapesNow.length : shapesNow.length - 1;
+    parkedShape.x = carAt.x;
+    parkedShape.z = carAt.z;
 
-    out.x = Math.max(ROAM.minX, Math.min(ROAM.maxX, x));
-    out.z = Math.max(ROAM.minZ, Math.min(ROAM.maxZ, z));
+    let any = false;
+    let nearest = 0;
+    let nearestGap = Infinity;
+    for (let i = 0; i < count; i += 1) {
+      const gap = gapTo(shapesNow[i], fromX, fromZ);
+      standingIn[i] = gap <= 1e-9 ? 1 : 0;
+      if (standingIn[i]) any = true;
+      if (gap < nearestGap) { nearestGap = gap; nearest = i; }
+    }
+    if (!any) standingIn[nearest] = 1;
+
+    let best = Infinity;
+    for (let i = 0; i < count; i += 1) {
+      let allowed = standingIn[i] === 1;
+      for (let j = 0; !allowed && j < count; j += 1) {
+        allowed = standingIn[j] === 1 && shapesMeet(shapesNow[i], shapesNow[j]);
+      }
+      if (!allowed) continue;
+      nearestIn(shapesNow[i], x, z, shapeTmp);
+      const d = (shapeTmp.x - x) ** 2 + (shapeTmp.z - z) ** 2;
+      if (d < best) {
+        best = d;
+        out.x = shapeTmp.x;
+        out.z = shapeTmp.z;
+        if (d === 0) return;
+      }
+    }
   }
 
   /* ...and then the world, over the top of all of it. The regions are hand

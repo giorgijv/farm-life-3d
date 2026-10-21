@@ -140,6 +140,20 @@ function pavementStrip(pts, side, inner, outer, tile) {
     const p0 = off(x0, z0, nx0, nz0, inner + KERB_W, PAVE_Y);
     const p1 = off(x1, z1, nx1, nz1, inner + KERB_W, PAVE_Y);
     if (side > 0) quad(kerb, ka0, ka1, p1, p0); else quad(kerb, ka0, p0, p1, ka1);
+    // The outer edge, down to the ground: see the ends, below.
+    quad(kerb, off(x0, z0, nx0, nz0, o0, 0), off(x1, z1, nx1, nz1, o1, 0), b1, b0);
+  }
+  /* The ends of the strip, where it stops at the mouth of a road, and its
+     outer edge where there is no wall to meet: the paving is laid 0.075
+     above the ground and the kerb 0.12, and the first build had no faces
+     down from either — an open edge with daylight under it, and, at the
+     four ends, the kerb's profile seen hollow end-on. In the kerb's own
+     material, which is drawn from both sides, so the winding does not
+     matter. */
+  for (const [x, z, nx, nz, o = outer] of [pts[0], pts[pts.length - 1]]) {
+    const off = (d, y) => [x + nx * side * d, y, z + nz * side * d];
+    quad(kerb, off(inner, 0.02), off(inner, KERB_Y), off(inner + KERB_W, KERB_Y), off(inner + KERB_W, 0));
+    quad(kerb, off(inner + KERB_W, 0), off(inner + KERB_W, PAVE_Y), off(o, PAVE_Y), off(o, 0));
   }
   const build = (arr, uvOf) => {
     const g = new THREE.BufferGeometry();

@@ -4559,8 +4559,9 @@ counter is shut.
 
 What is honestly still open:
 
-- **The view of the whole town from above the farm** costs 92,500 of its
-  100,000 triangles. That is the margin any more detail has to fit in.
+- **The view of the whole town from above the farm** costs 93,000 of its
+  100,000 triangles (92,500 before §46 closed the pavements' edges). That
+  is the margin any more detail has to fit in.
 - **The phone test that plays the whole loop** has a five-minute budget,
   for the reason recorded in §43. Its runs take one and a half to two
   minutes.
@@ -4568,6 +4569,87 @@ What is honestly still open:
   Step 1's commit before any of the town existed (§43). CI retries it.
 - **The cottage west of the town** still floats up to 1.18 over a hollow
   (§41). Its grounds are not part of Farm City.
+
+## 46. Farm City, the audit: five bugs the tests had not asked about
+
+After all five steps were green, each was gone back over: screenshots by
+day and by night, and probes that asked what a player would find rather
+than what the tests already checked. Five real bugs came out of it, and
+one wording error. Each fix has a test, and each of the four new tests was
+run against the code before its fix and fails there.
+
+- **The civic square's south half could not be walked on (Step 3).** The
+  square's level ground runs to z -17.6, but the town's walk was the town's
+  rectangle alone, which stops at -21.5. She was held a step past the
+  fountain, with the south benches, two beds and the welcome-board side of
+  the square out of reach. That was 55 of the square's sampled points. The
+  walk is now the town's rectangle and the square's together. The first
+  version of that fix left a half-unit gap between them, because each was
+  held half a unit in from level ground that overlaps by exactly half a
+  unit. A point in neither rectangle belongs to the farm, so she would have
+  been teleported ten units. The square's walk now runs its north edge on
+  into the town's. *Test:* a flood fill from High Street, clamped step by
+  step the way her feet are, reaches every free point of the square.
+- **The north pavement was missing in two places (Step 4).** In front of
+  the Greengrocer (x -0.1 to 4.2), and across the alley beside Hardware &
+  Feed (26.8 to 29.7), there was grass where the paving should be. The
+  layout broke the pavement wherever a point was near another road's
+  samples. The city road and the town road both end on High Street's centre
+  line, so from the far pavement their nearest sample is the end itself,
+  2.5 units away. A point past a road's end, measured along that road's
+  last step, is not on it, and the test now says so. The north side is one
+  strip from the old square to the City Hall. The south side still breaks
+  at both roads' mouths, where it should. *Test:* there is exactly one
+  north strip, and it runs from High Street's first sample to its last.
+- **Nobody could reach the café's door (Step 2).** The A-board stands in
+  line with the door, which is the one stretch with no table in front of
+  it. But the café has tables on both sides of its door, so that stretch
+  is the only way in: an aisle 0.98 wide, with the board in it, 0.21 off
+  each table. The existing door test asked only whether the spot outside
+  the door was solid. It was not solid; it was free and fenced in. Where
+  tables flank a door, the board now stands back beside it, against the
+  shop and out past the plinth, where the restaurant's planters stand.
+  *Test:* a flood fill from the middle of the road reaches the pavement
+  outside every one of the six doors.
+- **A car parked just short of town could be lost (Steps 1 and 3).** The
+  walk regions were taken one at a time, in a fixed order: the town, then
+  the places at the ends of the roads, then a circle round a car parked off
+  the farm, then the farm. With the car on the city road three units short
+  of the town's edge, she could get out and walk up into town, because the
+  circle round the car reached that far. Then she could not walk back,
+  because in town the town was the only region. She was held 3.2 from the
+  car, and her reach is 2.35. The same order penned her inside the circle
+  round a car left just past the farm's fence, with the field a step away.
+  Each place is now a shape. She is held to the shapes she stands in plus
+  any that overlap them, never the rest, so a long frame still cannot carry
+  her across the six units of hillside between the farm and the town.
+  *Test:* she walks from a car parked short of town into town and back to
+  within reach of it, and from a car past the fence into the field.
+- **The pavement's edges were open (Step 4).** The paving is laid 0.075
+  above the ground and the kerb 0.12. Neither had a face down to the
+  ground, so the south pavement's outer edge was a lip with daylight under
+  it, and at each of the four strip ends the kerb's profile showed hollow,
+  end on. They are closed now, in the kerb's material, which is drawn from
+  both sides. That is 480 triangles in the view from above the farm.
+- **The help panel's wording (Step 5).** It said the town was at the end
+  of "the longest road on the map". At 59.3 units the city road is
+  shorter than the market road's 63.6. The drive there is still the
+  longest trip in the game, and the help panel and the README now say
+  "drive".
+
+Also corrected: two test titles that still counted the roads as they were
+before the town ("there are three roads…", "nothing solid stands in either
+new lane"), and two comments that still put the tool counter in the old
+square. The service worker's cache is bumped to v36, so a returning
+player gets the fixed files.
+
+Checked and left alone: everything in town stands at ground level, while
+the paving is 0.06 to 0.075 above it. That includes the farmer, the
+chairs, the benches and the lamp bases, so they all sink into the paving
+by the same few centimetres. Lifting only the furniture would put the
+chairs on the paving with her feet still in it. The flood that found the
+café also covers the rest of the town on foot, from Police Station to
+City Hall. It found no other spot that is free but cannot be reached.
 
 ---
 

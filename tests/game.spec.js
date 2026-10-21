@@ -6665,6 +6665,57 @@ test.describe('the edges of the world, and the car left in it', () => {
     expect(await page.evaluate(() => window.Farm3DScene.board())).toBe(true);
   });
 
+  test('a car parked just short of the town, or of the farm, can be walked back to', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    /* Where the ground round a parked car meets the town's or the farm's,
+       she can walk from one to the other and back. The regions used to be
+       taken one at a time: with the car on the city road three units short
+       of town she could walk up into it and then not back — held 3.2 from
+       the car against a reach of 2.35 — and with the car just past the
+       farm's fence she was penned in the circle round it, the field a step
+       away. Each step is clamped from the last, the way her feet are. */
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const city = s.roadNetwork().find((n) => n.id === 'city').pts;
+      const near = (z) => city.reduce((a, p) => (Math.abs(p[1] - z) < Math.abs(a[1] - z) ? p : a));
+      const walk = (from, [tx, tz]) => {
+        let at = { ...from };
+        for (let i = 0; i < 800; i += 1) {
+          const dx = tx - at.x;
+          const dz = tz - at.z;
+          const d = Math.hypot(dx, dz);
+          if (d < 0.05) break;
+          const k = Math.min(0.1, d) / d;
+          at = s.walkClamp(at.x, at.z, at.x + dx * k, at.z + dz * k);
+        }
+        return at;
+      };
+      const out = {};
+      const town = near(s.town().maxZ + 2.5);
+      out.parkedTown = s.putCarAt(town[0], town[1], 0);
+      const besideTown = { x: town[0] + 1.7, z: town[1] };
+      const inTown = walk(besideTown, [besideTown.x, -24]);
+      const backTown = walk(inTown, [town[0] + 1, town[1]]);
+      out.town = { inTown, back: Math.hypot(backTown.x - town[0], backTown.z - town[1]) };
+
+      const fence = near(s.roam().minZ - 2);
+      out.parkedFence = s.putCarAt(fence[0], fence[1], 0);
+      const field = [5, -10];
+      const there = walk({ x: fence[0] + 1.7, z: fence[1] }, field);
+      out.field = Math.hypot(there.x - field[0], there.z - field[1]);
+      return out;
+    });
+    expect(r.parkedTown).toBe(true);
+    expect(r.parkedFence).toBe(true);
+    // Into town...
+    expect(r.town.inTown.z).toBeLessThan(-23.5);
+    // ...and back within reach of the door handle: REACH plus the car's 1.4.
+    expect(r.town.back).toBeLessThan(2.3);
+    // And from beside a car left past the fence, into the field.
+    expect(r.field).toBeLessThan(0.1);
+  });
+
   test('the tractor quickens her legs without turning them into a windmill',
     async ({ page }) => {
       await load(page, makeSave({ coins: 9000 }));
@@ -7024,7 +7075,7 @@ test.describe('the two properties at the ends of the lanes', () => {
     return s.farmerAt();
   }, [tx, tz, ms]);
 
-  test('there are three roads, and the two new ones branch off the first',
+  test('there are six roads, and every lane branches off the road it leaves',
     async ({ page }) => {
       await load(page, makeSave());
       await ready(page);
@@ -7057,7 +7108,7 @@ test.describe('the two properties at the ends of the lanes', () => {
       }
     });
 
-  test('nothing solid stands in either new lane', async ({ page }) => {
+  test('nothing solid stands in any lane', async ({ page }) => {
     await load(page, makeSave());
     await ready(page);
 
@@ -8256,6 +8307,54 @@ test.describe('Farm City: the High Street', () => {
     for (const h of r.overhead) expect(h).toBeGreaterThan(her + 0.05);
   });
 
+  test("she can walk up to every shop's door from the street", async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    /* A flood fill in front of each shop, from the middle of High Street
+       to the pavement just outside the door, through the tables, boards,
+       stands and planters. The café's A-board once stood in the one aisle
+       its two tables left, 0.21 off each, and nobody could reach the door
+       — the door test above asks only whether that spot is solid, and it
+       was not: it was free and fenced in. */
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const hs = await s.highStreet();
+      const street = s.roadNetwork().find((n) => n.id === 'high-street').pts;
+      const STEP = 0.2;
+      return hs.units.map((u) => {
+        const goal = [u.door.x + u.faceX * 0.7, u.door.z + u.faceZ * 0.7];
+        let road = street[0];
+        for (const p of street) {
+          if (Math.hypot(p[0] - goal[0], p[1] - goal[1]) < Math.hypot(road[0] - goal[0], road[1] - goal[1])) road = p;
+        }
+        const x0 = Math.min(goal[0], road[0]) - 3.5;
+        const z0 = Math.min(goal[1], road[1]) - 1;
+        const nx = Math.round((Math.max(goal[0], road[0]) + 3.5 - x0) / STEP);
+        const nz = Math.round((Math.max(goal[1], road[1]) + 1 - z0) / STEP);
+        const cell = ([x, z]) => [Math.round((x - x0) / STEP), Math.round((z - z0) / STEP)];
+        const [gi, gk] = cell(goal);
+        const start = cell(road);
+        const seen = new Set([start.join()]);
+        const queue = [start];
+        let reached = false;
+        while (queue.length) {
+          const [i, k] = queue.shift();
+          if (Math.abs(i - gi) <= 1 && Math.abs(k - gk) <= 1) { reached = true; break; }
+          for (const [di, dk] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const ni = i + di;
+            const nk = k + dk;
+            if (ni < 0 || ni > nx || nk < 0 || nk > nz || seen.has(`${ni},${nk}`)) continue;
+            seen.add(`${ni},${nk}`);
+            if (!s.blocked(x0 + ni * STEP, z0 + nk * STEP)) queue.push([ni, nk]);
+          }
+        }
+        return { name: u.name, reached };
+      });
+    });
+    expect(r).toHaveLength(6);
+    for (const d of r) expect(d.reached, `the way to the ${d.name}'s door`).toBe(true);
+  });
+
   test('the tools are sold at Hardware & Feed', async ({ page }) => {
     await load(page, makeSave());
     await ready(page);
@@ -8431,6 +8530,62 @@ test.describe('Farm City: the City Hall and the Police Station', () => {
     expect(r.benches).toBe(4);
     expect(r.beds).toBe(3);
   });
+
+  test('she can walk to every part of the civic square from High Street', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    /* Walked, not just tested for solids: each step from the last through
+       the same clamp her feet go through. The square's level ground reaches
+       three and a half units south of the town's, and the walk was the
+       town's rectangle alone — it stopped her a step past the fountain, with
+       55 of the square's sampled points out of reach. */
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const { plaza } = await s.civic();
+      const STEP = 0.25;
+      const x0 = plaza.minX - 0.5;
+      const z0 = -29;
+      const nx = Math.round((plaza.maxX + 0.5 - x0) / STEP);
+      const nz = Math.round((plaza.maxZ - z0) / STEP);
+      const P = (i, k) => [x0 + i * STEP, z0 + k * STEP];
+      const seen = new Uint8Array((nx + 1) * (nz + 1));
+      const id = (i, k) => k * (nx + 1) + i;
+      // From the middle of High Street, in front of the City Hall.
+      const start = [Math.round((36 - x0) / STEP), Math.round((-28.6 - z0) / STEP)];
+      seen[id(...start)] = 1;
+      const queue = [start];
+      while (queue.length) {
+        const [i, k] = queue.pop();
+        const [fx, fz] = P(i, k);
+        for (const [di, dk] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const ni = i + di;
+          const nk = k + dk;
+          if (ni < 0 || ni > nx || nk < 0 || nk > nz || seen[id(ni, nk)]) continue;
+          const [x, z] = P(ni, nk);
+          const to = s.walkClamp(fx, fz, x, z);
+          if (Math.hypot(to.x - x, to.z - z) > 1e-6 || s.blocked(x, z)) continue;
+          seen[id(ni, nk)] = 1;
+          queue.push([ni, nk]);
+        }
+      }
+      /* Every free point of the square but its last tenth of a unit, which
+         is the half-unit the walk is held in from the edge of level ground. */
+      const missed = [];
+      let free = 0;
+      for (let i = 0; i <= nx; i += 1) {
+        for (let k = 0; k <= nz; k += 1) {
+          const [x, z] = P(i, k);
+          if (x < plaza.minX || x > plaza.maxX || z < plaza.minZ || z > plaza.maxZ - 0.15) continue;
+          if (s.blocked(x, z)) continue;
+          free += 1;
+          if (!seen[id(i, k)]) missed.push([x, z]);
+        }
+      }
+      return { free, missed: missed.slice(0, 10), count: missed.length };
+    });
+    expect(r.free).toBeGreaterThan(600);
+    expect(r.missed).toEqual([]);
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -8474,6 +8629,25 @@ test.describe('Farm City: the streets, after dark, and what the town costs', () 
     expect(r.carStopped).toBe(0);
     // The pavement sits below the stone step at every shop door, 0.08.
     expect(r.st.kerb.pavement).toBeLessThan(0.08);
+  });
+
+  test('the north pavement runs unbroken from the old square to the City Hall', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    /* Neither road that comes into High Street carries on past its centre
+       line, so nothing crosses the north side. The first layout asked only
+       how near each point was to the other roads' samples, and their last
+       samples sit on the centre line, 2.5 from the far pavement: it left
+       the Greengrocer's front, and the alley by Hardware & Feed, as grass. */
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const st = await s.streetscape();
+      const street = s.roadNetwork().find((n) => n.id === 'high-street').pts;
+      return { north: st.strips.filter((p) => p.side > 0), first: street[0], last: street[street.length - 1] };
+    });
+    expect(r.north).toHaveLength(1);
+    expect(r.north[0].from[0]).toBeCloseTo(r.first[0], 1);
+    expect(r.north[0].to[0]).toBeCloseTo(r.last[0], 1);
   });
 
   test('the lamps come on at dusk, and the windows brighten with them', async ({ page }) => {

@@ -929,11 +929,19 @@ export function buildHighStreet({ units, anisotropy = 1 }) {
       out.push(worldBox(u, tx - 0.82, tx + 0.82, TERRACE_OUT - 0.4, TERRACE_OUT + 0.4, 0.95, `terrace:${u.id}`));
     }
     /* The board stands out by the kerb in line with the door, which is the
-       one stretch of pavement no table is in front of. */
+       one stretch of pavement no table is in front of — unless there are
+       tables either side of the door, when that stretch is the way in, and
+       a board in it is a gate. The café's was: its two tables leave an aisle
+       0.98 wide in front of the door, the board stood in it, 0.21 off each
+       table, and nobody could reach the door. So where the door is flanked
+       the board stands back beside it instead, against the shop and out
+       past the plinth the way the restaurant's planters do. */
     if (u.aboard) {
-      const ax = dx;
-      for (const g of aBoard(u.aboard, A)) shopFurniture.push(g.translate(ax, 0, ABOARD_OUT));
-      out.push(worldBox(u, ax - 0.28, ax + 0.28, ABOARD_OUT - 0.22, ABOARD_OUT + 0.22, 0.85, `aboard:${u.id}`));
+      const flanked = tables.some((t) => t < dx) && tables.some((t) => t > dx);
+      const ax = flanked ? dx + FRONT.door.w / 2 + 0.36 : dx;
+      const az = flanked ? 0.62 : ABOARD_OUT;
+      for (const g of aBoard(u.aboard, A)) shopFurniture.push(g.translate(ax, 0, az));
+      out.push(worldBox(u, ax - 0.28, ax + 0.28, az - 0.22, az + 0.22, 0.85, `aboard:${u.id}`));
     }
     for (const extra of u.extras ?? []) {
       if (extra.kind === 'produce') {

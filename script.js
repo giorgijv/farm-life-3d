@@ -1541,7 +1541,7 @@ function helpSections() {
     {
       emoji: '🏙️', title: 'Farm City',
       lines: [
-        'North past the orchard, at the end of the longest road on the map, is a '
+        'North past the orchard, at the end of the longest drive on the map, is a '
         + 'town, Farm City, whose Hardware & Feed sells the tools. Going is optional; the whole game '
         + 'can be farmed without ever driving up there.',
         `${UPGRADE_ORDER.length} permanent upgrades give late-game coins somewhere to go: `
@@ -2538,7 +2538,7 @@ window.Farm3DBridge = {
   /* The city's counterpart to setMarketOpen. Re-renders on the City tab for
      the same reason the market one does: the buttons carry the reason they
      are disabled, and a tab the player is already looking at when the car
-     rolls into the square has to change under them. */
+     pulls up outside Hardware & Feed has to change under them. */
   setCityOpen(open) {
     if (open === cityOpen) return;
     cityOpen = open;
