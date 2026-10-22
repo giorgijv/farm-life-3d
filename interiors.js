@@ -46,6 +46,14 @@ export const ROOM = {
   pave: 0.075,
 };
 
+/* How far a room's lamps are up, from 0 by day to 1 after dark, for the
+   scene's night value (0 at noon, 1 at midnight). Every light in a room is
+   a straight line in this one number, which is what lets a shop window
+   show the room at any hour from two photographs: see windows.js. */
+export function lampsLit(night) {
+  return THREE.MathUtils.smoothstep(night, 0.25, 0.65);
+}
+
 /* How far in from the walls her centre is held: her body radius and a
    whisker, so her shoulder stops at the skirting rather than in it. */
 const WALK_INSET = 0.27;
@@ -1010,7 +1018,10 @@ const PRODUCE = {
 /* -------------------------------------------------------------------- */
 
 function makeKit(A) {
-  const parts = { atlas: [], wall: [], floor: [], pave: [], glow: [], glass: [], flame: [] };
+  /* `front` is the street wall and the pavement's kerb, on the atlas like
+     everything else but a mesh of its own: the photograph a shop window
+     shows is taken from across the road, through where that wall stands. */
+  const parts = { atlas: [], front: [], wall: [], floor: [], pave: [], glow: [], glass: [], flame: [] };
   const solids = [];
   const furniture = [];
   const sw = (k) => A.swatch[k];
@@ -1018,9 +1029,15 @@ function makeKit(A) {
   /* A box given by its extents rather than its centre and size: the room
      is laid out in edges — this counter runs from here to the wall — and
      stating it that way is what keeps the aisles the widths written down. */
+  let into = 'atlas';
   const block = (colour, [x0, x1], [y0, y1], [z0, z1], yaw = 0) => {
     const g = paint(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), sw(colour));
-    parts.atlas.push(placed(g, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, yaw));
+    parts[into].push(placed(g, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, yaw));
+  };
+  // Every block built inside `fn` goes on the front rather than the atlas.
+  const onFront = (fn) => {
+    into = 'front';
+    try { fn(); } finally { into = 'atlas'; }
   };
   const cylinder = (colour, rTop, rBot, h, x, y, z, seg = 10, open = false) => {
     parts.atlas.push(paint(new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, open), sw(colour)).translate(x, y + h / 2, z));
@@ -1114,7 +1131,7 @@ function makeKit(A) {
       .translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
   };
 
-  return { A, parts, solids, furniture, sw, block, cylinder, solid, fruitAt, crate, basket, jar, bulb, glowBox, pane, flame };
+  return { A, parts, solids, furniture, sw, block, onFront, cylinder, solid, fruitAt, crate, basket, jar, bulb, glowBox, pane, flame };
 }
 
 /* -------------------------------------------------------------------- */
@@ -1160,14 +1177,16 @@ function buildShell(kit, spec) {
   // The street wall, cut down to the riser, with the doorway through it.
   const d0 = spec.door.x - spec.door.w / 2;
   const d1 = spec.door.x + spec.door.w / 2;
-  for (const [a, b] of [[minX - wall, d0], [d1, maxX + wall]]) {
-    if (b - a < 0.01) continue;
-    kit.block('paint', [a, b], [0, cut], [front, 0]);
-    kit.block('woodLight', [a - 0.01, b + 0.01], [cut, cut + 0.04], [front - 0.03, 0.03]);
-  }
-  // The door's frame, cut at the same height, and a stone threshold.
-  for (const x of [d0, d1]) kit.block('trim', [x - 0.05, x + 0.05], [0, cut + 0.12], [front - 0.02, 0.02]);
-  kit.block('stone', [d0, d1], [0, 0.02], [front, 0.04]);
+  kit.onFront(() => {
+    for (const [a, b] of [[minX - wall, d0], [d1, maxX + wall]]) {
+      if (b - a < 0.01) continue;
+      kit.block('paint', [a, b], [0, cut], [front, 0]);
+      kit.block('woodLight', [a - 0.01, b + 0.01], [cut, cut + 0.04], [front - 0.03, 0.03]);
+    }
+    // The door's frame, cut at the same height, and a stone threshold.
+    for (const x of [d0, d1]) kit.block('trim', [x - 0.05, x + 0.05], [0, cut + 0.12], [front - 0.02, 0.02]);
+    kit.block('stone', [d0, d1], [0, 0.02], [front, 0.04]);
+  });
   // A welcome mat inside it.
   kit.parts.atlas.push(placed(
     topLabelled(spec.door.w - 0.1, 0.012, 0.55, kit.A.uv.mat, kit.sw('coir')),
@@ -1177,7 +1196,7 @@ function buildShell(kit, spec) {
   kit.parts.floor.push(floorQuad(minX, maxX, back, front, 0, FLOOR_TILE));
   // The pavement outside, at the street's own height.
   kit.parts.pave.push(floorQuad(minX - 0.8, maxX + 0.8, 0, ROOM.apron, ROOM.pave, PAVE_TILE));
-  kit.block('stone', [minX - 0.8, maxX + 0.8], [0, ROOM.pave], [0, ROOM.apron]);
+  kit.onFront(() => kit.block('stone', [minX - 0.8, maxX + 0.8], [0, ROOM.pave], [0, ROOM.apron]));
 }
 
 /* -------------------------------------------------------------------- */
@@ -2477,8 +2496,10 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     }),
     flame: material('flame', { color: 0xffd27a, emissive: 0xff9a2a, emissiveIntensity: 2 }),
   };
+  mats.front = mats.atlas;
   let triangles = 0;
   let flameMesh = null;
+  const meshes = {};
   for (const [key, list] of Object.entries(kit.parts)) {
     if (!list.length) continue;
     const geos = list.map((g) => (g.index ? g.toNonIndexed() : g));
@@ -2487,9 +2508,10 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     const mesh = new THREE.Mesh(merged, mats[key]);
     mesh.name = `interior-${spec.id}-${key}`;
     mesh.receiveShadow = key !== 'glass';
-    mesh.castShadow = key === 'atlas';
+    mesh.castShadow = key === 'atlas' || key === 'front';
     if (key === 'glass') mesh.renderOrder = 1;
     if (key === 'flame') flameMesh = mesh;
+    meshes[key] = mesh;
     group.add(mesh);
     triangles += merged.getAttribute('position').count / 3;
   }
@@ -2664,7 +2686,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   let lit = 0;
   /* night: 0 by day, 1 at midnight, the scene's skyNight. dt: seconds. */
   function update(night, dt) {
-    lit = THREE.MathUtils.smoothstep(night, 0.25, 0.65);
+    lit = lampsLit(night);
     sun.intensity = 0.25 + 1.45 * (1 - lit);
     hemi.intensity = 0.55 + 0.5 * (1 - lit);
     for (const l of lamps) l.intensity = (2.5 + 7 * lit) * (design.lampPower ?? 1);
@@ -2694,6 +2716,12 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
 
   return {
     scene, solids, walk, door, toLocal, update, atCounter, stock,
+    /* The room as its shop window shows it: without the street wall and
+       the pavement, which stand between the window's photograph and the
+       room. Put back with false. */
+    forPhoto: (on) => {
+      for (const key of ['front', 'pave']) if (meshes[key]) meshes[key].visible = !on;
+    },
     stockShown: () => JSON.parse(JSON.stringify(shown)),
     greeting: design.greeting, // (hour 0-24) => what the shopkeeper says
     view: { box, centre: { x: centre.x, y: 0.9, z: centre.z }, out: door.out },

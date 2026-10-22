@@ -604,6 +604,21 @@ function frontageLayout(u) {
   return { dx, spans };
 }
 
+/* The glass in a shopfront, in its own frame: the display windows either
+   side of the door and the pane in the door's top half, each as the
+   rectangle of its painted face and how far out from the wall that face
+   is. windows.js lays the glass that shows the room over these, a hair
+   proud of them, so the painted picture is still there underneath for any
+   window whose room has not been photographed. */
+export function shopGlass(u) {
+  const { dx, spans } = frontageLayout(u);
+  const D = FRONT.door;
+  return [
+    ...spans.map(([a, b]) => ({ kind: 'window', x0: a, x1: b, y0: FRONT.riser, y1: FRONT.windowTop, z: 0.04 })),
+    { kind: 'door', x0: dx - D.w * 0.32, x1: dx + D.w * 0.32, y0: D.h * 0.5, y1: D.h * 0.9, z: 0.145 },
+  ];
+}
+
 function shopfrontParts(u, A) {
   const parts = [];
   const half = u.width / 2;
@@ -972,6 +987,7 @@ export function buildHighStreet({ units, anisotropy = 1 }) {
       id: u.id, name: u.name, kind: u.kind, x: u.x, z: u.z, width: u.width,
       faceX: fx, faceZ: fz,
       door: { x: u.x + dx * Math.cos(u.yaw), z: u.z - dx * Math.sin(u.yaw) },
+      glass: shopGlass(u),
       fasciaCap: A.fascia[u.id].capUnits,
       fasciaPx: A.fascia[u.id].px,
       awning: u.awning !== false,

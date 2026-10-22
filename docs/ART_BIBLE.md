@@ -5210,6 +5210,147 @@ Every room is held by the shared tests:
 
 ---
 
+## 53. Through the shop windows, step one: the Greengrocer
+
+High Street's windows showed goods painted into the shopfronts' atlas.
+The Greengrocer's window, and the pane in its door, now show its room.
+
+### How the glass shows the room
+
+Every room is built where it stands, behind its own shopfront, so the
+glass knows exactly what is behind it: a box from the window to the back
+wall, the floor to the top of the walls. Drawing the room behind the
+glass would cost about eighty draw calls on a street that costs
+twenty-five. So the room is photographed instead, off screen, and the
+glass looks the photograph up (`windows.js`).
+
+- **Where from:** the street's own camera with her at the door: 14.7 out
+  from the wall and 5.8 up. That is 14 behind her and 5.8 above her feet,
+  with her 0.7 out on the pavement.
+- **The glass:** for each pixel it follows the line of sight on into the
+  room's box, finds the wall or the floor it meets, and asks the
+  photograph what is there. The walls and the floor are where they really
+  are, so the room moves behind the glass as the camera goes past. What
+  stands in the room is printed onto them as the photograph saw it.
+- **The ceiling,** which a photograph taken from above has no picture of,
+  is the colour at the top of the back wall above the same spot, a shade
+  darker. Only a camera below the head of the window looking up sees it.
+- **Two photographs,** the lamps off and the lamps on. Every light in a
+  room is a straight line in one number, `lampsLit` (the sun, the sky
+  fill, the lamps and the glowing bulbs alike), so the two mixed by that
+  number are the room at any hour. The Restaurant's candles are the one
+  light on a curve of their own.
+- **Left out of the photograph:** the room's street wall and the strip of
+  pavement in front of it, which stand between the photograph and the
+  room. They are a mesh of their own now, which costs each room one more
+  draw call inside (the Greengrocer's 80 is 81).
+- **The photographs** are 512 by 343: eight bits a channel stored as sRGB,
+  smoothed at the edges and mipmapped, 1.9 MB for the two with their
+  mipmaps. Eight bits of the room's light stored straight would band in
+  its dark corners at night; sRGB spends its steps where the eye sees
+  them, and the GPU turns it back into light before the two are mixed.
+- **When:** not until the glass is within the town's detail range, 40
+  units, so a page that never leaves the farm builds no room and takes no
+  photograph. From the farm the window is about 50 units off. After that,
+  one piece of work a frame: build the room, take the lamps-off
+  photograph, take the lamps-on one. A frame that did any of it is not
+  charged to the frame budget, as the frames that compile the shaders are
+  not. Measured here: 134 to 235 ms for both photographs, and the window
+  showing its room 2.3 to 2.9 seconds after she arrives at the door.
+- **The painted window** is still there, 5 mm behind the glass. It is what
+  shows until the photographs are in, and again after a lost WebGL
+  context, which takes everything a render target held, until they are
+  taken again.
+- **What it costs the street:** one draw call, and two triangles a pane.
+
+### Measured against the room
+
+`windowAgreement` renders the room itself from a camera, without its
+street wall, and compares it with the glass on every pixel of glass that
+camera can see, as a mean difference out of 255. The same check run on
+the painted window says how far off a window can be.
+
+| Camera | Glass, noon / midnight | Painted window |
+|---|---|---|
+| Where the photograph was taken | 5.0 / 8.5 | 22.9 / 37.6 |
+| The street's camera, her at the door | 5.1 / 8.0 | 24.4 / 31.1 |
+| The same, her 2 along the pavement | 13.6 / 18.5 | 24.1 / 33.3 |
+| The same, her 4 along | 14.9 / 15.8 | 21.1 / 35.8 |
+| Coming out of the shop, 7.5 off | 13.8 / 21.3 | 26.8 / 34.5 |
+| Eye height, 3 off the glass | 36.8 / 44.8 | 33.7 / 39.2 |
+
+At dusk, with the lamps halfway up, the glass is 5.8 from the room at the
+photograph's own camera: between noon's 5.0 and midnight's 8.5, which is
+what an exact mix gives. What is left near the photograph's own camera
+is not the room being in the wrong place: with her at the door, the
+photograph shifted 0.3 along the frontage takes the 5.1 to 14.7. Some of
+it will be the photograph
+being smoothed and mipmapped where the room it is compared with is not;
+that was not measured apart.
+
+### What the measuring found
+
+- **The window display is the error, and step 3 is for it.** Four places
+  to take the photograph from were tried over the same 53 camera
+  positions: 14.7 out and 5.8 up, 7.8 out and 3.5 up, 11 out and 3 up, 12
+  out and 8 up. They scored 22.3 to 24.0, near enough the same. What
+  every one of them got wrong was the Greengrocer's display: crates
+  stepped up 0.3 to 0.8 behind the glass, which the photograph prints onto
+  the floor behind them.
+  - From the street's camera they are right.
+  - From 40 degrees round they smear into streaks.
+  - From eye height they are gone, and the window looks straight through
+    to the back of the room. There it is further off than the painted
+    window was: 36.8 against 33.7.
+
+  Step 3 puts the display on a layer of its own. Until then the
+  photograph is taken from the street's camera, the view of a shopfront
+  the game gives most, and the four places are measured again once the
+  display is off the room.
+- **A console warning that was not the windows'.** "GPU stall due to
+  ReadPixels" appeared four times with the glass in. It was blamed first
+  on the photographs' format, and half-float photographs seemed to cure
+  it. But the browser stops repeating that message after four, and every
+  format tried after the first had run in the same browser. Tried again
+  with a browser each, every format warned, and so did the pushed code
+  with no windows at all, standing on High Street. It is the software
+  renderer's. The photographs went back to sRGB, which is half the memory.
+- **Two tests that go into all six shops** took 25 seconds each on their
+  own, before the windows as after. With three workers beside them they
+  ran past the minute, and they are marked slow like the other tests that
+  visit all six.
+
+### The tests
+
+- **The Greengrocer's window shows its own room.** From the street's
+  camera with her at the door it is under 8 from the room by day and
+  under 12 at midnight. The painted window is at least three times as far
+  off. At dusk it is no further off than at either end of the day.
+- **Nothing is photographed from the farm.** Over thirty frames there, no
+  room is built and no photograph taken. In town, the glass covers
+  exactly the window and the door pane it replaced, a hair in front of
+  their painted faces.
+- **The window costs the street one draw call** and two triangles a pane,
+  weighed with and without the glass in the same frame.
+- **A lost context takes the photographs.** The painted window shows,
+  not a black one. When the context comes back, the photographs are
+  taken again and agree with the room again.
+
+Each test was checked to fail on the bug it is there for:
+- shifting the photograph by 0.3 put the window at 14.7 against a limit
+  of 8;
+- photographing whatever the distance built the room from the farm;
+- not forgetting the photographs on a lost context left the glass drawn.
+
+### Still open
+
+- **Step 2, the glass itself:** a reflection of the street, the awning's
+  shade across the top of the window, the sides of the opening, the
+  candles' own curve, and the photographs taken again when what a room
+  shows changes.
+- **Step 3:** the window displays on a layer of their own.
+- **Steps 4 and 5:** the other five shops, and phones.
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

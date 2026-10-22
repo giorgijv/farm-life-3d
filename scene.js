@@ -47,7 +47,8 @@ import { buildSigns } from './signs.js';
 import { buildHighStreet, FRONT } from './highstreet.js';
 import { buildCivic } from './civic.js';
 import { buildStreetscape } from './streetscape.js';
-import { buildInterior } from './interiors.js';
+import { buildInterior, lampsLit } from './interiors.js';
+import { buildShopWindow } from './windows.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   buildStable, STABLE_WIDTH, STABLE_DEPTH,
@@ -6960,6 +6961,124 @@ ${lit}`;
     return room;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* What the shop windows show                                          */
+  /* ------------------------------------------------------------------ */
+
+  /* The shops whose rooms are seen through their glass, photographed from
+     across the road (windows.js). The Greengrocer first; the others keep
+     the goods painted in their windows for now. */
+  const WINDOWED = ['grocer'];
+  const shopWindows = new Map();
+  for (const id of WINDOWED) {
+    const f = shopFrame(id);
+    const spec = roomSpec(id);
+    if (!f || !spec) continue;
+    try {
+      const win = buildShopWindow({ unit: f.unit, panes: f.built.glass, room: spec.room });
+      /* The glass inside a group of its own, which is what the town's
+         detail range shows and hides — so that the glass's own visibility
+         can mean one thing only: its room has been photographed. */
+      const holder = new THREE.Group();
+      holder.name = `shop-window-holder:${id}`;
+      holder.add(win.mesh);
+      scene.add(holder);
+      addTownDetail(holder);
+      shopWindows.set(id, { win, holder });
+    } catch (err) {
+      console.warn(`farm: the ${f.unit.name}'s window did not build`, err);
+    }
+  }
+
+  /* Each frame: the glass's lamps set by the same clock as the room's, and
+     at most one piece of work towards a photograph — building a room, or
+     taking one of its two pictures — so the town coming into view is never
+     one long frame. Nothing is photographed until the glass is within the
+     town's detail range: a page that never leaves the farm never pays for
+     a room it cannot see. Not while she is in a shop, either, when the
+     street is not being drawn and the room is hers. Returns whether it did
+     any work. */
+  function syncShopWindows() {
+    const lit = lampsLit(skyNight);
+    let worked = false;
+    for (const [id, { win, holder }] of shopWindows) {
+      win.setLit(lit);
+      if (worked || inside || !holder.visible || win.ready()) continue;
+      worked = true;
+      if (!interiors.has(id)) {
+        interiorOf(id);
+        continue;
+      }
+      const room = interiors.get(id);
+      if (!room) continue;
+      if (shadowsAfforded) renderer.shadowMap.needsUpdate = true;
+      try {
+        win.photograph(renderer, room, win.next());
+      } catch (err) {
+        console.warn(`farm: the ${id}'s window could not be photographed`, err);
+        shopWindows.delete(id);
+        win.mesh.visible = false;
+      }
+    }
+    return worked;
+  }
+
+  /* For the test surface: the three renders windowAgreement compares, at
+     one camera, into a target of their own — the street with the glass
+     drawn flat magenta, which marks the glass that can be seen; the street
+     with the glass as it is, less the fog the room is not drawn in; and
+     the room itself, without its street wall, at the same hour. Bytes as
+     the picture has them, bottom row first. Everything is put back. With
+     `painted`, the second is the street with the painted window the glass
+     replaced, as a measure of how far off a window can be. */
+  function windowViews(id, { position, target, night = skyNight, width = 320, height = 180, fov = camera.fov, painted = false } = {}) {
+    const entry = shopWindows.get(id);
+    const room = interiors.get(id);
+    if (!entry || !room || !entry.win.ready()) return null;
+    const cam = camera.clone();
+    cam.fov = fov;
+    cam.aspect = width / height;
+    cam.updateProjectionMatrix();
+    cam.position.set(...position);
+    cam.lookAt(...target);
+    cam.updateMatrixWorld();
+    const rt = new THREE.WebGLRenderTarget(width, height, { colorSpace: THREE.SRGBColorSpace });
+    const counts = { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles };
+    const prev = renderer.getRenderTarget();
+    const read = () => {
+      const buf = new Uint8Array(width * height * 4);
+      renderer.readRenderTargetPixels(rt, 0, 0, width, height, buf);
+      return buf;
+    };
+    syncTownDetail(cam.position);
+    entry.win.setLit(lampsLit(night));
+    const shown = entry.win.mesh.visible;
+    entry.win.mesh.visible = true;
+    renderer.setRenderTarget(rt);
+    entry.win.setMode(2);
+    renderer.render(scene, cam);
+    const mask = read();
+    // With `painted`, the window as it was before: the glass left out.
+    entry.win.setMode(1);
+    entry.win.mesh.visible = !painted;
+    renderer.render(scene, cam);
+    entry.win.mesh.visible = shown;
+    const glass = read();
+    entry.win.setMode(0);
+    room.forPhoto(true);
+    room.update(night, 0);
+    renderer.render(room.scene, cam);
+    room.forPhoto(false);
+    const truth = read();
+    renderer.setRenderTarget(prev);
+    rt.dispose();
+    syncTownDetail();
+    entry.win.setLit(lampsLit(skyNight));
+    renderer.info.render.calls = counts.calls;
+    renderer.info.render.triangles = counts.triangles;
+    return { mask, glass, truth, width, height };
+  }
+
   /* The fade between outside and in: black at once, then clearing over
      four tenths of a second. Purely a picture — the swap itself has already
      happened, so nothing waits on it, and a player who has asked for less
@@ -7622,6 +7741,60 @@ ${lit}`;
     enter: (id) => enterShop(id),
     leave: () => leaveShop(),
     interior: () => (inside ? { ...inside.report, at: { ...at } } : null),
+    /* The shop windows that show their rooms: what each has photographed,
+       and whether its glass is being drawn this frame. */
+    shopWindows: () => [...shopWindows.values()].map(({ win, holder }) => ({
+      ...win.report(), shown: win.mesh.visible && holder.visible, roomBuilt: interiors.has(win.id),
+    })),
+    /* The glass over every photographed window shown or left out, for a
+       test to weigh what it costs against the same street without it. */
+    shopWindowGlass: (on) => {
+      for (const { win } of shopWindows.values()) win.mesh.visible = !!on && win.ready();
+    },
+    /* How far what a window shows is from the room it shows, seen from one
+       camera (see windowViews), on the pixels of glass that camera can
+       see, in the 0-255 of the picture: the mean difference, the 90th
+       percentile, and how many pixels that was over. */
+    windowAgreement: (id, view = {}) => {
+      const v = windowViews(id, view);
+      if (!v) return null;
+      const { mask, glass, truth } = v;
+      const diffs = [];
+      for (let i = 0; i < mask.length; i += 4) {
+        if (mask[i] !== 255 || mask[i + 1] !== 0 || mask[i + 2] !== 255) continue;
+        diffs.push((Math.abs(glass[i] - truth[i]) + Math.abs(glass[i + 1] - truth[i + 1]) + Math.abs(glass[i + 2] - truth[i + 2])) / 3);
+      }
+      diffs.sort((a, b) => a - b);
+      const mean = diffs.reduce((a, b) => a + b, 0) / Math.max(1, diffs.length);
+      return { pixels: diffs.length, mean, p90: diffs[Math.floor(diffs.length * 0.9)] ?? null };
+    },
+    /* The same three renders as pictures, for a person to look at: the
+       window as drawn and the room it should be showing, side by side, the
+       glass outlined in magenta in a third. PNG data URLs. */
+    windowPictures: (id, view = {}) => {
+      const v = windowViews(id, view);
+      if (!v) return null;
+      const picture = (buf) => {
+        const c = document.createElement('canvas');
+        c.width = v.width;
+        c.height = v.height;
+        const ctx = c.getContext('2d');
+        const img = ctx.createImageData(v.width, v.height);
+        // Read bottom row first, as GL keeps them.
+        for (let y = 0; y < v.height; y += 1) {
+          img.data.set(buf.subarray((v.height - 1 - y) * v.width * 4, (v.height - y) * v.width * 4), y * v.width * 4);
+        }
+        ctx.putImageData(img, 0, 0);
+        return c.toDataURL('image/png');
+      };
+      // And the street with the room's own pixels where the glass is seen:
+      // what the window ought to look like, in its place.
+      const inPlace = v.glass.slice();
+      for (let i = 0; i < inPlace.length; i += 4) {
+        if (v.mask[i] === 255 && v.mask[i + 1] === 0 && v.mask[i + 2] === 255) inPlace.set(v.truth.subarray(i, i + 4), i);
+      }
+      return { glass: picture(v.glass), truth: picture(v.truth), mask: picture(v.mask), inPlace: picture(inPlace) };
+    },
     interiorReport: (id) => (ENTERABLE[id] ? (interiorOf(id)?.report ?? null) : null),
     interiorLights: () => inside?.state() ?? null,
     /* Where the room's corners and she herself land in the picture, in
@@ -8255,6 +8428,8 @@ ${lit}`;
 
   canvas.addEventListener('webglcontextlost', () => {
     contextLost = true;
+    // Whatever the photographs held went with the context.
+    for (const { win } of shopWindows.values()) win.forget();
     restoreDeadline = performance.now() + RESTORE_GRACE_MS;
     showSceneLost('The farm view paused while your browser freed up memory. Trying to bring it back…', false);
   });
@@ -8375,6 +8550,10 @@ ${lit}`;
       followFarmer();
       controls.update();
     }
+    /* A frame that built a room or photographed one is not charged to the
+       budget: it is a one-off, like the frames that compile the shaders,
+       and the budget's average would carry it for the next dozen draws. */
+    if (syncShopWindows()) lastDrawAt = 0;
 
     // Zeroed here rather than by the renderer itself, so what drawCost()
     // reports is this whole frame across every pass — see renderer.info

@@ -8942,6 +8942,11 @@ test.describe('Farm City: inside the shops', () => {
   });
 
   test('walking on out through the door comes back out onto High Street', async ({ page }) => {
+    /* Into all six shops, building each room, like the other tests here
+       that visit all six: 25 seconds alone on this machine, before the
+       windows as after them, and over the minute with three workers
+       beside it. */
+    test.slow();
     await load(page, makeSave());
     await ready(page);
     for (const id of SHOPS) {
@@ -9026,6 +9031,11 @@ test.describe('Farm City: inside the shops', () => {
   });
 
   test('the lamps light every shop after dark, and the shopkeepers know the time of day', async ({ page }) => {
+    /* Into all six shops, building each room, like the other tests here
+       that visit all six: 25 seconds alone on this machine, before the
+       windows as after them, and over the minute with three workers
+       beside it. */
+    test.slow();
     await load(page, makeSave());
     await ready(page);
     for (const id of SHOPS) {
@@ -9256,5 +9266,135 @@ test.describe('Farm City: inside the shops', () => {
     // ...and the camera inside stands out over the pavement to the north
     // and looks south into it: half a turn from the other shops' camera.
     expect(Math.abs(Math.abs(r.yaw) - Math.PI)).toBeLessThan(0.01);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Farm City: the rooms seen through the shop windows                  */
+/* ------------------------------------------------------------------ */
+
+test.describe('Farm City: through the shop windows', () => {
+  const ready = async (page) => {
+    await page.waitForFunction(() => !!window.Farm3DScene);
+    await page.evaluate(() => window.Farm3DScene.solidsReady());
+  };
+  const grocer = (page) => page.evaluate(() => window.Farm3DScene.shopWindows().find((w) => w.id === 'grocer'));
+  const frames = (page, n) => page.evaluate((k) => new Promise((r) => {
+    let i = 0;
+    const f = () => (++i >= k ? r() : requestAnimationFrame(f));
+    requestAnimationFrame(f);
+  }), n);
+  // Her at the Greengrocer's door, and the window photographed.
+  const toTown = async (page) => {
+    const d = await page.evaluate(() => window.Farm3DScene.shopDoors().find((x) => x.id === 'grocer'));
+    await page.evaluate((p) => window.Farm3DScene.putFarmerAt(p.x, p.z), d.outside);
+    await expect.poll(async () => (await grocer(page)).ready, { timeout: 30_000 }).toBe(true);
+  };
+  /* The street's own camera with her at the Greengrocer's door, which is
+     where the photograph is taken from, narrowed onto the shopfront so its
+     glass is thousands of pixels rather than hundreds. */
+  const atDoor = (page) => page.evaluate(async () => {
+    const u = (await window.Farm3DScene.highStreet()).units.find((x) => x.id === 'grocer');
+    return { position: [u.x, 5.8, u.z + 14.7], target: [u.x, 1.1, u.z + 0.7], fov: 12 };
+  });
+
+  test('the Greengrocer\'s window shows its own room, by day, at dusk and after dark', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    const view = await atDoor(page);
+    const r = await page.evaluate((v) => {
+      const s = window.Farm3DScene;
+      const at = (night, painted = false) => s.windowAgreement('grocer', { ...v, night, painted });
+      return { day: at(0), dusk: at(0.45), night: at(1), paintedDay: at(0, true), paintedNight: at(1, true) };
+    }, view);
+    // Most of the window is in view: its glass, under the awning.
+    expect(r.day.pixels).toBeGreaterThan(4000);
+    /* What it shows is the room, as near as a photograph of 512 texels can
+       be to the room itself drawn at this camera: measured 5.1 by day and
+       8.0 at midnight, out of 255. */
+    expect(r.day.mean).toBeLessThan(8);
+    expect(r.night.mean).toBeLessThan(12);
+    // The goods painted in the window before were four and five times as far off.
+    expect(r.paintedDay.mean).toBeGreaterThan(r.day.mean * 3);
+    expect(r.paintedNight.mean).toBeGreaterThan(r.night.mean * 3);
+    /* And at dusk, with the lamps halfway up, the two photographs mixed are
+       still the room — no further from it than either is at its own end of
+       the day. Measured 5.7. */
+    expect(r.dusk.mean).toBeLessThan(Math.max(r.day.mean, r.night.mean) + 1);
+  });
+
+  test('nothing is photographed from the farm, and the glass covers the painted panes once it is', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    /* From the farm the High Street is fifty units off, past the town's
+       detail range: no room built for the window, no photograph taken, the
+       painted window drawn — over a good few frames, not just the first. */
+    await frames(page, 30);
+    const farm = await grocer(page);
+    expect(farm.roomBuilt).toBe(false);
+    expect(farm.taken).toEqual({ dark: false, lamps: false });
+    expect(farm.shown).toBe(false);
+
+    await toTown(page);
+    const town = await grocer(page);
+    expect(town.shown).toBe(true);
+    expect(town.roomBuilt).toBe(true);
+    // Over the window and the door's pane, and exactly over them.
+    const unit = await page.evaluate(async () => (await window.Farm3DScene.highStreet()).units.find((u) => u.id === 'grocer'));
+    expect(town.panes).toBe(unit.glass.length);
+    expect(unit.glass.map((g) => g.kind).sort()).toEqual(['door', 'window']);
+    const xs = unit.glass.flatMap((g) => [g.x0, g.x1]);
+    const ys = unit.glass.flatMap((g) => [g.y0, g.y1]);
+    expect(town.bounds.min[0]).toBeCloseTo(unit.x + Math.min(...xs), 3);
+    expect(town.bounds.max[0]).toBeCloseTo(unit.x + Math.max(...xs), 3);
+    expect(town.bounds.min[1]).toBeCloseTo(Math.min(...ys), 3);
+    expect(town.bounds.max[1]).toBeCloseTo(Math.max(...ys), 3);
+    // A hair in front of the painted faces, never behind them.
+    expect(town.bounds.min[2] - unit.z).toBeGreaterThan(Math.min(...unit.glass.map((g) => g.z)));
+    expect(town.bounds.max[2] - unit.z).toBeLessThan(Math.max(...unit.glass.map((g) => g.z)) + 0.01);
+  });
+
+  test('the window costs the street one draw call', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    const view = await atDoor(page);
+    /* The shopfront from the street's camera, with the glass and without
+       it, in the same frame — so the only difference is the glass. */
+    const r = await page.evaluate((v) => {
+      const s = window.Farm3DScene;
+      const withGlass = s.drawCostFrom(v.position, v.target);
+      s.shopWindowGlass(false);
+      const without = s.drawCostFrom(v.position, v.target);
+      s.shopWindowGlass(true);
+      return { withGlass, without };
+    }, view);
+    expect(r.withGlass.calls - r.without.calls).toBe(1);
+    // Two triangles a pane.
+    expect(r.withGlass.triangles - r.without.triangles).toBe(2 * (await grocer(page)).panes);
+  });
+
+  test('a lost context takes the photographs with it, and they are taken again when it comes back', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    await page.evaluate(() => {
+      const c = document.querySelector('canvas');
+      const gl = c.getContext('webgl2') || c.getContext('webgl');
+      window.__lose = gl.getExtension('WEBGL_lose_context');
+      window.__lose.loseContext();
+    });
+    // The painted window, not a black one, while the photographs are gone.
+    await expect.poll(async () => (await grocer(page)).shown).toBe(false);
+    expect((await grocer(page)).taken).toEqual({ dark: false, lamps: false });
+    await page.evaluate(() => window.__lose.restoreContext());
+    await expect.poll(async () => (await grocer(page)).ready, { timeout: 30_000 }).toBe(true);
+    // And what it shows is the room again, not whatever the lost target held.
+    const view = await atDoor(page);
+    const r = await page.evaluate((v) => window.Farm3DScene.windowAgreement('grocer', { ...v, night: 0 }), view);
+    expect(r.mean).toBeLessThan(8);
   });
 });
