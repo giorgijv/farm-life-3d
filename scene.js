@@ -6827,6 +6827,13 @@ ${lit}`;
       colours: { wall: '#efe6d2', dado: '#2f8a82', rail: '#165550' },
       details: () => ({}),
     },
+    restaurant: {
+      kind: 'restaurant',
+      block: 'dining',
+      floor: 'carpet',
+      colours: { wall: '#7a2a38', dado: '#4a2a1c', rail: '#c9a227', carpet: '#5e1a26', carpetLine: '#b8902a' },
+      details: () => ({}),
+    },
     /* Where the tools are sold, at the counter — see syncShop. Its six
        lines are the game's own upgrade table, in the order the Farm City
        tab lists them, so a line added there is a card added here. */

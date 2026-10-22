@@ -5036,6 +5036,74 @@ The lightest room so far: no crates of produce, no loaves.
 
 The Restaurant and the Pharmacy are still painted doors.
 
+## 51. Inside the shops, step five: the Restaurant
+
+The fifth shop that opens: the taller half of the dining block. Its room
+is the other side of the Café's party wall, which §50's rule gave it
+without being asked. The rooms are 0.12 apart, the wall's thickness, and
+together they fill the block from end wall to end wall. A test holds
+both.
+
+### The room
+
+4.9 by 5.45, with the door in the middle.
+
+- **Walls and floor:** burgundy over dark wood panelling, with a gold
+  rail, on a carpet with a gold diamond lattice. The carpet is the third
+  floor the builder knows.
+- **The tables:** four for two, in white cloths to the floor, two down
+  either side of an aisle from the door to the bar. Each has two
+  upholstered chairs facing across it, two places laid with plate, napkin
+  and glass, and a candle in a silver stick.
+- **The bar:** at the back, with a waiter in white shirt and long black
+  apron behind it, and bottles on the shelves either side of the hatch.
+- **The kitchen hatch:** through the back wall. It is the first opening
+  with a sill, at 1.0 and up to 1.75, with plates going out on the pass.
+  Behind it is a stove with a pot on, steaming.
+- **The rest:** a rack of wine lying in a lattice in the back-left
+  corner, paintings round the walls in gilt frames (the farm's fields,
+  the City Hall, the sea), and a stand by the door with the bookings open
+  on it under a little lamp.
+
+### What moves
+
+- **The candles are lit at dusk, not before**, on the same curve as the
+  lamps. A candle burning at noon is a restaurant that has forgotten it
+  is open for lunch. They flicker: each flame's glow and each candle's
+  own small light follow two sine waves of their own, so no two are in
+  step. A test reads them out at noon and twice at midnight.
+- **The steam** climbs from the pot in the kitchen and out over the back
+  wall: eight puffs, swelling as they rise and gone at the top, drawn
+  instanced in one call. The first steam was lit like everything else
+  and read as grey lumps against the dark beyond the wall, which is
+  smoke. It now carries a faint light of its own.
+
+### What the screenshots and the tests found
+
+- **A bottle with no colour.** The bottles' colours were picked by
+  `round(x × 10) % 3`, and on the left of the bar x is negative. A
+  negative index is undefined in JavaScript, and the whole room failed to
+  build. The index wraps now.
+- **The chandelier** was planned over the middle of the room, where it
+  would have hidden a table from the camera, as every hanging lamp in
+  §48 and §49 did. It hangs over the aisle by the door, so what it hides
+  is aisle.
+
+### Measured
+
+| | Draw calls | Triangles |
+|---|---|---|
+| Inside the Restaurant, by day | 83 | 12,064 |
+| Inside the Café | 82 | 6,568 |
+| Inside the Bakery & Tea Room | 82 | 15,886 |
+| Inside Hardware & Feed | 83 | 12,010 |
+| Inside the Greengrocer | 80 | 15,128 |
+
+### Still open
+
+The Pharmacy is the last painted door. It is step six, with the check
+across all six rooms.
+
 ---
 
 ## Verified, not assumed

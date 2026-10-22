@@ -171,8 +171,17 @@ windows either side of the door as its tables outside are, and a third by
 a leather banquette. The barista works the espresso machine behind the
 counter, with a cake under a glass dome and bags of beans on the shelf
 below a chalked menu priced in coins. There are newspapers on a rack, a
-tall fig in the corner, and bare bulbs on long cords. The Restaurant and
-the Pharmacy are still seen from outside only.
+tall fig in the corner, and bare bulbs on long cords.
+
+**And the Restaurant**, the other side of the Café's party wall: burgundy
+and gold over dark panelling, on a patterned carpet, with four tables for
+two in white cloths down either side of the aisle. The candles on them
+are lit at dusk and flicker. A chandelier hangs by the door, paintings of
+the town line the walls, and there's a rack of wine in the corner. A
+waiter stands behind the little bar, and through the hatch behind him a
+pot is on in the kitchen, its steam climbing out over the wall. The
+bookings are open on a stand by the door. The Pharmacy is the one shop
+still seen from outside only.
 
 High Street ends at the **City Hall**: a stone building on a podium, six
 columns under a pediment with the town's wheat-sheaf in it, and a clock
@@ -564,8 +573,8 @@ with the windows brightening alongside, that the crossings' beacons blink,
 that the shop blocks and the police cars are merged into one mesh each,
 and that the town holds to the farm's draw budget from inside it, that a
 car parked just short of the town or the farm can be walked back to, that
-each shop that opens — the Greengrocer, the Bakery, the Café and Hardware
-& Feed — is offered
+each shop that opens — the Greengrocer, the Bakery, the Café, the
+Restaurant and Hardware & Feed — is offered
 from the pavement and takes her in by the prompt or by walking on into its
 door, that every part of each one's floor can be reached from the door with
 nothing solid walked through, that the camera inside frames the whole room
@@ -576,8 +585,10 @@ dark and its shopkeeper knows the time of day, that the tools are sold over
 Hardware & Feed's counter and not on the pavement outside or anywhere else
 in the shop, that its six cards show the levels the farm has bought, that
 the Bakery's tea room is on the side of the door its table outside is on,
-and that the Café's room stops at its party wall with the Restaurant, with
-its window tables either side of the door as its tables outside are, that
+that the Café's room stops at its party wall with the Restaurant, with its
+window tables either side of the door as its tables outside are, that the
+Restaurant takes the other side of that wall, and that its candles are
+lit at dusk and flicker, that
 she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —

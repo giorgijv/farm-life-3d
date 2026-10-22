@@ -133,6 +133,12 @@ const PAINT = {
   pot: '#c26a45',
   fig: '#4d7a3c',
   newsprint: '#e7e3d6',
+  linen: '#f7f4ec',
+  wine: '#4a1020',
+  bottle: '#2d4a2a',
+  candle: '#f3ead2',
+  silver: '#d4d6d8',
+  steel: '#9aa0a4',
 };
 
 /* -------------------------------------------------------------------- */
@@ -258,6 +264,48 @@ function checkerCanvas(a, b) {
       ctx.fillStyle = 'rgba(0,0,0,0.12)';
       ctx.fillRect(i * t, j * t, t, 2);
       ctx.fillRect(i * t, j * t, 2, t);
+    }
+  }
+  return c;
+}
+
+/* A dining-room carpet: a deep ground, a lattice of diamonds in gold, a
+   rosette in each. One repeat is FLOOR_TILE square. */
+function carpetCanvas(ground, line) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, 0, 256, 256);
+  for (let k = 0; k < 900; k += 1) {
+    ctx.fillStyle = `rgba(0,0,0,${0.04 + noise(k) * 0.05})`;
+    ctx.fillRect(noise(k * 3) * 256, noise(k * 7) * 256, 2, 2);
+  }
+  const n = 4;
+  const t = 256 / n;
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 3;
+  for (let i = -1; i <= n; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(i * t, 0);
+    ctx.lineTo(i * t + 256, 256);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(i * t + 256, 0);
+    ctx.lineTo(i * t, 256);
+    ctx.stroke();
+  }
+  for (let i = 0; i < n; i += 1) {
+    for (let j = 0; j < n; j += 1) {
+      const x = i * t + t / 2;
+      const y = j * t;
+      ctx.fillStyle = line;
+      for (let p = 0; p < 4; p += 1) {
+        const a = (p / 4) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(a) * 5, y + t / 2 + Math.sin(a) * 5, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
   return c;
@@ -452,6 +500,71 @@ const DRAW = {
     ctx.textBaseline = 'middle';
     fit(ctx, spec.name.toUpperCase(), 22, c.w - 10, SERIF);
     ctx.fillText(spec.name.toUpperCase(), c.x + c.w / 2, c.y + c.h * 0.55);
+  },
+
+  /* A painting in a gilt frame: the town's fields, its City Hall, or the
+     sea it is a day's drive from. */
+  picture(ctx, c, spec, subject) {
+    const { x, y, w, h } = c;
+    ctx.fillStyle = '#c9a227';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#8f7219';
+    ctx.fillRect(x + 6, y + 6, w - 12, h - 12);
+    const ix = x + 12;
+    const iy = y + 12;
+    const iw = w - 24;
+    const ih = h - 24;
+    const sky = ctx.createLinearGradient(0, iy, 0, iy + ih);
+    sky.addColorStop(0, subject === 'harbour' ? '#7fa8c9' : '#a9c8de');
+    sky.addColorStop(1, '#f1e2c0');
+    ctx.fillStyle = sky;
+    ctx.fillRect(ix, iy, iw, ih);
+    if (subject === 'fields') {
+      ctx.fillStyle = '#7a9a4a';
+      ctx.beginPath(); ctx.moveTo(ix, iy + ih * 0.55); ctx.quadraticCurveTo(ix + iw * 0.4, iy + ih * 0.4, ix + iw, iy + ih * 0.6); ctx.lineTo(ix + iw, iy + ih); ctx.lineTo(ix, iy + ih); ctx.fill();
+      ctx.fillStyle = '#d9b45a';
+      ctx.fillRect(ix, iy + ih * 0.72, iw, ih * 0.28);
+      ctx.fillStyle = '#8e2b24';
+      ctx.fillRect(ix + iw * 0.62, iy + ih * 0.48, iw * 0.16, ih * 0.14);
+      ctx.beginPath(); ctx.moveTo(ix + iw * 0.6, iy + ih * 0.49); ctx.lineTo(ix + iw * 0.7, iy + ih * 0.38); ctx.lineTo(ix + iw * 0.8, iy + ih * 0.49); ctx.fill();
+    } else if (subject === 'hall') {
+      ctx.fillStyle = '#7f9a5a';
+      ctx.fillRect(ix, iy + ih * 0.78, iw, ih * 0.22);
+      ctx.fillStyle = '#d9d0bd';
+      ctx.fillRect(ix + iw * 0.2, iy + ih * 0.42, iw * 0.6, ih * 0.36);
+      ctx.fillRect(ix + iw * 0.44, iy + ih * 0.18, iw * 0.12, ih * 0.26);
+      ctx.fillStyle = '#5e9e8a';
+      ctx.beginPath(); ctx.arc(ix + iw * 0.5, iy + ih * 0.18, iw * 0.06, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#a99f8a';
+      for (let k = 0; k < 6; k += 1) ctx.fillRect(ix + iw * (0.25 + k * 0.09), iy + ih * 0.46, iw * 0.03, ih * 0.3);
+    } else {
+      ctx.fillStyle = '#3f6f9a';
+      ctx.fillRect(ix, iy + ih * 0.6, iw, ih * 0.4);
+      ctx.fillStyle = '#f4f1ea';
+      ctx.beginPath(); ctx.moveTo(ix + iw * 0.3, iy + ih * 0.6); ctx.lineTo(ix + iw * 0.42, iy + ih * 0.22); ctx.lineTo(ix + iw * 0.42, iy + ih * 0.6); ctx.fill();
+      ctx.fillStyle = '#6b4a2b';
+      ctx.fillRect(ix + iw * 0.22, iy + ih * 0.6, iw * 0.3, ih * 0.06);
+      ctx.fillStyle = '#e8c43a';
+      ctx.beginPath(); ctx.arc(ix + iw * 0.78, iy + ih * 0.28, iw * 0.07, 0, Math.PI * 2); ctx.fill();
+    }
+  },
+  // The reservations book open on the stand by the door.
+  booking(ctx, c) {
+    ctx.fillStyle = '#f3ecd8';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#6e2233';
+    ctx.fillRect(c.x + c.w / 2 - 1.5, c.y, 3, c.h);
+    ctx.fillStyle = 'rgba(40,40,60,0.55)';
+    for (let y = c.y + 12; y < c.y + c.h - 4; y += 9) {
+      ctx.fillRect(c.x + 6, y, c.w / 2 - 14, 1.5);
+      ctx.fillRect(c.x + c.w / 2 + 8, y, c.w / 2 - 14 - (y % 3) * 4, 1.5);
+    }
+  },
+  winelabel(ctx, c) {
+    ctx.fillStyle = '#f1e8cf';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#6e2233';
+    ctx.fillRect(c.x + 4, c.y + c.h * 0.4, c.w - 8, c.h * 0.2);
   },
 
   /* The café's menu over its counter, in chalk, with the prices in coins. */
@@ -667,6 +780,13 @@ const CELLS = {
     { kind: 'till', w: 128, h: 112 },
     { kind: 'bag', w: 128, h: 96 },
   ],
+  restaurant: () => [
+    { kind: 'picture', key: 'picture:fields', w: 192, h: 144, arg: 'fields' },
+    { kind: 'picture', key: 'picture:hall', w: 192, h: 144, arg: 'hall' },
+    { kind: 'picture', key: 'picture:harbour', w: 192, h: 144, arg: 'harbour' },
+    { kind: 'booking', w: 128, h: 96 },
+    { kind: 'winelabel', w: 64, h: 32 },
+  ],
   cafe: () => [
     { kind: 'cafeboard', w: 448, h: 256 },
     { kind: 'papers', w: 192, h: 128 },
@@ -818,7 +938,7 @@ const PRODUCE = {
 /* -------------------------------------------------------------------- */
 
 function makeKit(A) {
-  const parts = { atlas: [], wall: [], floor: [], pave: [], glow: [], glass: [] };
+  const parts = { atlas: [], wall: [], floor: [], pave: [], glow: [], glass: [], flame: [] };
   const solids = [];
   const furniture = [];
   const sw = (k) => A.swatch[k];
@@ -911,23 +1031,30 @@ function makeKit(A) {
     parts.glow.push(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).toNonIndexed()
       .translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
   };
+  // A candle's flame: drawn on its own material, which flickers.
+  const flame = (x, y, z) => {
+    parts.flame.push(new THREE.ConeGeometry(0.014, 0.05, 6).toNonIndexed().translate(x, y + 0.025, z));
+    parts.flame.push(new THREE.IcosahedronGeometry(0.014, 0).translate(x, y + 0.005, z));
+  };
   // A sheet of glass, which is drawn see-through.
   const pane = ([x0, x1], [y0, y1], [z0, z1]) => {
     parts.glass.push(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0).toNonIndexed()
       .translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
   };
 
-  return { A, parts, solids, furniture, sw, block, cylinder, solid, fruitAt, crate, basket, jar, bulb, glowBox, pane };
+  return { A, parts, solids, furniture, sw, block, cylinder, solid, fruitAt, crate, basket, jar, bulb, glowBox, pane, flame };
 }
 
 /* -------------------------------------------------------------------- */
 /* The shell every room has                                              */
 /* -------------------------------------------------------------------- */
 
-/* Doorways through a room's back wall, where a shop has a room behind
-   it: [from x, to x, height], in the room's frame. */
+/* Openings through a room's back wall, where a shop has a room behind
+   it: [from x, to x, top, sill], in the room's frame — a doorway has no
+   sill, a serving hatch does. */
 const OPENINGS = {
   bakery: { back: [-0.5, 0.3, 2.0] },
+  restaurant: { back: [0.55, 1.75, 1.75, 1.0] },
 };
 
 function buildShell(kit, spec) {
@@ -939,10 +1066,11 @@ function buildShell(kit, spec) {
   // the room nothing else of them can be seen. Each wound to face inwards.
   const opening = OPENINGS[spec.kind]?.back;
   if (opening) {
-    const [o0, o1, oh] = opening;
+    const [o0, o1, oh, sill = 0] = opening;
     W.push(wallQuad(minX, back, o0, back, 0, height));
     W.push(wallQuad(o1, back, maxX, back, 0, height, o1 - minX));
     W.push(wallQuad(o0, back, o1, back, oh, height, o0 - minX));
+    if (sill > 0) W.push(wallQuad(o0, back, o1, back, 0, sill, o0 - minX));
   } else {
     W.push(wallQuad(minX, back, maxX, back, 0, height));           // back, facing +z
   }
@@ -1897,7 +2025,166 @@ function cafe(kit, spec) {
   };
 }
 
-const DESIGNS = { grocer, hardware, bakery, cafe };
+/* -------------------------------------------------------------------- */
+/* The Restaurant                                                        */
+/* -------------------------------------------------------------------- */
+
+/* The taller half of the dining block, the other side of the Café's party
+   wall: 4.9 by 5.45, the door in the middle. A dining room in the shop's
+   burgundy and gold over dark panelling, on a patterned carpet: four
+   tables for two with white cloths, down either side of an aisle from the
+   door to a little bar at the back. Behind the bar a hatch through to the
+   kitchen, where a pot is on and the steam climbs out over the wall; a rack
+   of wine in the corner; paintings of the town round the walls; a stand by
+   the door with the bookings in it.
+
+   The candles on the tables are lit at dusk and flicker. The chandelier
+   hangs over the aisle near the door, which is the one place a light that
+   size can hang in here without hiding a table from the camera: what it
+   hides is the aisle behind it. */
+function restaurant(kit, spec) {
+  const { minX, maxX, back } = spec.room;
+  const front = -ROOM.wall;
+  const { block, cylinder, solid } = kit;
+  const candles = [];
+
+  // A table for two: a white cloth to the floor, two chairs facing across
+  // it, a candle, two places laid.
+  const table = (x, z, id) => {
+    block('linen', [x - 0.36, x + 0.36], [0.72, 0.75], [z - 0.36, z + 0.36]);
+    block('linen', [x - 0.37, x + 0.37], [0.1, 0.72], [z - 0.37, z + 0.37]);
+    for (const side of [-1, 1]) {
+      const cz = z + side * 0.56;
+      block('woodDark', [x - 0.19, x + 0.19], [0.44, 0.49], [cz - 0.18, cz + 0.18]);
+      block('paint', [x - 0.17, x + 0.17], [0.49, 0.52], [cz - 0.16, cz + 0.16]);
+      for (const [lx, lz] of [[-0.16, -0.15], [0.16, -0.15], [-0.16, 0.15], [0.16, 0.15]]) {
+        block('woodDark', [x + lx - 0.015, x + lx + 0.015], [0, 0.44], [cz + lz - 0.015, cz + lz + 0.015]);
+      }
+      const bz = cz + side * 0.17;
+      block('woodDark', [x - 0.19, x + 0.19], [0.49, 1.05], [bz - 0.02, bz + 0.02]);
+      block('paint', [x - 0.14, x + 0.14], [0.6, 0.95], [bz - side * 0.025, bz - side * 0.02]);
+      // A place laid: plate, napkin, glass.
+      const pz = z + side * 0.2;
+      cylinder('china', 0.11, 0.11, 0.008, x, 0.75, pz, 14);
+      block('paint', [x - 0.04, x + 0.04], [0.758, 0.77], [pz - 0.06, pz + 0.06]);
+      cylinder('glass', 0.025, 0.02, 0.09, x + 0.15, 0.75, pz, 8);
+    }
+    // The candle, in a silver stick, and its flame.
+    cylinder('silver', 0.03, 0.04, 0.02, x, 0.75, z, 10);
+    cylinder('silver', 0.012, 0.012, 0.06, x, 0.77, z, 6);
+    cylinder('candle', 0.012, 0.012, 0.14, x, 0.83, z, 8);
+    kit.flame(x, 0.97, z);
+    candles.push([x, 0.97, z]);
+    solid(id, [x - 0.4, x + 0.4], [z - 0.78, z + 0.78], 1.05);
+  };
+  table(-1.45, -1.75, 'table-1');
+  table(1.45, -1.75, 'table-2');
+  table(-1.45, -3.5, 'table-3');
+  table(1.45, -3.5, 'table-4');
+
+  // The booking stand, just inside the door on the left.
+  block('woodDark', [-0.95, -0.6], [0, 1.0], [-0.55, -0.25]);
+  const book = topLabelled(0.34, 0.02, 0.24, kit.A.uv.booking, kit.sw('paint'));
+  kit.parts.atlas.push(book.rotateX(0.3).translate(-0.775, 1.04, -0.4));
+  cylinder('brass', 0.02, 0.02, 0.2, -0.66, 1.0, -0.3, 6);
+  kit.bulb(-0.66, 1.24, -0.3, 0.03);
+  solid('booking-stand', [-0.97, -0.58], [-0.57, front], 1.25);
+
+  // The bar at the back, from the aisle to the wall, the hatch behind it.
+  const cx = [-0.35, maxX];
+  const cz = [-4.95, -4.4];
+  block('woodDark', cx, [0, 1.0], cz);
+  for (let x = cx[0] + 0.1; x < cx[1] - 0.45; x += 0.6) block('paint', [x, x + 0.48], [0.14, 0.86], [cz[1], cz[1] + 0.012]);
+  block('brass', [cx[0], cx[1]], [0.12, 0.15], [cz[1] + 0.05, cz[1] + 0.08]);
+  block('wood', [cx[0] - 0.03, cx[1]], [1.0, 1.05], [cz[0] - 0.02, cz[1] + 0.05]);
+  solid('bar', cx, cz, 1.05);
+  solid('behind-bar', [cx[0], maxX], [back, cz[0]], 1.05);
+  // Bottles and glasses along the bar's back shelf, either side of the hatch.
+  const [h0, h1, hTop, hSill] = OPENINGS.restaurant.back;
+  for (const [x0, x1] of [[cx[0] + 0.1, h0 - 0.08], [h1 + 0.08, maxX - 0.05]]) {
+    if (x1 - x0 < 0.2) continue;
+    for (const y of [1.15, 1.55]) {
+      block('woodDark', [x0, x1], [y - 0.03, y], [back, back + 0.22]);
+      for (let x = x0 + 0.07; x < x1 - 0.04; x += 0.1) {
+        cylinder(['bottle', 'wine', 'bottle'][((Math.round(x * 10) % 3) + 3) % 3], 0.03, 0.03, 0.2, x, y, back + 0.11, 8);
+        cylinder('bottle', 0.012, 0.012, 0.06, x, y + 0.2, back + 0.11, 6);
+      }
+    }
+  }
+  // The hatch: a frame, a pass shelf with plates going out, and the
+  // kitchen behind — a stove with a pot on it, steaming.
+  block('woodDark', [h0 - 0.05, h1 + 0.05], [hSill - 0.03, hSill + 0.02], [back - 0.15, back + 0.12]);
+  block('woodDark', [h0 - 0.05, h1 + 0.05], [hTop, hTop + 0.06], [back - 0.02, back + 0.03]);
+  for (const x of [h0, h1]) block('woodDark', [x - 0.05, x], [hSill, hTop], [back - 0.02, back + 0.03]);
+  for (const x of [h0 + 0.3, h0 + 0.7]) {
+    cylinder('china', 0.11, 0.11, 0.01, x, hSill + 0.02, back - 0.02, 14);
+    kit.fruitAt('tomato', x, hSill + 0.03, back - 0.02, Math.round(x * 9));
+  }
+  block('soot', [h0 - 0.3, h1 + 0.3], [0, 0.01], [back - 1.1, back]);
+  block('steel', [h0 - 0.1, h1 + 0.1], [0, 0.88], [back - 0.75, back - 0.3]);
+  block('iron', [h0, h1], [0.88, 0.9], [back - 0.7, back - 0.35]);
+  const potX = (h0 + h1) / 2;
+  const potZ = back - 0.52;
+  cylinder('steel', 0.14, 0.13, 0.2, potX, 0.9, potZ, 12);
+  kit.glowBox([potX - 0.12, potX + 0.12], [0.89, 0.9], [potZ - 0.12, potZ + 0.12]);
+  for (const x of [h0 - 0.3, h1 + 0.3]) block('brickDark', [x - 0.02, x + 0.02], [0, 0.9], [back - 1.1, back]);
+  block('brickDark', [h0 - 0.3, h1 + 0.3], [0, 0.9], [back - 1.14, back - 1.1]);
+
+  // Wine in a rack in the back-left corner: bottles lying in a lattice.
+  const wx = [minX + 0.05, cx[0] - 0.35];
+  block('woodDark', wx, [0, 1.7], [back, back + 0.3]);
+  for (let y = 0.12; y < 1.6; y += 0.16) {
+    for (let x = wx[0] + 0.08; x < wx[1] - 0.05; x += 0.13) {
+      const bottle = paint(new THREE.CylinderGeometry(0.035, 0.035, 0.26, 8), kit.sw(Math.round(x * 7 + y * 11) % 3 ? 'bottle' : 'wine'));
+      kit.parts.atlas.push(bottle.rotateX(Math.PI / 2).translate(x, y + 0.04, back + 0.26));
+    }
+  }
+  solid('wine-rack', [wx[0] - 0.05, wx[1] + 0.02], [back, back + 0.33], 1.7);
+
+  // Paintings round the walls: the fields and the hall on the left, the
+  // sea on the right.
+  const frame = kit.sw('brass');
+  kit.parts.atlas.push(placed(
+    labelledBox(0.72, 0.54, 0.03, { front: kit.A.uv['picture:fields'], back: frame }, frame), minX + 0.015, 1.75, -1.75, Math.PI / 2,
+  ));
+  kit.parts.atlas.push(placed(
+    labelledBox(0.72, 0.54, 0.03, { front: kit.A.uv['picture:hall'], back: frame }, frame), minX + 0.015, 1.75, -3.5, Math.PI / 2,
+  ));
+  kit.parts.atlas.push(placed(
+    labelledBox(0.72, 0.54, 0.03, { front: kit.A.uv['picture:harbour'], back: frame }, frame), maxX - 0.015, 1.75, -2.6, -Math.PI / 2,
+  ));
+
+  // The chandelier: a brass ring of candles and drops of glass, over the
+  // aisle by the door.
+  const chX = 0;
+  const chZ = -1.3;
+  const chY = 2.2;
+  block('brass', [chX - 0.01, chX + 0.01], [chY + 0.05, ROOM.height], [chZ - 0.01, chZ + 0.01]);
+  const ring = paint(new THREE.TorusGeometry(0.3, 0.02, 5, 20), kit.sw('brass'));
+  kit.parts.atlas.push(ring.rotateX(Math.PI / 2).translate(chX, chY, chZ));
+  cylinder('brass', 0.05, 0.02, 0.12, chX, chY - 0.04, chZ, 8);
+  for (let k = 0; k < 6; k += 1) {
+    const a = (k / 6) * Math.PI * 2;
+    const x = chX + Math.cos(a) * 0.3;
+    const z = chZ + Math.sin(a) * 0.3;
+    cylinder('candle', 0.014, 0.014, 0.1, x, chY + 0.02, z, 6);
+    kit.bulb(x, chY + 0.15, z, 0.025);
+    kit.pane([x - 0.012, x + 0.012], [chY - 0.12, chY - 0.02], [z - 0.012, z + 0.012]);
+  }
+
+  return {
+    keeper: { x: 0.9, z: -5.2, look: { shirt: 0xf4f1ea, apron: 0x1d1d1f, trousers: 0x1d1d1f, hair: 0x2a1c14, beard: false } },
+    // The chandelier first: it is the room's lamp, steady, and the one the
+    // tests compare day and night by.
+    lamps: [[chX, chY + 0.1, chZ], [0.6, 2.0, -4.0]],
+    candles,
+    steam: [potX, 1.1, potZ],
+    counter: { x: 0.25, z: -4.1 },
+    greeting: (hour) => `🍷 “${hello(hour)}! A table for one? Right this way.”`,
+  };
+}
+
+const DESIGNS = { grocer, hardware, bakery, cafe, restaurant };
 
 /* Good morning, by the farm's own clock: the day is ninety seconds long,
    and a shopkeeper who says morning at midnight has not been looking out
@@ -1944,8 +2231,11 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   const mats = {
     wall: material('wall', { map: tiled(wallCanvas(spec.colours), anisotropy, false), roughness: 0.92 }),
     floor: material('floor', {
-      map: tiled(spec.floor === 'checker' ? checkerCanvas(spec.colours.tileA, spec.colours.tileB) : floorCanvas(), anisotropy),
-      roughness: spec.floor === 'checker' ? 0.5 : 0.78,
+      map: tiled({
+        checker: () => checkerCanvas(spec.colours.tileA, spec.colours.tileB),
+        carpet: () => carpetCanvas(spec.colours.carpet, spec.colours.carpetLine),
+      }[spec.floor]?.() ?? floorCanvas(), anisotropy),
+      roughness: { checker: 0.5, carpet: 0.98 }[spec.floor] ?? 0.78,
     }),
     pave: material('pave', { map: tiled(paveCanvas(), anisotropy), roughness: 0.95 }),
     atlas: material('atlas', { map: atlasTex, roughness: 0.74, side: THREE.DoubleSide }),
@@ -1953,8 +2243,10 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     glass: material('glass', {
       color: 0xe6f2f2, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.22, depthWrite: false,
     }),
+    flame: material('flame', { color: 0xffd27a, emissive: 0xff9a2a, emissiveIntensity: 2 }),
   };
   let triangles = 0;
+  let flameMesh = null;
   for (const [key, list] of Object.entries(kit.parts)) {
     if (!list.length) continue;
     const geos = list.map((g) => (g.index ? g.toNonIndexed() : g));
@@ -1965,6 +2257,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     mesh.receiveShadow = key !== 'glass';
     mesh.castShadow = key === 'atlas';
     if (key === 'glass') mesh.renderOrder = 1;
+    if (key === 'flame') flameMesh = mesh;
     group.add(mesh);
     triangles += merged.getAttribute('position').count / 3;
   }
@@ -2049,6 +2342,38 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     stock({});
   }
 
+  /* Candles, where a room has them: a small warm light each, lit with the
+     lamps after dark and never quite steady. And steam, where a room has a
+     kitchen: a handful of puffs climbing from a pot, swelling as they go
+     and gone at the top — instanced, one draw for all of them. */
+  const candleLights = (design.candles ?? []).map(([x, y, z]) => {
+    const l = new THREE.PointLight(0xffb060, 0, 3.2, 2);
+    l.position.set(x, y + 0.12, z);
+    group.add(l);
+    return l;
+  });
+  let steam = null;
+  if (design.steam) {
+    /* A little light of its own: lit like everything else, steam against
+       the dark beyond the wall came out as grey lumps, which is smoke. */
+    const steamMat = material('steam', {
+      color: 0xffffff, emissive: 0xb8b8b8, emissiveIntensity: 1, roughness: 1,
+      transparent: true, opacity: 0.32, depthWrite: false,
+    });
+    steam = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.09, 1), steamMat, 8);
+    steam.name = `interior-${spec.id}-steam`;
+    steam.frustumCulled = false;
+    steam.renderOrder = 2;
+    group.add(steam);
+  }
+  const puff = new THREE.Matrix4();
+  const puffAt = new THREE.Vector3();
+  const puffQ = new THREE.Quaternion();
+  const puffS = new THREE.Vector3();
+  let clock = 0;
+  let candleLit = 0;
+  const flicker = (t, i) => 0.78 + 0.22 * (Math.sin(t * 13.7 + i * 2.1) * 0.6 + Math.sin(t * 23.3 + i * 5.7) * 0.4);
+
   const scene = new THREE.Scene();
   scene.name = `interior-scene:${spec.id}`;
   scene.background = new THREE.Color(0x15110e);
@@ -2113,6 +2438,25 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     for (const l of lamps) l.intensity = (2.5 + 7 * lit) * (design.lampPower ?? 1);
     mats.glow.emissiveIntensity = 0.8 + 2.2 * lit;
     keeper.mixer.update(Math.min(dt, 0.1));
+    clock += Math.min(dt, 0.25);
+    // Candles are lit at dusk, not before: a candle burning at noon is a
+    // restaurant that has forgotten it is open for lunch.
+    candleLit = THREE.MathUtils.smoothstep(night, 0.2, 0.5);
+    if (flameMesh) {
+      flameMesh.visible = candleLit > 0.01;
+      mats.flame.emissiveIntensity = candleLit * 2.4 * flicker(clock, 0);
+    }
+    candleLights.forEach((l, i) => { l.intensity = candleLit * 1.1 * flicker(clock, i + 1); });
+    if (steam) {
+      const [sx, sy, sz] = design.steam;
+      for (let i = 0; i < 8; i += 1) {
+        const ph = (clock * 0.32 + i / 8) % 1;
+        puffAt.set(sx + Math.sin(ph * 6 + i) * 0.08, sy + ph * 1.9, sz + Math.cos(ph * 5 + i) * 0.06);
+        const k = (0.5 + ph * 1.4) * (ph > 0.8 ? (1 - ph) / 0.2 : 1);
+        steam.setMatrixAt(i, puff.compose(puffAt, puffQ, puffS.set(k, k, k)));
+      }
+      steam.instanceMatrix.needsUpdate = true;
+    }
   }
   update(0, 0);
 
@@ -2121,7 +2465,15 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     stockShown: () => JSON.parse(JSON.stringify(shown)),
     greeting: design.greeting, // (hour 0-24) => what the shopkeeper says
     view: { box, centre: { x: centre.x, y: 0.9, z: centre.z }, out: door.out },
-    state: () => ({ lit, sun: sun.intensity, lamps: lamps.map((l) => l.intensity), glow: mats.glow.emissiveIntensity }),
+    state: () => ({
+      lit,
+      sun: sun.intensity,
+      lamps: lamps.map((l) => l.intensity),
+      glow: mats.glow.emissiveIntensity,
+      candles: candleLights.map((l) => l.intensity),
+      flame: flameMesh ? (flameMesh.visible ? mats.flame.emissiveIntensity : 0) : null,
+      steam: !!steam,
+    }),
     report: {
       id: spec.id,
       name: spec.name,

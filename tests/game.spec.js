@@ -8786,7 +8786,7 @@ test('the page loads with no console errors', async ({ page }) => {
 /* ------------------------------------------------------------------ */
 
 test.describe('Farm City: inside the shops', () => {
-  const SHOPS = ['grocer', 'bakery', 'cafe', 'hardware'];
+  const SHOPS = ['grocer', 'bakery', 'cafe', 'restaurant', 'hardware'];
   const ready = async (page) => {
     await page.waitForFunction(() => !!window.Farm3DScene);
     await page.evaluate(() => window.Farm3DScene.solidsReady());
@@ -8841,6 +8841,7 @@ test.describe('Farm City: inside the shops', () => {
       hardware: ['window-left', 'window-right', 'lines-left', 'lines-right', 'counter', 'tool-wall', 'feed-stack'],
       bakery: ['window-display', 'bread-stand', 'counter', 'tea-table-1', 'tea-table-2', 'dresser'],
       cafe: ['window-table-left', 'window-table-right', 'banquette', 'banquette-table', 'counter', 'papers', 'fig'],
+      restaurant: ['table-1', 'table-2', 'table-3', 'table-4', 'booking-stand', 'bar', 'wine-rack'],
     };
     for (const id of SHOPS) {
       const r = await page.evaluate(async (k) => {
@@ -8973,7 +8974,8 @@ test.describe('Farm City: inside the shops', () => {
       const cost = await page.evaluate(() => window.Farm3DScene.drawCost());
       /* Measured at 80 calls and 15,100 triangles in the Greengrocer, 83
          and 12,000 in Hardware & Feed, 82 and 15,900 in the Bakery, 82 and
-         6,600 in the Café: each room's materials, her, and its shopkeeper. The street from the pavement outside is 38,000
+         6,600 in the Café, 83 and 12,100 in the Restaurant: each room's
+         materials, her, and its shopkeeper. The street from the pavement outside is 38,000
          triangles; the farm's ceilings are 300 and 100,000. */
       expect(cost.calls, id).toBeGreaterThan(0);
       expect(cost.calls, id).toBeLessThanOrEqual(120);
@@ -9170,5 +9172,55 @@ test.describe('Farm City: inside the shops', () => {
     const insideSides = ['window-table-left', 'window-table-right'].map((id) => Math.sign(across(r.pieces[id]))).sort();
     expect(outsideSides).toEqual([-1, 1]);
     expect(insideSides).toEqual(outsideSides);
+  });
+
+  test("the Restaurant takes the other side of the Café's party wall", async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      s.enter('cafe');
+      const cafe = s.interior().floor;
+      s.leave();
+      s.enter('restaurant');
+      const restaurant = s.interior().floor;
+      const block = s.solids().boxes.find((b) => b.model === 'city-commercial/building-e');
+      return { cafe, restaurant, block };
+    });
+    // One wall between them, a little over a tenth of a unit thick...
+    const wall = r.restaurant.minX - r.cafe.maxX;
+    expect(wall).toBeGreaterThan(0.05);
+    expect(wall).toBeLessThan(0.2);
+    // ...and between them the two rooms fill the block, end wall to end wall.
+    expect(r.cafe.minX - r.block.minX).toBeLessThan(0.3);
+    expect(r.block.maxX - r.restaurant.maxX).toBeLessThan(0.3);
+  });
+
+  test("the Restaurant's candles are lit at dusk, and flicker", async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const at = (phase) => page.evaluate(async (p) => {
+      state.dayElapsedMs = p * 90_000;
+      window.Farm3DScene.leave();
+      window.Farm3DScene.enter('restaurant');
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      await frames();
+      const first = window.Farm3DScene.interiorLights();
+      await new Promise((r) => setTimeout(r, 400));
+      await frames();
+      return { first, then: window.Farm3DScene.interiorLights() };
+    }, phase);
+    const noon = await at(0);
+    // Out at noon: no flame, no candlelight.
+    expect(noon.first.flame).toBe(0);
+    expect(Math.max(...noon.first.candles)).toBe(0);
+    // Lit at midnight, all four...
+    const night = await at(0.5);
+    expect(night.first.candles).toHaveLength(4);
+    expect(Math.min(...night.first.candles)).toBeGreaterThan(0.3);
+    expect(night.first.flame).toBeGreaterThan(0.5);
+    // ...and never quite steady.
+    expect(night.then.candles[0]).not.toBeCloseTo(night.first.candles[0], 3);
+    expect(night.first.steam).toBe(true);
   });
 });
