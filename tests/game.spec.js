@@ -6636,7 +6636,6 @@ test.describe('the edges of the world, and the car left in it', () => {
   });
 
   test('parking out in the country does not strand the car', async ({ page }) => {
-    test.slow();
     await load(page, makeSave());
     await ready(page);
 
@@ -6645,18 +6644,26 @@ test.describe('the edges of the world, and the car left in it', () => {
        ends of the roads — so one step from a car parked halfway down the
        market road teleported her ten and a half units back to the field,
        leaving the car eleven units outside anywhere she could walk. On
-       foot it was gone for good. */
-    await driveAt(page, 16, 22, 30_000);
+       foot it was gone for good.
+
+       The car is put down there rather than driven. Driven, at the frame
+       rate a loaded CI runner manages, the steering looped it round the
+       yard and left it stalled at (6.4, 4.6), measured, still on the farm:
+       parked there, the farm is her ground, she walked 6.7 from the car,
+       and the test failed on a car that had never left home. This spot on
+       the road is 13.7 off the farm and 9.5 off the market's ground, so the
+       circle round the car is the only ground she has. */
+    const put = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const road = s.roadNetwork().find((n) => n.id === 'market').pts;
+      const off = (p) => Math.hypot(p[0] - 16, p[1] - 23.6);
+      const i = road.reduce((best, p, j) => (off(p) < off(road[best]) ? j : best), 0);
+      const [x, z] = road[i];
+      const [nx, nz] = road[i + 1];
+      return s.putCarAt(x, z, Math.atan2(nx - x, nz - z)) && s.board();
+    });
+    expect(put).toBe(true);
     expect(await page.evaluate(() => window.Farm3DScene.alight())).toBe(true);
-    /* Read after alighting, not before, and that ordering is the whole of a
-       flake this test carried from the day it was written. `driveAt` stops
-       steering but does not stop the car — it coasts — so a reading taken
-       before `alight()` is where the car was a round trip ago, not where it
-       came to rest. `leaveCar` zeroes the speed, so from here the figure is
-       final. Measured once at 5.05 against a 5.0 limit: the clamp had held
-       her at 4.5 from the car, correctly, and the car had rolled the other
-       0.55 after being asked. Nothing to do with the radius, which is why
-       widening it would have been the wrong fix. */
     const parked = await page.evaluate(() => window.Farm3DScene.car());
 
     const walked = await page.evaluate(async () => {
