@@ -125,6 +125,14 @@ const PAINT = {
   brick: '#8e3b2a',
   brickDark: '#5e2418',
   soot: '#2a201b',
+  chrome: '#c9ccce',
+  chromeDark: '#7f8487',
+  espresso: '#3a2416',
+  leather: '#6b3b2a',
+  marble: '#ece8e1',
+  pot: '#c26a45',
+  fig: '#4d7a3c',
+  newsprint: '#e7e3d6',
 };
 
 /* -------------------------------------------------------------------- */
@@ -446,6 +454,59 @@ const DRAW = {
     ctx.fillText(spec.name.toUpperCase(), c.x + c.w / 2, c.y + c.h * 0.55);
   },
 
+  /* The café's menu over its counter, in chalk, with the prices in coins. */
+  cafeboard(ctx, c) {
+    ctx.fillStyle = '#25302e';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.strokeStyle = '#b98a58';
+    ctx.lineWidth = 12;
+    ctx.strokeRect(c.x + 6, c.y + 6, c.w - 12, c.h - 12);
+    ctx.fillStyle = '#f4f1e6';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fit(ctx, 'Café', 48, c.w - 40, SERIF, 'italic bold');
+    ctx.fillText('Café', c.x + c.w / 2, c.y + 42);
+    const rows = [['Coffee', 2], ['Tea', 2], ['Hot chocolate', 3], ['Cake', 3], ['Toastie', 4]];
+    rows.forEach(([name, price], i) => {
+      const y = c.y + 86 + i * 32;
+      ctx.textAlign = 'left';
+      ctx.font = `bold 24px ${SANS}`;
+      ctx.fillStyle = '#f4f1e6';
+      ctx.fillText(name, c.x + 36, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#f3e07a';
+      ctx.fillText(String(price), c.x + c.w - 60, y);
+      coin(ctx, c.x + c.w - 40, y, 9);
+    });
+  },
+  // A rack's worth of folded newspapers, mastheads up.
+  papers(ctx, c) {
+    ctx.fillStyle = '#e7e3d6';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    const names = ['FARM CITY POST', 'THE GAZETTE', 'GROWER WEEKLY'];
+    names.forEach((n, i) => {
+      const y = c.y + 8 + i * (c.h / 3);
+      ctx.fillStyle = '#1d1d1f';
+      ctx.font = `bold 15px ${SERIF}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(n, c.x + 8, y);
+      ctx.fillStyle = 'rgba(30,30,30,0.35)';
+      for (let k = 0; k < 3; k += 1) ctx.fillRect(c.x + 8, y + 20 + k * 6, c.w - 16 - (k % 2) * 30, 2);
+    });
+  },
+  coffeebag(ctx, c) {
+    ctx.fillStyle = '#2f2a26';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#d9a441';
+    ctx.fillRect(c.x + 10, c.y + c.h * 0.32, c.w - 20, c.h * 0.36);
+    ctx.fillStyle = '#2f2a26';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fit(ctx, 'BEANS', 22, c.w - 26, SANS);
+    ctx.fillText('BEANS', c.x + c.w / 2, c.y + c.h / 2);
+  },
+
   /* The tea room's menu, in chalk on the back wall. */
   teaboard(ctx, c) {
     ctx.fillStyle = '#2b2f2c';
@@ -605,6 +666,11 @@ const CELLS = {
     { kind: 'scale', w: 96, h: 96 },
     { kind: 'till', w: 128, h: 112 },
     { kind: 'bag', w: 128, h: 96 },
+  ],
+  cafe: () => [
+    { kind: 'cafeboard', w: 448, h: 256 },
+    { kind: 'papers', w: 192, h: 128 },
+    { kind: 'coffeebag', w: 96, h: 128 },
   ],
   bakery: () => [
     { kind: 'teaboard', w: 320, h: 256 },
@@ -1670,7 +1736,168 @@ function bakery(kit, spec) {
   };
 }
 
-const DESIGNS = { grocer, hardware, bakery };
+/* -------------------------------------------------------------------- */
+/* The Café                                                              */
+/* -------------------------------------------------------------------- */
+
+/* The café takes the single-storey half of the dining block, the
+   Restaurant the taller half; a party wall runs between them halfway
+   across the gap between their frontages, so this room is 4.6 by 5.45.
+   The door is in the middle. Its tables stand along the windows either
+   side of it, the way its tables outside do, a third by a leather
+   banquette down the left wall; the counter is across the back with the
+   espresso machine and the cakes under a glass dome, the menu over it.
+
+   Lit by bare bulbs on long cords: a bulb is a few centimetres across, so
+   unlike a shade it hides nothing from the camera. */
+function cafe(kit, spec) {
+  const { minX, maxX, back } = spec.room;
+  const front = -ROOM.wall;
+  const { block, cylinder, solid } = kit;
+
+  // A café table for two: a marble top on an iron stand, a bentwood chair
+  // either side across it.
+  const table = (x, z, id, chairs = [-1, 1]) => {
+    cylinder('iron', 0.17, 0.2, 0.03, x, 0, z, 10);
+    cylinder('iron', 0.022, 0.022, 0.7, x, 0.03, z, 6);
+    cylinder('marble', 0.3, 0.3, 0.03, x, 0.72, z, 16);
+    for (const side of chairs) {
+      const cx = x + side * 0.5;
+      cylinder('woodDark', 0.16, 0.16, 0.04, cx, 0.44, z, 12);
+      for (const [lx, lz] of [[-0.1, -0.1], [0.1, -0.1], [-0.1, 0.1], [0.1, 0.1]]) {
+        block('woodDark', [cx + lx - 0.012, cx + lx + 0.012], [0, 0.44], [z + lz - 0.012, z + lz + 0.012]);
+      }
+      const bx = cx + side * 0.15;
+      block('woodDark', [bx - 0.015, bx + 0.015], [0.48, 0.84], [z - 0.13, z + 0.13]);
+      const hoop = paint(new THREE.TorusGeometry(0.12, 0.013, 4, 12, Math.PI), kit.sw('woodDark'));
+      kit.parts.atlas.push(hoop.rotateY(Math.PI / 2).translate(bx, 0.84, z));
+    }
+    // A cup and saucer at each place, and a sugar bowl.
+    for (const side of chairs) {
+      cylinder('china', 0.05, 0.05, 0.006, x + side * 0.14, 0.75, z, 10);
+      cylinder('china', 0.03, 0.024, 0.05, x + side * 0.14, 0.756, z, 8);
+      cylinder('espresso', 0.026, 0.026, 0.004, x + side * 0.14, 0.802, z, 8);
+    }
+    cylinder('chromeDark', 0.03, 0.03, 0.05, x, 0.75, z - 0.12, 8);
+    const reach = chairs.length > 1 ? 0.7 : 0.35;
+    const x0 = chairs.includes(-1) ? x - reach : x - 0.33;
+    const x1 = chairs.includes(1) ? x + reach : x + 0.33;
+    solid(id, [x0, x1], [z - 0.33, z + 0.33], 0.9);
+  };
+
+  // At the windows, either side of the door.
+  table(-1.35, -0.95, 'window-table-left');
+  table(1.45, -0.95, 'window-table-right');
+  // A leather banquette down the left wall, and the third table at it.
+  const bz = [-3.55, -2.05];
+  block('woodDark', [minX, minX + 0.5], [0, 0.42], bz);
+  block('leather', [minX, minX + 0.48], [0.42, 0.5], [bz[0] + 0.02, bz[1] - 0.02]);
+  block('leather', [minX, minX + 0.1], [0.5, 1.0], [bz[0] + 0.02, bz[1] - 0.02]);
+  for (let z = bz[0] + 0.25; z < bz[1]; z += 0.5) block('woodDark', [minX + 0.1, minX + 0.12], [0.5, 1.0], [z - 0.01, z + 0.01]);
+  solid('banquette', [minX, minX + 0.52], bz, 1.0);
+  table(minX + 0.88, -2.8, 'banquette-table', [1]);
+
+  // The counter across the back, with the barista behind it.
+  const cx = [-0.85, maxX];
+  const cz = [-4.6, -4.0];
+  block('paint', cx, [0, 0.92], cz);
+  for (let x = cx[0] + 0.1; x < cx[1] - 0.45; x += 0.6) block('cream', [x, x + 0.48], [0.12, 0.8], [cz[1], cz[1] + 0.012]);
+  block('marble', [cx[0] - 0.03, cx[1]], [0.92, 0.96], [cz[0] - 0.02, cz[1] + 0.05]);
+  solid('counter', cx, cz, 0.96);
+  solid('behind-counter', [cx[0], maxX], [back, cz[0]], 0.96);
+  // The espresso machine: a chrome body, two group heads, cups warming on
+  // top, and the grinder beside it.
+  {
+    const x = 1.25;
+    const z = -4.4;
+    block('chrome', [x - 0.3, x + 0.3], [0.96, 1.32], [z - 0.17, z + 0.15]);
+    block('paint', [x - 0.3, x + 0.3], [1.1, 1.2], [z + 0.15, z + 0.16]);
+    for (const gx of [-0.13, 0.13]) {
+      block('chromeDark', [x + gx - 0.04, x + gx + 0.04], [1.02, 1.06], [z + 0.15, z + 0.24]);
+      cylinder('china', 0.03, 0.025, 0.05, x + gx, 0.96, z + 0.22, 8);
+    }
+    for (let k = 0; k < 5; k += 1) cylinder('china', 0.03, 0.025, 0.045, x - 0.22 + k * 0.11, 1.32, z - 0.02, 8);
+    cylinder('chromeDark', 0.07, 0.08, 0.2, x + 0.48, 0.96, z, 10);
+    const hopper = paint(new THREE.CylinderGeometry(0.09, 0.04, 0.16, 10), kit.sw('glass'));
+    kit.parts.atlas.push(hopper.translate(x + 0.48, 1.24, z));
+    cylinder('espresso', 0.075, 0.035, 0.08, x + 0.48, 1.2, z, 10);
+  }
+  // Cakes under a glass dome at the counter's end, and a stack of cups.
+  cylinder('china', 0.02, 0.05, 0.06, -0.45, 0.96, -4.3, 8);
+  cylinder('china', 0.2, 0.2, 0.012, -0.45, 1.02, -4.3, 16);
+  cylinder('flour', 0.15, 0.15, 0.08, -0.45, 1.032, -4.3, 14);
+  cylinder('chocolate', 0.152, 0.152, 0.03, -0.45, 1.112, -4.3, 14);
+  const dome = new THREE.SphereGeometry(0.2, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2).toNonIndexed();
+  kit.parts.glass.push(dome.translate(-0.45, 1.032, -4.3));
+  for (let k = 0; k < 4; k += 1) cylinder('china', 0.045, 0.035, 0.05, 0.25, 0.96 + k * 0.05, -4.35, 10, true);
+  // Bags of beans on a shelf behind, and the menu over it all.
+  block('wood', [cx[0] + 0.2, maxX - 0.05], [1.45, 1.48], [back, back + 0.28]);
+  for (let x = cx[0] + 0.32; x < maxX - 0.15; x += 0.26) {
+    kit.parts.atlas.push(placed(
+      labelledBox(0.15, 0.22, 0.1, { front: kit.A.uv.coffeebag, back: kit.sw('espresso') }, kit.sw('espresso')),
+      x, 1.59, back + 0.12,
+    ));
+  }
+  kit.parts.atlas.push(placed(
+    labelledBox(1.75, 1.0, 0.03, { front: kit.A.uv.cafeboard, back: kit.sw('woodDark') }, kit.sw('woodDark')),
+    0.75, 2.12, back + 0.02,
+  ));
+
+  // The corner left of the counter: a tall fig in a pot, and a shelf of
+  // jars of biscuits.
+  cylinder('pot', 0.2, 0.15, 0.36, minX + 0.4, 0, back + 0.42, 12);
+  for (let k = 0; k < 7; k += 1) {
+    const a = (k / 7) * Math.PI * 2;
+    const leaf = paint(new THREE.IcosahedronGeometry(0.17, 0), kit.sw(k % 2 ? 'fig' : 'leaf'));
+    kit.parts.atlas.push(leaf.scale(1, 1.3, 1).translate(minX + 0.4 + Math.cos(a) * 0.14, 0.95 + (k % 3) * 0.3, back + 0.42 + Math.sin(a) * 0.14));
+  }
+  kit.cylinder('woodDark', 0.02, 0.025, 0.9, minX + 0.4, 0.36, back + 0.42, 5);
+  solid('fig', [minX, minX + 0.7], [back, back + 0.75], 1.8);
+  block('wood', [minX + 0.8, cx[0] - 0.1], [0.8, 0.84], [back, back + 0.3]);
+  for (const x of [minX + 0.95, minX + 1.2]) {
+    cylinder('glass', 0.06, 0.06, 0.18, x, 0.84, back + 0.15, 10);
+    cylinder('crust', 0.05, 0.05, 0.08, x, 0.86, back + 0.15, 10);
+  }
+  block('woodDark', [minX + 0.8, cx[0] - 0.1], [0, 0.8], [back, back + 0.3]);
+  solid('biscuit-shelf', [minX + 0.78, cx[0] - 0.08], [back, back + 0.32], 0.9);
+
+  // The newspaper rack on the right-hand wall, and a plant by it.
+  block('woodDark', [maxX - 0.12, maxX], [0.3, 1.2], [-2.75, -2.05]);
+  for (const y of [0.45, 0.75, 1.05]) {
+    block('woodDark', [maxX - 0.2, maxX - 0.12], [y - 0.1, y], [-2.75, -2.05]);
+    kit.parts.atlas.push(placed(
+      labelledBox(0.6, 0.18, 0.02, { front: kit.A.uv.papers, back: kit.sw('newsprint') }, kit.sw('newsprint')),
+      maxX - 0.17, y + 0.04, -2.4, -Math.PI / 2,
+    ));
+  }
+  solid('papers', [maxX - 0.22, maxX], [-2.75, -2.05], 1.2);
+  cylinder('pot', 0.16, 0.12, 0.3, maxX - 0.25, 0, -3.2, 12);
+  for (let k = 0; k < 5; k += 1) {
+    const leaf = paint(new THREE.ConeGeometry(0.05, 0.5, 4), kit.sw(k % 2 ? 'fig' : 'leaf'));
+    kit.parts.atlas.push(leaf.rotateZ((k - 2) * 0.25).rotateX((k % 2 ? 0.2 : -0.2)).translate(maxX - 0.25, 0.52, -3.2));
+  }
+  solid('plant', [maxX - 0.45, maxX], [-3.42, -2.98], 0.8);
+
+  // Bare bulbs on long cords: over each table, and over the counter.
+  const bulbs = [[-1.35, -0.95, 2.05], [1.45, -0.95, 2.05], [minX + 0.88, -2.8, 1.95], [0.2, -3.6, 2.1], [1.4, -3.4, 2.15]];
+  for (const [x, z, y] of bulbs) {
+    block('cord', [x - 0.006, x + 0.006], [y + 0.06, ROOM.height], [z - 0.006, z + 0.006]);
+    block('brass', [x - 0.02, x + 0.02], [y + 0.04, y + 0.08], [z - 0.02, z + 0.02]);
+    kit.bulb(x, y, z, 0.045);
+  }
+
+  return {
+    keeper: {
+      x: 0.6, z: -5.0, figure: 'female',
+      look: { shirt: 0x2b2b2e, apron: 0x165550, trousers: 0x2b2b2e, hair: 0x2a1c14 },
+    },
+    lamps: [[-0.2, 2.0, -1.4], [0.9, 2.05, -3.6]],
+    counter: { x: 0.6, z: -3.65 },
+    greeting: (hour) => `☕ “${hello(hour)}! Coffee's on — sit anywhere you like.”`,
+  };
+}
+
+const DESIGNS = { grocer, hardware, bakery, cafe };
 
 /* Good morning, by the farm's own clock: the day is ninety seconds long,
    and a shopkeeper who says morning at midnight has not been looking out
@@ -1898,7 +2125,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     report: {
       id: spec.id,
       name: spec.name,
-      floor: { width: maxX - minX, depth: front - back },
+      floor: { width: maxX - minX, depth: front - back, ...worldRect([minX, maxX], [back, front]) },
       door,
       walk,
       counter: toWorld(design.counter.x, design.counter.z),

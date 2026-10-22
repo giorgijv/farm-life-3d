@@ -4972,6 +4972,70 @@ pavement, and the cake counter is nearer the door's side than either.
 
 The Café, the Restaurant and the Pharmacy are still painted doors.
 
+## 50. Inside the shops, step four: the Café
+
+The fourth shop that opens, and the first that shares its building.
+
+### A party wall
+
+The dining block is two shops: the Café in its single-storey half and the
+Restaurant in the taller half. A room built from the whole block, as the
+first three were, would have laid the Café's tables on the Restaurant's
+floor.
+
+So `roomSpec` now looks for any other shopfront on the same block. It puts
+a party wall halfway across the gap between the two frontages, and gives
+each room its own shop's side of it. For the Café, that wall stands at x
+14.53, between its frontage's edge at 14.33 and the Restaurant's at 14.72.
+That makes the room 4.6 by 5.45.
+
+The rule is general, so the Restaurant gets the other side of the same
+wall when it opens. A new test holds the Café's floor between the two
+frontages and to the block's own end wall.
+
+One check had to change with it. The test that floods every room
+asserted that every room is more than 4.8 wide, which was a measurement
+of the first three, not a rule. The rule is that a room is at least as
+wide as its own shopfront.
+
+### The room
+
+The door is in the middle of the frontage.
+
+- **Walls:** teal boarding under cream walls, in the shopfront's colours.
+- **The windows:** marble-topped tables on iron stands, with bentwood
+  chairs, either side of the door, the way its two tables stand outside.
+  A test holds the two sides to match. A third table stands at a leather
+  banquette down the left wall.
+- **The counter:** across the back. On it are the espresso machine, which
+  is a chrome body with two group heads and cups warming on top, the
+  grinder, a stack of cups, and a chocolate cake under a glass dome.
+  Behind it are the barista, in black with the shop's dark teal apron,
+  and bags of beans on a shelf. Over it hangs the chalked menu, priced in
+  drawn coins: coffee and tea 2, hot chocolate and cake 3, a toastie 4.
+- **The corners:** a tall fig in a pot and a shelf of biscuit jars on one
+  side of the counter; a newspaper rack and a plant on the right-hand
+  wall.
+- **The light:** bare bulbs on long cords over each table and the
+  counter. A shade hung anywhere hides something from this camera, as
+  §48 and §49 found, but a bulb is a few centimetres across and hides
+  nothing.
+
+### Measured
+
+| | Draw calls | Triangles |
+|---|---|---|
+| Inside the Café, by day | 82 | 6,568 |
+| Inside the Bakery & Tea Room | 82 | 15,886 |
+| Inside Hardware & Feed | 83 | 12,010 |
+| Inside the Greengrocer | 80 | 15,128 |
+
+The lightest room so far: no crates of produce, no loaves.
+
+### Still open
+
+The Restaurant and the Pharmacy are still painted doors.
+
 ---
 
 ## Verified, not assumed

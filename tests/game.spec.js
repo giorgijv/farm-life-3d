@@ -8786,7 +8786,7 @@ test('the page loads with no console errors', async ({ page }) => {
 /* ------------------------------------------------------------------ */
 
 test.describe('Farm City: inside the shops', () => {
-  const SHOPS = ['grocer', 'bakery', 'hardware'];
+  const SHOPS = ['grocer', 'bakery', 'cafe', 'hardware'];
   const ready = async (page) => {
     await page.waitForFunction(() => !!window.Farm3DScene);
     await page.evaluate(() => window.Farm3DScene.solidsReady());
@@ -8840,10 +8840,12 @@ test.describe('Farm City: inside the shops', () => {
       grocer: ['window-display', 'side-stand', 'table', 'counter', 'sacks', 'preserves'],
       hardware: ['window-left', 'window-right', 'lines-left', 'lines-right', 'counter', 'tool-wall', 'feed-stack'],
       bakery: ['window-display', 'bread-stand', 'counter', 'tea-table-1', 'tea-table-2', 'dresser'],
+      cafe: ['window-table-left', 'window-table-right', 'banquette', 'banquette-table', 'counter', 'papers', 'fig'],
     };
     for (const id of SHOPS) {
-      const r = await page.evaluate((k) => {
+      const r = await page.evaluate(async (k) => {
         const s = window.Farm3DScene;
+        const frontage = (await s.highStreet()).units.find((u) => u.id === k).width;
         s.leave();
         s.enter(k);
         const room = s.interior();
@@ -8894,15 +8896,17 @@ test.describe('Farm City: inside the shops', () => {
         const held = [[w.minX - 3, d.z], [w.maxX + 3, d.z], [d.x, w.minZ - 3]]
           .map(([x, z]) => s.walkClamp(d.x, d.z, x, z))
           .every((p) => p.x >= w.minX - 1e-9 && p.x <= w.maxX + 1e-9 && p.z >= w.minZ - 1e-9);
-        return { free, fenced: fenced.slice(0, 10), counter, held, room };
+        return { free, fenced: fenced.slice(0, 10), counter, held, room, frontage };
       }, id);
       expect(r.free, id).toBeGreaterThan(400);
       expect(r.fenced, `${id}: free floor nobody can get to`).toEqual([]);
       expect(r.counter, `${id}: the front of the counter`).toBe(true);
       expect(r.held, id).toBe(true);
       expect(r.room.furniture).toEqual(expect.arrayContaining(FURNITURE[id]));
-      // Each room is its shop's block less the block's walls.
-      expect(r.room.floor.width, id).toBeGreaterThan(4.8);
+      /* Each room is its shop's block less the block's walls — or its side
+         of the block's party wall — and so at least as wide as its own
+         shopfront. */
+      expect(r.room.floor.width, id).toBeGreaterThanOrEqual(r.frontage);
       expect(r.room.floor.depth, id).toBeGreaterThan(5);
     }
   });
@@ -8968,8 +8972,8 @@ test.describe('Farm City: inside the shops', () => {
       await twoFrames(page);
       const cost = await page.evaluate(() => window.Farm3DScene.drawCost());
       /* Measured at 80 calls and 15,100 triangles in the Greengrocer, 83
-         and 12,000 in Hardware & Feed, 82 and 15,900 in the Bakery: each
-         room's materials, her, and its shopkeeper. The street from the pavement outside is 38,000
+         and 12,000 in Hardware & Feed, 82 and 15,900 in the Bakery, 82 and
+         6,600 in the Café: each room's materials, her, and its shopkeeper. The street from the pavement outside is 38,000
          triangles; the farm's ceilings are 300 and 100,000. */
       expect(cost.calls, id).toBeGreaterThan(0);
       expect(cost.calls, id).toBeLessThanOrEqual(120);
@@ -9122,5 +9126,49 @@ test.describe('Farm City: inside the shops', () => {
     for (const id of ['tea-table-1', 'tea-table-2']) {
       expect(across(r.pieces.counter) * side).toBeLessThan(across(r.pieces[id]) * side);
     }
+  });
+
+  test("the Café's room stops at its party wall with the Restaurant", async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const hs = await s.highStreet();
+      s.enter('cafe');
+      return {
+        floor: s.interior().floor,
+        cafe: hs.units.find((u) => u.id === 'cafe'),
+        restaurant: hs.units.find((u) => u.id === 'restaurant'),
+        block: s.solids().boxes.find((b) => b.model === 'city-commercial/building-e'),
+      };
+    });
+    /* The two share one block. The Café's floor runs from the block's own
+       end wall to a party wall that stands in the gap between the two
+       frontages — past the Café's, short of the Restaurant's — so none of
+       the Restaurant's side of the building is in it. */
+    const cafeEdge = r.cafe.x + r.cafe.width / 2;
+    const restaurantEdge = r.restaurant.x - r.restaurant.width / 2;
+    expect(r.floor.maxX).toBeGreaterThan(cafeEdge - 0.2);
+    expect(r.floor.maxX).toBeLessThan(restaurantEdge);
+    expect(r.floor.minX).toBeGreaterThan(r.block.minX);
+    expect(r.floor.minX - r.block.minX).toBeLessThan(0.3);
+  });
+
+  test("the Café's window tables are either side of its door, as its tables outside are", async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const outside = s.solids().boxes.filter((b) => b.id === 'terrace:cafe');
+      s.enter('cafe');
+      const room = s.interior();
+      return { outside, door: room.door, pieces: room.pieces };
+    });
+    const across = (b) => ((b.minX + b.maxX) / 2 - r.door.inside.x) * r.door.out.z
+      - ((b.minZ + b.maxZ) / 2 - r.door.inside.z) * r.door.out.x;
+    const outsideSides = r.outside.map((b) => Math.sign(across(b))).sort();
+    const insideSides = ['window-table-left', 'window-table-right'].map((id) => Math.sign(across(r.pieces[id]))).sort();
+    expect(outsideSides).toEqual([-1, 1]);
+    expect(insideSides).toEqual(outsideSides);
   });
 });

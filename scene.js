@@ -6821,6 +6821,12 @@ ${lit}`;
       },
       details: () => ({}),
     },
+    cafe: {
+      kind: 'cafe',
+      block: 'dining',
+      colours: { wall: '#efe6d2', dado: '#2f8a82', rail: '#165550' },
+      details: () => ({}),
+    },
     /* Where the tools are sold, at the counter — see syncShop. Its six
        lines are the game's own upgrade table, in the order the Farm City
        tab lists them, so a line added there is a card added here. */
@@ -6888,6 +6894,20 @@ ${lit}`;
     const corners = [[-hw, -hd], [hw, -hd], [-hw, hd], [hw, hd]]
       .map(([dx, dz]) => f.toLocal(block.x + dx, block.z + dz));
     const wall = 0.12;
+    let minX = Math.min(...corners.map((p) => p.x)) + wall;
+    let maxX = Math.max(...corners.map((p) => p.x)) - wall;
+    /* A block with two shops in it — the dining block is the Café and the
+       Restaurant side by side — is two rooms, with a party wall between
+       them halfway across the gap between their frontages. Each room is its
+       own shop's side of that wall, so the Café's tables are never laid out
+       on the Restaurant's floor. */
+    for (const other of SHOPFRONTS) {
+      if (other.id === id || other.yaw !== f.unit.yaw) continue;
+      const o = f.toLocal(other.x, other.z);
+      if (Math.abs(o.z) > 0.5 || o.x - other.width / 2 > maxX || o.x + other.width / 2 < minX) continue;
+      if (o.x > 0) maxX = Math.min(maxX, (f.unit.width / 2 + (o.x - other.width / 2)) / 2 - wall / 2);
+      else minX = Math.max(minX, (-f.unit.width / 2 + (o.x + other.width / 2)) / 2 + wall / 2);
+    }
     return {
       id,
       kind: def.kind,
@@ -6896,8 +6916,8 @@ ${lit}`;
       z: f.unit.z,
       yaw: f.unit.yaw,
       room: {
-        minX: Math.min(...corners.map((p) => p.x)) + wall,
-        maxX: Math.max(...corners.map((p) => p.x)) - wall,
+        minX,
+        maxX,
         back: Math.min(...corners.map((p) => p.z)) + wall,
       },
       door: { x: f.toLocal(f.built.door.x, f.built.door.z).x, w: FRONT.door.w },
