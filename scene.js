@@ -6834,6 +6834,13 @@ ${lit}`;
       colours: { wall: '#7a2a38', dado: '#4a2a1c', rail: '#c9a227', carpet: '#5e1a26', carpetLine: '#b8902a' },
       details: () => ({}),
     },
+    pharmacy: {
+      kind: 'pharmacy',
+      block: 'pharmacy',
+      floor: 'checker',
+      colours: { wall: '#f3f5f1', dado: '#cfe6d8', rail: '#1f6f4a', tileA: '#bfe3cf', tileB: '#f2f5f2', clean: true },
+      details: () => ({}),
+    },
     /* Where the tools are sold, at the counter — see syncShop. Its six
        lines are the game's own upgrade table, in the order the Farm City
        tab lists them, so a line added there is a card added here. */
@@ -6999,7 +7006,10 @@ ${lit}`;
     facing = Math.atan2(-room.door.out.x, -room.door.out.z);
     setActiveScene(room.scene);
     controls.enabled = false;
+    /* Framed now, not on the next frame drawn: the stick is read against
+       the camera, and for that one frame it was still the street's. */
     room.framedAt = null;
+    frameInterior();
     fadeThrough();
     bridge.announce(room.greeting((12 + bridge.daySkyState().phase * 24) % 24));
     return true;
@@ -7014,13 +7024,34 @@ ${lit}`;
     at.z = room.door.outside.z;
     facing = Math.atan2(room.door.out.x, room.door.out.z);
     setActiveScene(scene);
+    /* The street's camera as it was — its height and its distance — but
+       turned to stand on the street side of this shop's door, looking at
+       the shopfront: the same way the camera inside was looking. Put back
+       exactly as it was, it was wrong for the Pharmacy, the one shop that
+       faces north. A stick held "out" inside, towards the camera, became
+       held "south" outside, and she walked straight back in through the
+       door she had come out of. Turned this way, out stays out, and she is
+       seen stepping out of the shop with its front behind her. For the five
+       shops on the north side it is the camera the street had anyway. */
+    /* And no further off than 7.5. At the street's usual distance, turned
+       to face the Pharmacy, the camera stood across High Street inside the
+       roof of Hardware & Feed, and the roof filled the bottom of the
+       picture; at 7.5 it is over the road, from either side of it. */
+    const back = (outsideView ?? new THREE.Vector3(0, 9, 11)).clone();
+    back.multiplyScalar(Math.min(1, 7.5 / back.length()));
+    const across = Math.hypot(back.x, back.z);
     controls.target.set(at.x, 1.1, at.z);
-    camera.position.copy(controls.target).add(outsideView ?? new THREE.Vector3(0, 9, 11));
+    camera.position.set(at.x + room.door.out.x * across, 1.1 + back.y, at.z + room.door.out.z * across);
     controls.enabled = true;
     controls.update();
+    leftAt = performance.now();
     fadeThrough();
     return true;
   }
+
+  /* When she last came out of a door, so that walking on does not take her
+     straight back in through it in the same breath. */
+  let leftAt = -Infinity;
 
   /* Walking through a doorway: pressed on into a shop's door from the
      pavement, or pressed on out of it from the mat. The prompt does the
@@ -7039,6 +7070,7 @@ ${lit}`;
       leaveShop();
       return;
     }
+    if (performance.now() - leftAt < 600) return;
     for (const id of Object.keys(ENTERABLE)) {
       const door = doorOf(id);
       if (!door) continue;

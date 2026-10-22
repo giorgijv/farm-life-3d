@@ -180,8 +180,22 @@ are lit at dusk and flicker. A chandelier hangs by the door, paintings of
 the town line the walls, and there's a rack of wine in the corner. A
 waiter stands behind the little bar, and through the hatch behind him a
 pot is on in the kitchen, its steam climbing out over the wall. The
-bookings are open on a stand by the door. The Pharmacy is the one shop
-still seen from outside only.
+bookings are open on a stand by the door.
+
+**And the Pharmacy, across the street** — the one shop facing north, so
+the camera looks in from the north. Inside, mint and white tiles, shelves
+of boxes and bottles floor to ceiling down both walls, and the
+pharmacist in a white coat at a long counter. Behind her, a hatch opens
+onto the dispensary's bottles under PRESCRIPTIONS and the green cross.
+Three big glass carboys of red, green and blue stand in the window. A
+red weighing machine waits in the corner, beside a spinner of plasters
+and a shelf of soap and toiletries. It's lit bright and cool by tubes
+along the tops of the walls.
+
+**Every shop on High Street can be walked into now.** Coming back out,
+the street's camera stands on the street side of the door looking at the
+shopfront, so she steps out with the shop behind her, and walking on
+takes her away from it.
 
 High Street ends at the **City Hall**: a stone building on a podium, six
 columns under a pediment with the town's wheat-sheaf in it, and a clock
@@ -556,7 +570,7 @@ at least a fifth of a unit tall, that both welcome boards face the traffic
 arriving, that she can walk the length of High Street, that the street has
 its six shops with their names over their doors in letters a fifth of a
 unit tall, that every shopfront faces High Street across a pavement, that
-every shop stands on level ground and none of them can be walked into, that
+every shop stands on level ground and none of them can be walked through, that
 the north pavement stays passable past every table and that nothing she
 walks under is lower than her head, that she can walk up to every shop's
 door from the street, that the tools are sold inside Hardware &
@@ -573,13 +587,14 @@ with the windows brightening alongside, that the crossings' beacons blink,
 that the shop blocks and the police cars are merged into one mesh each,
 and that the town holds to the farm's draw budget from inside it, that a
 car parked just short of the town or the farm can be walked back to, that
-each shop that opens — the Greengrocer, the Bakery, the Café, the
-Restaurant and Hardware & Feed — is offered
+every shop on High Street — the Greengrocer, the Bakery, the Café, the
+Restaurant, the Pharmacy and Hardware & Feed — is offered
 from the pavement and takes her in by the prompt or by walking on into its
 door, that every part of each one's floor can be reached from the door with
 nothing solid walked through, that the camera inside frames the whole room
 on a desktop and on a phone, that walking out of the door brings her back
-onto High Street, that inside only the room is drawn, that the farm's
+onto High Street and walking on does not take her back in, that inside
+only the room is drawn, that the farm's
 errands wait while she is in a shop, that each one's lamps light it after
 dark and its shopkeeper knows the time of day, that the tools are sold over
 Hardware & Feed's counter and not on the pavement outside or anywhere else
@@ -587,9 +602,9 @@ in the shop, that its six cards show the levels the farm has bought, that
 the Bakery's tea room is on the side of the door its table outside is on,
 that the Café's room stops at its party wall with the Restaurant, with its
 window tables either side of the door as its tables outside are, that the
-Restaurant takes the other side of that wall, and that its candles are
-lit at dusk and flicker, that
-she can drive the whole way out to each
+Restaurant takes the other side of that wall, that its candles are lit at
+dusk and flicker, and that the Pharmacy is built facing north and seen from
+the north, that she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

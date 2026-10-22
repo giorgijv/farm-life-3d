@@ -139,6 +139,16 @@ const PAINT = {
   candle: '#f3ead2',
   silver: '#d4d6d8',
   steel: '#9aa0a4',
+  mint: '#bfe3cf',
+  medGreen: '#1f6f4a',
+  pill: '#f2f4f3',
+  bottleBrown: '#7a4a22',
+  bottleBlue: '#2f5f9a',
+  carboyRed: '#c4202f',
+  carboyGreen: '#1f8f52',
+  carboyBlue: '#2a56b8',
+  plaster: '#e8b48f',
+  scaleRed: '#a8262b',
 };
 
 /* -------------------------------------------------------------------- */
@@ -167,8 +177,9 @@ function wallCanvas(colours) {
   const yOf = (h) => H - (h / ROOM.height) * H; // canvas y of a height on the wall
   ctx.fillStyle = colours.wall;
   ctx.fillRect(0, 0, W, H);
-  // A little unevenness in the plaster.
-  for (let k = 0; k < 140; k += 1) {
+  // A little unevenness in the plaster — but not on a clean white wall,
+  // where the same speckle reads as dirt.
+  for (let k = 0; k < (colours.clean ? 0 : 140); k += 1) {
     const a = noise(k * 3.1);
     const b = noise(k * 7.7 + 1);
     ctx.fillStyle = `rgba(0,0,0,${0.025 + a * 0.03})`;
@@ -502,6 +513,61 @@ const DRAW = {
     ctx.fillText(spec.name.toUpperCase(), c.x + c.w / 2, c.y + c.h * 0.55);
   },
 
+  // The pharmacist's green cross.
+  cross(ctx, c) {
+    ctx.fillStyle = '#f2f5f2';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#1f8f52';
+    const t = c.w * 0.28;
+    ctx.fillRect(c.x + (c.w - t) / 2, c.y + 10, t, c.h - 20);
+    ctx.fillRect(c.x + 10, c.y + (c.h - t) / 2, c.w - 20, t);
+  },
+  rxsign(ctx, c) {
+    ctx.fillStyle = '#1f6f4a';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#f2f5f2';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    fit(ctx, 'PRESCRIPTIONS', 36, c.w - 30, SANS);
+    ctx.fillText('PRESCRIPTIONS', c.x + c.w / 2, c.y + c.h / 2 + 1);
+  },
+  // The side of a box of something from the shelves: white with a band.
+  medbox(ctx, c) {
+    ctx.fillStyle = '#f2f4f3';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    const bands = ['#2f5f9a', '#c4202f', '#1f8f52', '#e3b72a'];
+    for (let k = 0; k < 4; k += 1) {
+      ctx.fillStyle = bands[k];
+      ctx.fillRect(c.x + k * (c.w / 4) + 4, c.y + c.h * 0.55, c.w / 4 - 8, c.h * 0.2);
+      ctx.fillStyle = 'rgba(30,30,30,0.5)';
+      ctx.fillRect(c.x + k * (c.w / 4) + 6, c.y + c.h * 0.25, c.w / 4 - 14, 3);
+    }
+  },
+  // The dial of the weighing machine: a white face, a red pointer.
+  scaledial(ctx, c) {
+    ctx.fillStyle = '#a8262b';
+    ctx.fillRect(c.x, c.y, c.w, c.h);
+    ctx.fillStyle = '#f6f1e2';
+    ctx.beginPath();
+    ctx.arc(c.x + c.w / 2, c.y + c.h / 2, c.w * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 16; k += 1) {
+      const a = (k / 16) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(c.x + c.w / 2 + Math.sin(a) * c.w * 0.32, c.y + c.h / 2 - Math.cos(a) * c.w * 0.32);
+      ctx.lineTo(c.x + c.w / 2 + Math.sin(a) * c.w * 0.38, c.y + c.h / 2 - Math.cos(a) * c.w * 0.38);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#b22';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(c.x + c.w / 2, c.y + c.h / 2);
+    ctx.lineTo(c.x + c.w * 0.3, c.y + c.h * 0.32);
+    ctx.stroke();
+  },
+
   /* A painting in a gilt frame: the town's fields, its City Hall, or the
      sea it is a day's drive from. */
   picture(ctx, c, spec, subject) {
@@ -780,6 +846,12 @@ const CELLS = {
     { kind: 'till', w: 128, h: 112 },
     { kind: 'bag', w: 128, h: 96 },
   ],
+  pharmacy: () => [
+    { kind: 'cross', w: 128, h: 128 },
+    { kind: 'rxsign', w: 384, h: 64 },
+    { kind: 'medbox', w: 128, h: 64 },
+    { kind: 'scaledial', w: 96, h: 96 },
+  ],
   restaurant: () => [
     { kind: 'picture', key: 'picture:fields', w: 192, h: 144, arg: 'fields' },
     { kind: 'picture', key: 'picture:hall', w: 192, h: 144, arg: 'hall' },
@@ -1055,6 +1127,7 @@ function makeKit(A) {
 const OPENINGS = {
   bakery: { back: [-0.5, 0.3, 2.0] },
   restaurant: { back: [0.55, 1.75, 1.75, 1.0] },
+  pharmacy: { back: [0.2, 1.4, 1.8, 1.0] },
 };
 
 function buildShell(kit, spec) {
@@ -2184,7 +2257,166 @@ function restaurant(kit, spec) {
   };
 }
 
-const DESIGNS = { grocer, hardware, bakery, cafe, restaurant };
+/* -------------------------------------------------------------------- */
+/* The Pharmacy                                                          */
+/* -------------------------------------------------------------------- */
+
+/* The one shop on the south side of High Street, so the one room built
+   turned round: its street is to the north, and the camera looks in from
+   there. 4.8 by 4.8, the door on the left of the frontage as the shop
+   sees it, between the two planters outside.
+
+   A chemist's as they were: white over pale mint boarding on a mint and
+   white tiled floor; shelves of boxes and bottles floor to ceiling down
+   both walls; a long white counter at the back with the pharmacist behind
+   it, a hatch through to the dispensary under PRESCRIPTIONS and the green
+   cross; the big coloured glass carboys in the window; a weighing machine
+   in the corner, a spinner of plasters and a gondola of soap down the
+   middle. Lit bright and cool by tubes along the tops of the walls, which
+   hang in nobody's way. */
+function pharmacy(kit, spec) {
+  const { minX, maxX, back } = spec.room;
+  const front = -ROOM.wall;
+  const { block, cylinder, solid } = kit;
+
+  // The window: a white plinth, three carboys of coloured liquid in clear
+  // glass on stands, a pestle and mortar, boxes of scent.
+  block('pill', [-0.8, maxX], [0, 0.4], [-0.7, front]);
+  block('medGreen', [-0.8, maxX], [0.38, 0.4], [-0.72, front + 0.02]);
+  solid('window-display', [-0.8, maxX], [-0.72, front], 1.2);
+  [[-0.2, 'carboyRed'], [0.85, 'carboyGreen'], [1.9, 'carboyBlue']].forEach(([x, colour], i) => {
+    const z = -0.38;
+    cylinder('brass', 0.06, 0.1, 0.08, x, 0.4, z, 10);
+    const liquid = paint(new THREE.IcosahedronGeometry(0.17, 1), kit.sw(colour));
+    kit.parts.atlas.push(liquid.scale(1, 1.15 - i * 0.05, 1).translate(x, 0.67, z));
+    const shell = new THREE.IcosahedronGeometry(0.2, 2);
+    kit.parts.glass.push(shell.scale(1, 1.15 - i * 0.05, 1).translate(x, 0.68, z));
+    kit.pane([x - 0.04, x + 0.04], [0.88, 1.02], [z - 0.04, z + 0.04]);
+    cylinder('cream', 0.05, 0.04, 0.04, x, 1.02, z, 8);
+  });
+  cylinder('stone', 0.08, 0.06, 0.08, 0.35, 0.4, -0.45, 10, true);
+  block('woodLight', [0.33, 0.37], [0.42, 0.6], [-0.45, -0.41]);
+  for (const x of [1.35, 1.45, 1.55]) block(x === 1.45 ? 'carboyRed' : 'pill', [x - 0.04, x + 0.04], [0.4, 0.55], [-0.5, -0.42]);
+
+  // Shelves floor to ceiling down both walls.
+  const shelfZ = [-3.2, -0.95];
+  for (const [x0, x1, face] of [[minX, minX + 0.36, 1], [maxX - 0.36, maxX, -1]]) {
+    block('pill', [x0, x1], [0, 0.3], shelfZ);
+    for (const z of shelfZ) block('pill', [x0, x1], [0, 2.35], [z - 0.02, z + 0.02]);
+    block('pill', face > 0 ? [x0, x0 + 0.03] : [x1 - 0.03, x1], [0.3, 2.35], shelfZ);
+    let k = 0;
+    for (const y of [0.3, 0.72, 1.14, 1.56, 1.98]) {
+      block('pill', [x0, x1], [y - 0.03, y], shelfZ);
+      for (let z = shelfZ[0] + 0.12; z < shelfZ[1] - 0.08; z += 0.16) {
+        k += 1;
+        const cx = (x0 + x1) / 2 + face * 0.03;
+        if (k % 3 === 0) {
+          cylinder(k % 2 ? 'bottleBrown' : 'bottleBlue', 0.045, 0.045, 0.16, cx, y, z, 8);
+          cylinder('pill', 0.02, 0.02, 0.04, cx, y + 0.16, z, 6);
+        } else {
+          kit.parts.atlas.push(placed(
+            labelledBox(0.12, 0.2 + (k % 2) * 0.04, 0.14, { front: kit.A.uv.medbox, back: kit.sw('pill') }, kit.sw('pill')),
+            cx, y + 0.1 + (k % 2) * 0.02, z, face > 0 ? Math.PI / 2 : -Math.PI / 2,
+          ));
+        }
+      }
+    }
+    solid(face > 0 ? 'shelves-left' : 'shelves-right', [x0, x1], shelfZ, 2.35);
+  }
+
+  // A spinner of plasters, and a gondola of soap and toiletries.
+  cylinder('silver', 0.2, 0.22, 0.04, -0.9, 0, -2.1, 12);
+  cylinder('silver', 0.02, 0.02, 1.4, -0.9, 0.04, -2.1, 6);
+  for (const y of [0.6, 0.95, 1.3]) {
+    for (let k = 0; k < 6; k += 1) {
+      const a = (k / 6) * Math.PI * 2 + y;
+      const box = paint(new THREE.BoxGeometry(0.1, 0.14, 0.02), kit.sw(k % 2 ? 'plaster' : 'pill'));
+      kit.parts.atlas.push(box.rotateY(a).translate(-0.9 + Math.sin(a) * 0.14, y, -2.1 + Math.cos(a) * 0.14));
+    }
+  }
+  solid('plaster-spinner', [-1.15, -0.65], [-2.35, -1.85], 1.5);
+  const gx = [0.35, 1.3];
+  const gz = [-2.7, -1.65];
+  block('pill', gx, [0, 1.1], [(gz[0] + gz[1]) / 2 - 0.03, (gz[0] + gz[1]) / 2 + 0.03]);
+  for (const y of [0.15, 0.5, 0.85]) {
+    block('pill', gx, [y - 0.02, y], gz);
+    for (let x = gx[0] + 0.08; x < gx[1] - 0.04; x += 0.12) {
+      for (const side of [-1, 1]) {
+        const z = (gz[0] + gz[1]) / 2 + side * 0.25;
+        block(['carboyBlue', 'mint', 'pinkIcing', 'lemonIcing'][Math.round(x * 13 + y * 7) % 4], [x - 0.04, x + 0.04], [y, y + 0.1], [z - 0.06, z + 0.06]);
+      }
+    }
+  }
+  solid('gondola', gx, gz, 1.1);
+
+  // The weighing machine in the back corner, on the door's side.
+  const sx = minX + 0.38;
+  const sz = back + 0.36;
+  block('scaleRed', [sx - 0.25, sx + 0.25], [0, 0.1], [sz - 0.25, sz + 0.25]);
+  block('iron', [sx - 0.2, sx + 0.2], [0.1, 0.12], [sz - 0.2, sz + 0.2]);
+  block('scaleRed', [sx - 0.06, sx + 0.06], [0.1, 1.4], [sz - 0.24, sz - 0.12]);
+  kit.parts.atlas.push(placed(
+    labelledBox(0.32, 0.32, 0.06, { front: kit.A.uv.scaledial, back: kit.sw('scaleRed') }, kit.sw('scaleRed')), sx, 1.55, sz - 0.15,
+  ));
+  solid('weighing-machine', [minX, sx + 0.27], [back, sz + 0.27], 1.75);
+
+  // The counter across the back, the pharmacist behind it.
+  const cx = [minX + 0.9, maxX];
+  const cz = [-3.9, -3.35];
+  block('pill', cx, [0, 0.95], cz);
+  block('medGreen', cx, [0.1, 0.18], [cz[1], cz[1] + 0.012]);
+  block('medGreen', [cx[0] - 0.02, cx[1]], [0.95, 0.99], [cz[0] - 0.02, cz[1] + 0.04]);
+  solid('counter', cx, cz, 0.99);
+  solid('behind-counter', [sx + 0.27, maxX], [back, cz[0]], 0.99);
+  // A till, a basket of lozenges, a stand of leaflets.
+  kit.parts.atlas.push(placed(
+    labelledBox(0.3, 0.12, 0.24, { front: kit.A.uv.medbox, back: kit.sw('pill') }, kit.sw('pill')), 1.8, 1.05, -3.65,
+  ));
+  kit.basket(-0.5, 0.99, -3.6, 0.12, 'lemon');
+  block('medGreen', [0.3, 0.5], [0.99, 1.25], [-3.62, -3.58]);
+  for (let k = 0; k < 3; k += 1) block('pill', [0.31 + k * 0.06, 0.36 + k * 0.06], [1.02, 1.2], [-3.58, -3.57]);
+
+  // The dispensary through the hatch: a shelf of bottles on its far wall,
+  // low enough that only the hatch shows it.
+  const [h0, h1, hTop, hSill] = OPENINGS.pharmacy.back;
+  block('pill', [h0 - 0.05, h1 + 0.05], [hSill - 0.03, hSill + 0.02], [back - 0.12, back + 0.1]);
+  block('medGreen', [h0 - 0.05, h1 + 0.05], [hTop, hTop + 0.05], [back - 0.02, back + 0.03]);
+  for (const x of [h0, h1]) block('medGreen', [x - 0.05, x], [hSill, hTop], [back - 0.02, back + 0.03]);
+  block('pill', [h0 - 0.3, h1 + 0.3], [0, 1.4], [back - 0.6, back - 0.55]);
+  for (const y of [0.55, 0.85]) {
+    block('pill', [h0 - 0.2, h1 + 0.2], [y - 0.02, y], [back - 0.55, back - 0.38]);
+    for (let x = h0 - 0.12; x < h1 + 0.15; x += 0.1) {
+      cylinder(Math.round(x * 10) % 2 ? 'bottleBrown' : 'bottleBlue', 0.03, 0.03, 0.12, x, y, back - 0.47, 8);
+    }
+  }
+  for (const x of [h0 - 0.3, h1 + 0.3]) block('pill', [x - 0.02, x + 0.02], [0, 1.4], [back - 0.6, back]);
+  // PRESCRIPTIONS over it, and the green cross beside.
+  kit.parts.atlas.push(placed(
+    labelledBox(1.3, 0.22, 0.03, { front: kit.A.uv.rxsign, back: kit.sw('medGreen') }, kit.sw('medGreen')), (h0 + h1) / 2, 2.05, back + 0.02,
+  ));
+  kit.parts.atlas.push(placed(
+    labelledBox(0.45, 0.45, 0.04, { front: kit.A.uv.cross, back: kit.sw('pill') }, kit.sw('pill')), 1.95, 1.9, back + 0.03,
+  ));
+
+  // Tube lights along the tops of the side walls.
+  for (const x of [minX + 0.06, maxX - 0.06]) {
+    block('pill', [x - 0.04, x + 0.04], [2.48, 2.52], [-3.6, -0.9]);
+    kit.glowBox([x - 0.025, x + 0.025], [2.45, 2.48], [-3.55, -0.95]);
+  }
+
+  return {
+    keeper: {
+      x: 0.8, z: -4.4, figure: 'female',
+      look: { shirt: 0xf6f7f6, apron: 0xf6f7f6, trousers: 0x55595c, hair: 0x3a2618 },
+    },
+    lamps: [[0, 2.4, -1.6], [0.4, 2.4, -3.1]],
+    lampColour: 0xeaf3ff,
+    counter: { x: 0.6, z: -3.05 },
+    greeting: (hour) => `💊 “${hello(hour)}! Something for the aches of a long day in the fields?”`,
+  };
+}
+
+const DESIGNS = { grocer, hardware, bakery, cafe, restaurant, pharmacy };
 
 /* Good morning, by the farm's own clock: the day is ninety seconds long,
    and a shopkeeper who says morning at midnight has not been looking out
@@ -2291,7 +2523,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     sun.shadow.bias = -0.0008;
   }
   const lamps = design.lamps.map(([x, y, z]) => {
-    const l = new THREE.PointLight(0xffcf8a, 3, 8, 2);
+    const l = new THREE.PointLight(design.lampColour ?? 0xffcf8a, 3, 8, 2);
     l.position.set(x, y - 0.05, z);
     group.add(l);
     return l;

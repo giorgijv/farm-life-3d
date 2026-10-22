@@ -5104,6 +5104,110 @@ both.
 The Pharmacy is the last painted door. It is step six, with the check
 across all six rooms.
 
+## 52. Inside the shops, step six: the Pharmacy, and all six together
+
+The last shop that opens, and the check across all six rooms.
+
+### The one room turned round
+
+The Pharmacy is the only shop on the south side of High Street. Its
+frontage faces north, so its room is the first built with a yaw of a half
+turn. The room builder works in the shop's own frame, so nothing in it
+had to change. The camera inside stands out over the pavement to the
+north and looks south. A new test holds all three: the door looks north,
+the room is behind it, and the camera inside is half a turn from the
+others'.
+
+The room is 4.8 by 4.8, with the door on the left of the frontage as the
+shop sees it, between the two planters outside.
+
+- **Floor and walls:** mint and white tiles, and white over pale mint
+  boarding. These walls have no plaster speckle (`colours.clean`): on a
+  clean white wall, the speckle the other rooms' paint carries read as
+  dirt.
+- **Shelves:** boxes and bottles floor to ceiling down both walls, the
+  boxes' printed sides turned to the aisle.
+- **The counter:** long and white, across the back, with the pharmacist in
+  a white coat behind it. Behind her, a hatch through the back wall onto
+  the dispensary's shelves of brown and blue bottles. It is the second
+  opening with a sill, after the Restaurant's. PRESCRIPTIONS is over the
+  hatch, with the green cross beside it.
+- **The window:** three carboys of red, green and blue liquid in clear
+  glass on brass stands, a pestle and mortar, and boxes of scent.
+- **The floor:** a red weighing machine in the back corner, a spinner of
+  plasters, and a gondola of soap down the middle.
+- **Light:** bright and cool, from tubes along the tops of the side walls,
+  with the room's lights a cold white for the first time
+  (`design.lampColour`).
+
+### What turning a room round found
+
+- **She walked straight back in.** Leaving put the street's camera back
+  exactly as it had been before she went in. For the five shops on the
+  north side that is a camera looking north at them, and so was the
+  camera inside: a stick held "out" towards it inside stayed "out"
+  outside. For the Pharmacy the two cameras faced opposite ways. "Out"
+  inside became "south" outside, which is back into the door she had just
+  come out of, so she went in again.
+
+  Leaving now turns the street's camera to stand on the street side of
+  that shop's door, looking at the shopfront. That is the way the camera
+  inside was looking, so out stays out. For the five north-side shops it
+  is the camera they had anyway. A door cannot be walked into for 0.6 of
+  a second after coming out of one.
+
+  The walk-out test now keeps holding the stick for a second after she is
+  out, for every shop, and checks she is still out. Against the old code
+  it fails on the Pharmacy: "back in".
+- **A camera in a roof.** Turned to face the Pharmacy at the street's
+  usual distance, the camera stood across the road inside the roof of
+  Hardware & Feed, and the roof filled the bottom half of the picture.
+  Coming out, it is now no further off than 7.5, which is over the road
+  from either side.
+- **The stick, read against a camera not yet turned.** Going in framed the
+  room's camera on the next frame drawn, so for one frame the stick was
+  read against the street's camera. Going in frames it at once now.
+- **Two tests that only knew the north side.** "Pressing on into the door
+  from the pavement" pressed "up", which walks into a north-side shop
+  from the default camera and straight away from the Pharmacy. Both door
+  tests now work out the stick from the door's own direction and the
+  camera's. And the room-depth check, "deeper than 5", was the first
+  rooms' number again: the Pharmacy's block is 5.4 deep, its room 4.8.
+
+### All six
+
+A tour of every room, by day and at night on a desktop and by day on a
+phone, found no console errors or warnings. Every room's draw costs
+matched what its own step measured. The help panel's Farm City entry now
+says that every shop on High Street can be walked into.
+
+| Shop | Room | Door | Draw calls | Triangles | Its own test |
+|---|---|---|---|---|---|
+| Greengrocer | 5.0 × 5.3 | right | 80 | 15,128 | — |
+| Hardware & Feed | 7.2 × 7.3 | middle | 83 | 12,010 | the tools are sold at its counter; its cards show the levels bought |
+| Bakery & Tea Room | 5.0 × 5.45 | left | 82 | 15,886 | the tea room is on its table outside's side |
+| Café | 4.6 × 5.45 | middle | 82 | 6,568 | it stops at its party wall; its tables match those outside |
+| Restaurant | 4.9 × 5.45 | middle | 83 | 12,064 | it takes the other side of that wall; its candles flicker |
+| Pharmacy | 4.8 × 4.8 | left | 82 | 9,464 | it faces north and is seen from the north |
+
+Every room is held by the shared tests:
+- it is offered from the pavement and the prompt takes her in;
+- every part of its floor can be reached from the door, and nothing solid
+  can be walked through;
+- the camera sees all of it, and her, on a desktop and on a phone;
+- walking out of the door brings her back to High Street and on away from
+  it, and pressing into the door takes her in;
+- only the room is drawn inside, for less than the street costs;
+- its lamps light it after dark, and its shopkeeper knows the time of day.
+
+### Still open
+
+- **The rooms cannot be seen through their shop windows.** The windows
+  still show the goods painted on the shopfronts. Repainting each
+  window's picture from its room is the obvious next piece of work.
+- **The City Hall and the Police Station** stay closed, as the plan set
+  out: it was for the shops and restaurants.
+
 ---
 
 ## Verified, not assumed

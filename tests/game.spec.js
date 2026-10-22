@@ -4431,6 +4431,9 @@ test.describe('driving her yourself', () => {
   });
 
   test('the farm she can walk is bigger than the field she works', async ({ page }) => {
+    /* Three walks with 20 seconds' grace each is the whole default budget
+       before the page has even loaded, and on a loaded machine it was used. */
+    test.slow();
     await load(page, makeSave());
     await sceneReady(page);
 
@@ -4461,33 +4464,25 @@ test.describe('driving her yourself', () => {
        inherited the farmhouse's footprint along with its site. */
     await drivePast(0, -1, () => window.Farm3DScene.farmerAt().z < -9, 'the orchard');
     await drivePast(0, 1, () => window.Farm3DScene.farmerAt().z > 7, 'the dooryard');
-    /* Steered along that line rather than pushed west from wherever the
-       last leg let go of her. On a slow machine she ran on past z 7 before
-       the stick was released — as far as 9.1, measured — and west from
-       there is a crate in the dooryard, solid since the props were, which
-       she walked into face-on and stood against until the timeout. That
-       was the flake this test had carried since: the farm was fine, the
-       route was not. So back up to z 7.3 first, and then west. */
-    const reached = await page.evaluate(async () => {
-      const s = window.Farm3DScene;
-      const route = [[s.farmerAt().x, 7.3], [-10.5, 7.3]];
-      const started = performance.now();
-      await new Promise((resolve) => {
-        const tick = () => {
-          const p = s.farmerAt();
-          if (route.length && Math.hypot(route[0][0] - p.x, route[0][1] - p.z) < 0.3) route.shift();
-          if (!route.length || p.x < -9 || performance.now() - started > 20_000) { s.drive(0, 0); resolve(); return; }
-          const dx = route[0][0] - p.x;
-          const dz = route[0][1] - p.z;
-          const d = Math.hypot(dx, dz);
-          s.drive(dx / d, dz / d); // the default camera: the stick is the world
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      });
-      return s.farmerAt();
-    });
-    expect(reached.x, 'she never reached the farmhouse').toBeLessThan(-9);
+    /* Set down on that line rather than walked onto it from wherever the
+       last leg let go of her. That spot is never the same twice: she meets
+       the pond on the way south and slides round it one side or the other,
+       and on a slow machine she runs on past z 7 before the stick is
+       released, as far as 9.8 measured, against or round a crate. West from
+       there is the crate's neighbour, and steering her back onto the line
+       first only traded that for the pond. The point straight north of her
+       is inside its rim for most of where she stops, so she pressed on the
+       bank short of a waypoint she could not reach. Under a full suite's
+       load the page also draws a frame a second, and at full stick that is
+       four units a step, so she wandered round the waypoint as well. The
+       last flake this test carried was the route, never the farm.
+
+       So she starts at (-3, 7.4), on a line measured clear from there west
+       to x -10, and walks it. That is half a unit outside the
+       old bounds, which stopped at about -2.5, and the line to -9 is still
+       hers to walk. */
+    await page.evaluate(() => window.Farm3DScene.putFarmerAt(-3, 7.4));
+    await drivePast(-1, 0, () => window.Farm3DScene.farmerAt().x < -9, 'the farmhouse');
   });
 
   test('taking the stick drops the round she was walking', async ({ page }) => {
@@ -8260,7 +8255,7 @@ test.describe('Farm City: the High Street', () => {
     }
   });
 
-  test('the shops stand on level ground, and none of them can be walked into', async ({ page }) => {
+  test('the shops stand on level ground, and none of them can be walked through', async ({ page }) => {
     await load(page, makeSave());
     await ready(page);
     const r = await page.evaluate(async () => {
@@ -8277,8 +8272,10 @@ test.describe('Farm City: the High Street', () => {
         }
       }
       /* At every painted door: half a unit out on the pavement is somewhere
-         she can stand, and half a unit in — behind the door — is not. The
-         shops are seen from outside; the brief was that none can be entered. */
+         she can stand, and half a unit in — behind the door — is not. Going
+         in is through the door into the shop's own room, which is a place of
+         its own (see "Farm City: inside the shops"); on the street the block
+         stays solid, so she cannot walk through a shopfront. */
       const doors = hs.units.map((u) => ({
         name: u.name,
         outside: s.blocked(u.door.x + u.faceX * 0.7, u.door.z + u.faceZ * 0.7),
@@ -8786,7 +8783,7 @@ test('the page loads with no console errors', async ({ page }) => {
 /* ------------------------------------------------------------------ */
 
 test.describe('Farm City: inside the shops', () => {
-  const SHOPS = ['grocer', 'bakery', 'cafe', 'restaurant', 'hardware'];
+  const SHOPS = ['grocer', 'bakery', 'cafe', 'restaurant', 'pharmacy', 'hardware'];
   const ready = async (page) => {
     await page.waitForFunction(() => !!window.Farm3DScene);
     await page.evaluate(() => window.Farm3DScene.solidsReady());
@@ -8798,8 +8795,20 @@ test.describe('Farm City: inside the shops', () => {
     return d;
   };
   const twoFrames = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  /* Holds the stick so that she walks a direction on the ground, whichever
+     way the camera is looking — the inverse of how the scene reads the
+     stick against the camera's yaw. Pressing "up" walks into a shop on the
+     north side of the street from the farm's default camera, and straight
+     away from the Pharmacy on the south side. */
+  const walkTowards = (page, [wx, wz]) => page.evaluate(([x, z]) => {
+    const yaw = window.Farm3DScene.cameraYaw();
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    window.Farm3DScene.drive(x * c - z * s, x * s + z * c);
+  }, [wx, wz]);
 
   test('every shop that opens is offered from the pavement, and the prompt takes her in', async ({ page }) => {
+    test.slow();
     await load(page, makeSave());
     await ready(page);
     // The shops that open so far; the rest are still painted doors.
@@ -8818,18 +8827,9 @@ test.describe('Farm City: inside the shops', () => {
       await page.evaluate(() => window.Farm3DScene.leave());
     }
 
-    // And the shops that do not open yet offer nothing at their doors.
-    const shut = await page.evaluate(async (open) => {
-      const s = window.Farm3DScene;
-      const out = {};
-      for (const u of (await s.highStreet()).units.filter((v) => !open.includes(v.id))) {
-        s.putFarmerAt(u.door.x + u.faceX * 0.7, u.door.z + u.faceZ * 0.7);
-        out[u.id] = s.reachable()?.type ?? null;
-      }
-      return out;
-    }, SHOPS);
-    expect(Object.keys(shut).length).toBeGreaterThan(0);
-    for (const [id, type] of Object.entries(shut)) expect(type, id).not.toBe('enter');
+    // And that is every shop on High Street: none is a painted door now.
+    const units = await page.evaluate(async () => (await window.Farm3DScene.highStreet()).units.map((u) => u.id));
+    expect([...units].sort()).toEqual([...SHOPS].sort());
   });
 
   test('in every shop, all of the floor can be reached from the door, and nothing solid walked through', async ({ page }) => {
@@ -8842,6 +8842,7 @@ test.describe('Farm City: inside the shops', () => {
       bakery: ['window-display', 'bread-stand', 'counter', 'tea-table-1', 'tea-table-2', 'dresser'],
       cafe: ['window-table-left', 'window-table-right', 'banquette', 'banquette-table', 'counter', 'papers', 'fig'],
       restaurant: ['table-1', 'table-2', 'table-3', 'table-4', 'booking-stand', 'bar', 'wine-rack'],
+      pharmacy: ['window-display', 'shelves-left', 'shelves-right', 'plaster-spinner', 'gondola', 'weighing-machine', 'counter'],
     };
     for (const id of SHOPS) {
       const r = await page.evaluate(async (k) => {
@@ -8908,7 +8909,9 @@ test.describe('Farm City: inside the shops', () => {
          of the block's party wall — and so at least as wide as its own
          shopfront. */
       expect(r.room.floor.width, id).toBeGreaterThanOrEqual(r.frontage);
-      expect(r.room.floor.depth, id).toBeGreaterThan(5);
+      // And as deep as its block less its walls: the shallowest, the
+      // Pharmacy's, is 5.4 from the shopfront back.
+      expect(r.room.floor.depth, id).toBeGreaterThan(4.5);
     }
   });
 
@@ -8937,9 +8940,14 @@ test.describe('Farm City: inside the shops', () => {
     for (const id of SHOPS) {
       const d = await doorOf(page, id);
       await page.evaluate((k) => window.Farm3DScene.enter(k), id);
-      // The camera looks in from the street, so down on the stick is out.
-      await page.evaluate(() => window.Farm3DScene.drive(0, 1));
+      await walkTowards(page, [d.out.x, d.out.z]);
       await expect.poll(() => page.evaluate(() => window.Farm3DScene.interior()), { timeout: 15_000 }).toBeNull();
+      /* And on: still holding the stick the same way, she walks away from
+         the door rather than back in through it. Out of the Pharmacy — the
+         one shop facing north — she did walk straight back in, because the
+         street's camera came back looking the other way. */
+      await page.waitForTimeout(1000);
+      expect(await page.evaluate(() => window.Farm3DScene.interior()), `${id}: back in`).toBeNull();
       await page.evaluate(() => window.Farm3DScene.drive(0, 0));
       const r = await page.evaluate(() => {
         const s = window.Farm3DScene;
@@ -8957,8 +8965,8 @@ test.describe('Farm City: inside the shops', () => {
     await load(page, makeSave());
     await ready(page);
     for (const id of SHOPS) {
-      await standOutside(page, id);
-      await page.evaluate(() => window.Farm3DScene.drive(0, -1));
+      const d = await standOutside(page, id);
+      await walkTowards(page, [-d.out.x, -d.out.z]);
       await expect.poll(() => page.evaluate(() => window.Farm3DScene.interior()?.id), { timeout: 15_000 }).toBe(id);
       await page.evaluate(() => { window.Farm3DScene.drive(0, 0); window.Farm3DScene.leave(); });
     }
@@ -8974,8 +8982,8 @@ test.describe('Farm City: inside the shops', () => {
       const cost = await page.evaluate(() => window.Farm3DScene.drawCost());
       /* Measured at 80 calls and 15,100 triangles in the Greengrocer, 83
          and 12,000 in Hardware & Feed, 82 and 15,900 in the Bakery, 82 and
-         6,600 in the Café, 83 and 12,100 in the Restaurant: each room's
-         materials, her, and its shopkeeper. The street from the pavement outside is 38,000
+         6,600 in the Café, 83 and 12,100 in the Restaurant, 82 and 9,500 in
+         the Pharmacy: each room's materials, her, and its shopkeeper. The street from the pavement outside is 38,000
          triangles; the farm's ceilings are 300 and 100,000. */
       expect(cost.calls, id).toBeGreaterThan(0);
       expect(cost.calls, id).toBeLessThanOrEqual(120);
@@ -9222,5 +9230,24 @@ test.describe('Farm City: inside the shops', () => {
     // ...and never quite steady.
     expect(night.then.candles[0]).not.toBeCloseTo(night.first.candles[0], 3);
     expect(night.first.steam).toBe(true);
+  });
+
+  test('the Pharmacy, the one shop across the street, is built facing north and seen from the north', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    const r = await page.evaluate(() => {
+      const s = window.Farm3DScene;
+      const door = s.shopDoors().find((d) => d.id === 'pharmacy');
+      s.enter('pharmacy');
+      const room = s.interior();
+      return { door, floor: room.floor, yaw: s.cameraYaw() };
+    });
+    // Its door looks north, across High Street...
+    expect(r.door.out.z).toBeLessThan(-0.99);
+    // ...so its room is the other way, behind the door to the south...
+    expect(r.floor.minZ).toBeGreaterThan(r.door.z - 0.2);
+    // ...and the camera inside stands out over the pavement to the north
+    // and looks south into it: half a turn from the other shops' camera.
+    expect(Math.abs(Math.abs(r.yaw) - Math.PI)).toBeLessThan(0.01);
   });
 });

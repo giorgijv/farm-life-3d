@@ -1549,6 +1549,8 @@ function helpSections() {
         + 'that gets you round the farm quicker and pesticide that keeps a ripe crop '
         + 'standing longer. Three levels each, and every one of them is bought in '
         + 'Farm City rather than at the market.',
+        'Every shop on High Street can be walked into: go up to its door and walk on '
+        + 'in, or use the prompt. Walk back out through the door to leave.',
       ],
     },
     {
