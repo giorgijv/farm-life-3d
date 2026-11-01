@@ -5493,6 +5493,144 @@ Each was checked to fail on the bug it is there for:
   other way.
 - **Step 5:** phones.
 
+## 55. Through the shop windows, step three: what stands behind the glass
+
+The error left after steps one and two was the window display. The
+Greengrocer's crates are stepped up from right behind the glass to a
+unit back from it, and one photograph printed them onto the floor
+behind. From the street's camera they were right. From the side they
+smeared into streaks, and from below they were gone. Step three gives a
+room's display a layer of its own.
+
+### How
+
+- **Marked in the room.** `kit.display(fn)` moves whatever `fn` builds
+  onto meshes of the display's own, on camera layer 3 (`DISPLAY_LAYER`).
+  The room's lights reach both layers. Her camera sees both, so inside
+  the shop nothing has changed: every triangle drawn as before (15,128
+  in the Greengrocer, 9,464 in the Pharmacy), for one more draw call
+  each, 82 and 84. The Greengrocer's three tiers of crates and the
+  Pharmacy's plinth of carboys are marked. The other four rooms' displays
+  are step four.
+- **Photographed apart.** The room's photographs now leave the display
+  out, which shows what stands behind it. Beside each, in the same frame
+  and the same light, the display is photographed alone on nothing, its
+  own draw calls only. So the window is still ready after three frames
+  of work: the room built, then the lamps-off pair, then the lamps-on
+  pair. The display's photographs are fitted round it, 336 by 144 for
+  the Greengrocer, a texel covering the same ground as one of the
+  room's. All four photographs and their mipmaps come to 2.4 MB a shop,
+  from 1.9.
+- **In the glass.** Before the line of sight reaches the room's walls or
+  floor, it meets the plane the display is drawn on. There it takes the
+  display's photograph, over the room by the photograph's own coverage.
+  Its gaps are the room seen through them. Its glass carboys are
+  coloured light over whatever is behind them, the way the room shows
+  them: stored already weighted by coverage, so the edges and the glass
+  mix correctly.
+- **The plane** runs from the display's front at the bottom to its back
+  at the top. That is the slope of a stepped display, and nearly upright
+  for one tall and shallow.
+
+### Measured
+
+Over the same 53 camera positions as step one, the mean difference from
+the room out of 255:
+
+| Shop | No layer | Sloped plane | Upright plane | Fitted plane |
+|---|---|---|---|---|
+| Greengrocer | 24.0 | 16.2 | 18.1 | 16.5 |
+| Pharmacy | 52.9 | 36.5 | 36.7 | 36.6 |
+
+- **The fitted plane** was fitted to the faces the photograph sees,
+  weighted by how much of the picture each fills. It did no better than
+  two corners of the display's box, so the simpler one stayed.
+- **The Pharmacy's window is not up yet.** It was put up for these
+  measurements with the test surface's `windowShop`.
+
+The named views, before and after:
+
+| View | Greengrocer | Pharmacy |
+|---|---|---|
+| The street's camera at the door | 5.1 to 5.2 | (hidden from 14.7 out) |
+| 40 degrees to the side | 20.9 to 14.6 | 37.9 to 38.0 |
+| Close in, 3.1 up | 13.8 to 10.0 | 33.2 to 20.0 |
+| From below, 0.9 up | 21.4 to 14.5 | 32.9 to 30.0 |
+| Eye height, 3 out | 17.5 to 12.9 | 33.0 to 26.8 |
+
+The pictures say more than the numbers:
+- **The Greengrocer from 40 degrees round:** stepped rows of crates where
+  there were streaks.
+- **The Pharmacy from below:** its three carboys where there were none.
+
+### What the measuring found
+
+- **The Pharmacy's side shelves are past what one photograph can hold.**
+  Its shelves run floor to ceiling down both walls, their fronts facing
+  the aisle. From in front, where the photograph is taken, those fronts
+  are seen almost edge-on, so the photograph barely has them. From 40
+  degrees round, where they face the camera, the window shows the floor
+  in their place, and the error stays at 38 with the layer or without.
+  The Pharmacy's numbers run high in general: white walls and floor
+  against hundreds of small coloured boxes make every slip cost more
+  than the Greengrocer's wood and veg does.
+- **Where the photograph is taken from, measured again.** Without the
+  display's error to hide it, there is still not much in it:
+
+  | Taken from | Greengrocer | Pharmacy |
+  |---|---|---|
+  | 14.7 out, 5.8 up | 16.2 | 36.5 |
+  | 7.8 out, 3.5 up | 15.6 | 34.4 |
+  | 11 out, 3 up | 16.8 | 36.3 |
+  | 12 out, 8 up | 16.5 | 36.4 |
+
+  The Greengrocer's own door view is its commonest, and it is better
+  from 14.7 (5.2 against 7.1), so the Greengrocer keeps 14.7. For the
+  Pharmacy, 14.7 out is behind the buildings across the road, where no
+  one stands. Each shop's own place to photograph from is step four's.
+- **No layer for the counter and the shopkeeper.** From eye height, the
+  stretch of the Greengrocer's window around its counter and keeper
+  carries 40% of what error is left on 23% of the glass (26.5 against
+  15.3). But from the heights the street's camera works at, the counter
+  is not in the window at all: close in at 3.1 up, the window shows the
+  display and the floor in front of it. The numbers do not ask for it.
+- **The window's first appearance got slower, and was brought back.**
+  Taking the display's photographs in frames of their own made five
+  frames of work instead of three. With a test beside it on the other
+  worker, the farm test's thirty frames and the town after them ran past
+  the minute. The display's photographs now go in the same frame as the
+  room's. The farm test is also marked slow, since its thirty frames are
+  there on purpose.
+
+### The tests
+
+- **The window display is a layer of its own.** It is photographed
+  apart, as wide as it is and no wider, on a plane leaning back and up
+  between the room's street wall and its back wall. Inside the shop it
+  is still there: every one of the room's triangles drawn, the
+  display's 3,358 among them.
+- **From the side and from below, the display stands where it does in
+  the room.** The Greengrocer from 40 degrees round and from below, and
+  the Pharmacy close in: under 18, 18 and 26 against 20.9, 21.4 and 33.2
+  without the layer.
+- **The lost-context test** now checks that every photograph is gone,
+  however many a window has.
+
+Each was checked to fail on the bug it is there for:
+- the display not drawn in the glass: 24.2 from the side, against a
+  limit of 18;
+- her camera not seeing the display's layer: 11,770 triangles drawn
+  inside, against the room's 13,036;
+- the display back in the room's photograph: 20.9;
+- the display photographed on the room's background instead of on
+  nothing: 13.2 at the door, against a limit of 8.
+
+### Still open
+
+- **Step 4:** the other five shops, their displays marked, and where each
+  is photographed from.
+- **Step 5:** phones.
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

@@ -47,7 +47,7 @@ import { buildSigns } from './signs.js';
 import { buildHighStreet, FRONT } from './highstreet.js';
 import { buildCivic } from './civic.js';
 import { buildStreetscape } from './streetscape.js';
-import { buildInterior, lampsLit } from './interiors.js';
+import { buildInterior, lampsLit, DISPLAY_LAYER } from './interiors.js';
 import { buildShopWindow } from './windows.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
@@ -194,6 +194,8 @@ function startScene(bridge) {
      away. Nothing is drawn out there but terrain and sky, so the extra
      depth range costs only precision, of which this scene has plenty. */
   const camera = new THREE.PerspectiveCamera(48, 4 / 3, 0.1, 200);
+  // A shop's window display is on a layer of its own (interiors.js).
+  camera.layers.enable(DISPLAY_LAYER);
 
   /* The sky's fill, and the reason the scene used to read as flat. With no
      shadow and no occlusion, ambient light this strong is the *only* light

@@ -46,6 +46,11 @@ export const ROOM = {
   pave: 0.075,
 };
 
+/* The camera layer a room's window display is drawn on, as well as the
+   room's own layer 0: see buildInterior. Every light in a room lights
+   both; a camera that is to see the display enables this layer. */
+export const DISPLAY_LAYER = 3;
+
 /* How far a room's lamps are up, from 0 by day to 1 after dark, for the
    scene's night value (0 at noon, 1 at midnight). Every light in a room is
    a straight line in this one number, which is what lets a shop window
@@ -1039,6 +1044,16 @@ function makeKit(A) {
     into = 'front';
     try { fn(); } finally { into = 'atlas'; }
   };
+  /* Everything built inside `fn` is the window display: the goods stood
+     right behind the glass, which the shop window shows on a layer of its
+     own (windows.js), and so is kept apart from the room's own meshes.
+     Whatever `fn` adds to the parts is moved across when it is done. */
+  const displayParts = Object.fromEntries(Object.keys(parts).map((k) => [k, []]));
+  const display = (fn) => {
+    const from = Object.fromEntries(Object.entries(parts).map(([k, list]) => [k, list.length]));
+    fn();
+    for (const [k, list] of Object.entries(parts)) displayParts[k].push(...list.splice(from[k]));
+  };
   const cylinder = (colour, rTop, rBot, h, x, y, z, seg = 10, open = false) => {
     parts.atlas.push(paint(new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, open), sw(colour)).translate(x, y + h / 2, z));
   };
@@ -1131,7 +1146,10 @@ function makeKit(A) {
       .translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2));
   };
 
-  return { A, parts, solids, furniture, sw, block, onFront, cylinder, solid, fruitAt, crate, basket, jar, bulb, glowBox, pane, flame };
+  return {
+    A, parts, displayParts, solids, furniture, sw, block, onFront, display,
+    cylinder, solid, fruitAt, crate, basket, jar, bulb, glowBox, pane, flame,
+  };
 }
 
 /* -------------------------------------------------------------------- */
@@ -1231,7 +1249,7 @@ function grocer(kit, spec) {
     ['cabbage', 'carrot', 'lettuce', 'aubergine', 'onion', 'cabbage'],
     ['pumpkin', 'pumpkin', 'potato', 'pumpkin', 'pumpkin', 'potato'],
   ];
-  tiers.forEach((t, i) => {
+  kit.display(() => tiers.forEach((t, i) => {
     kit.block('woodDark', [dx0, dx1], [0, t.top], t.z);
     const n = 6;
     const w = (dx1 - dx0 - 0.04) / n;
@@ -1239,7 +1257,7 @@ function grocer(kit, spec) {
       const x0 = dx0 + 0.02 + k * w;
       kit.crate([x0 + 0.015, x0 + w - 0.015], t.top, [t.z[0] + 0.03, t.z[1] - 0.03], rows[i][k]);
     }
-  });
+  }));
   kit.solid('window-display', [minX, dx1], [front - 1.05, front], 1.0);
 
   // Down the left wall: a two-step stand of the farm's own crops.
@@ -2300,22 +2318,24 @@ function pharmacy(kit, spec) {
 
   // The window: a white plinth, three carboys of coloured liquid in clear
   // glass on stands, a pestle and mortar, boxes of scent.
-  block('pill', [-0.8, maxX], [0, 0.4], [-0.7, front]);
-  block('medGreen', [-0.8, maxX], [0.38, 0.4], [-0.72, front + 0.02]);
   solid('window-display', [-0.8, maxX], [-0.72, front], 1.2);
-  [[-0.2, 'carboyRed'], [0.85, 'carboyGreen'], [1.9, 'carboyBlue']].forEach(([x, colour], i) => {
-    const z = -0.38;
-    cylinder('brass', 0.06, 0.1, 0.08, x, 0.4, z, 10);
-    const liquid = paint(new THREE.IcosahedronGeometry(0.17, 1), kit.sw(colour));
-    kit.parts.atlas.push(liquid.scale(1, 1.15 - i * 0.05, 1).translate(x, 0.67, z));
-    const shell = new THREE.IcosahedronGeometry(0.2, 2);
-    kit.parts.glass.push(shell.scale(1, 1.15 - i * 0.05, 1).translate(x, 0.68, z));
-    kit.pane([x - 0.04, x + 0.04], [0.88, 1.02], [z - 0.04, z + 0.04]);
-    cylinder('cream', 0.05, 0.04, 0.04, x, 1.02, z, 8);
+  kit.display(() => {
+    block('pill', [-0.8, maxX], [0, 0.4], [-0.7, front]);
+    block('medGreen', [-0.8, maxX], [0.38, 0.4], [-0.72, front + 0.02]);
+    [[-0.2, 'carboyRed'], [0.85, 'carboyGreen'], [1.9, 'carboyBlue']].forEach(([x, colour], i) => {
+      const z = -0.38;
+      cylinder('brass', 0.06, 0.1, 0.08, x, 0.4, z, 10);
+      const liquid = paint(new THREE.IcosahedronGeometry(0.17, 1), kit.sw(colour));
+      kit.parts.atlas.push(liquid.scale(1, 1.15 - i * 0.05, 1).translate(x, 0.67, z));
+      const shell = new THREE.IcosahedronGeometry(0.2, 2);
+      kit.parts.glass.push(shell.scale(1, 1.15 - i * 0.05, 1).translate(x, 0.68, z));
+      kit.pane([x - 0.04, x + 0.04], [0.88, 1.02], [z - 0.04, z + 0.04]);
+      cylinder('cream', 0.05, 0.04, 0.04, x, 1.02, z, 8);
+    });
+    cylinder('stone', 0.08, 0.06, 0.08, 0.35, 0.4, -0.45, 10, true);
+    block('woodLight', [0.33, 0.37], [0.42, 0.6], [-0.45, -0.41]);
+    for (const x of [1.35, 1.45, 1.55]) block(x === 1.45 ? 'carboyRed' : 'pill', [x - 0.04, x + 0.04], [0.4, 0.55], [-0.5, -0.42]);
   });
-  cylinder('stone', 0.08, 0.06, 0.08, 0.35, 0.4, -0.45, 10, true);
-  block('woodLight', [0.33, 0.37], [0.42, 0.6], [-0.45, -0.41]);
-  for (const x of [1.35, 1.45, 1.55]) block(x === 1.45 ? 'carboyRed' : 'pill', [x - 0.04, x + 0.04], [0.4, 0.55], [-0.5, -0.42]);
 
   // Shelves floor to ceiling down both walls.
   const shelfZ = [-3.2, -0.95];
@@ -2500,21 +2520,38 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   let triangles = 0;
   let flameMesh = null;
   const meshes = {};
-  for (const [key, list] of Object.entries(kit.parts)) {
-    if (!list.length) continue;
-    const geos = list.map((g) => (g.index ? g.toNonIndexed() : g));
-    const merged = mergeGeometries(geos, false);
-    for (const g of list) g.dispose();
-    const mesh = new THREE.Mesh(merged, mats[key]);
-    mesh.name = `interior-${spec.id}-${key}`;
-    mesh.receiveShadow = key !== 'glass';
-    mesh.castShadow = key === 'atlas' || key === 'front';
-    if (key === 'glass') mesh.renderOrder = 1;
-    if (key === 'flame') flameMesh = mesh;
-    meshes[key] = mesh;
-    group.add(mesh);
-    triangles += merged.getAttribute('position').count / 3;
-  }
+  /* The window display, where the room has one, is merged on its own and
+     drawn on a layer of its own: the room's camera sees both, and the
+     shop window's two photographs one each. Its extent, in the room's
+     frame, is what the window's display layer is fitted to. */
+  const displayBox = new THREE.Box3();
+  let displayTriangles = 0;
+  const merge = (parts, display) => {
+    for (const [key, list] of Object.entries(parts)) {
+      if (!list.length) continue;
+      const geos = list.map((g) => (g.index ? g.toNonIndexed() : g));
+      const merged = mergeGeometries(geos, false);
+      for (const g of list) g.dispose();
+      const mesh = new THREE.Mesh(merged, mats[key]);
+      mesh.name = `interior-${spec.id}-${display ? 'display-' : ''}${key}`;
+      mesh.receiveShadow = key !== 'glass';
+      mesh.castShadow = key === 'atlas' || key === 'front';
+      if (key === 'glass') mesh.renderOrder = 1;
+      if (display) {
+        mesh.layers.set(DISPLAY_LAYER);
+        merged.computeBoundingBox();
+        displayBox.union(merged.boundingBox);
+        displayTriangles += merged.getAttribute('position').count / 3;
+      } else {
+        if (key === 'flame') flameMesh = mesh;
+        meshes[key] = mesh;
+      }
+      group.add(mesh);
+      triangles += merged.getAttribute('position').count / 3;
+    }
+  };
+  merge(kit.parts, false);
+  merge(kit.displayParts, true);
 
   /* The shopkeeper, behind the counter, idling. The same figure as the
      farmer in the shop's colours, so the town's people are the farm's. */
@@ -2532,8 +2569,10 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
      looks from; and a warm point at each lamp, which is what the room is
      lit by after dark. */
   const hemi = new THREE.HemisphereLight(0xfff4e6, 0x5a4330, 1.0);
+  hemi.layers.enable(DISPLAY_LAYER);
   group.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff3df, 1.4);
+  sun.layers.enable(DISPLAY_LAYER);
   sun.position.set(1.2, 5.5, 4.5);
   sun.target.position.set(0, 0, (spec.room.back) / 2);
   group.add(sun, sun.target);
@@ -2546,6 +2585,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   }
   const lamps = design.lamps.map(([x, y, z]) => {
     const l = new THREE.PointLight(design.lampColour ?? 0xffcf8a, 3, 8, 2);
+    l.layers.enable(DISPLAY_LAYER);
     l.position.set(x, y - 0.05, z);
     group.add(l);
     return l;
@@ -2602,6 +2642,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
      and gone at the top — instanced, one draw for all of them. */
   const candleLights = (design.candles ?? []).map(([x, y, z]) => {
     const l = new THREE.PointLight(0xffb060, 0, 3.2, 2);
+    l.layers.enable(DISPLAY_LAYER);
     l.position.set(x, y + 0.12, z);
     group.add(l);
     return l;
@@ -2721,6 +2762,8 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
 
   return {
     scene, solids, walk, door, toLocal, update, atCounter, stock,
+    // The window display's extent in the room's frame, or null.
+    display: displayBox.isEmpty() ? null : { min: displayBox.min.toArray(), max: displayBox.max.toArray() },
     /* The room as its shop window shows it: without the street wall and
        the pavement, which stand between the window's photograph and the
        room. Put back with false. */
@@ -2751,6 +2794,9 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
       lines: slots.map((sl) => sl.id),
       keeper: toWorld(design.keeper.x, design.keeper.z),
       furniture: [...new Set(kit.furniture)],
+      display: displayBox.isEmpty() ? null : {
+        min: displayBox.min.toArray(), max: displayBox.max.toArray(), triangles: displayTriangles,
+      },
       // Where each piece stands, as world rectangles, by its name.
       pieces: Object.fromEntries(kit.solids.map((b) => [b.id, worldRect([b.x0, b.x1], [b.z0, b.z1])])),
       triangles,

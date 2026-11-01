@@ -22,12 +22,19 @@
  * two mixed by that number are the room at any hour, not an approximation
  * of it.
  *
+ * Except what stands right behind the glass. A window display printed on
+ * the floor behind it slides across that floor as the camera moves, so a
+ * room's display is left out of its photographs and given a pair of its
+ * own, of the display alone on nothing, drawn on a plane in front of the
+ * room: the line of sight meets the display first, and sees the room
+ * through its gaps.
+ *
  * Nothing here reaches into the scene. buildShopWindow takes a shopfront
  * and the room behind it and hands back the glass and the means to
  * photograph the room for it; scene.js decides when.
  */
 import * as THREE from 'three';
-import { ROOM } from './interiors.js';
+import { ROOM, DISPLAY_LAYER } from './interiors.js';
 import { FRONT } from './highstreet.js';
 
 /* Where a room is photographed from, in its shop's frame: x along the
@@ -75,6 +82,11 @@ const fragmentShader = /* glsl */ `
   uniform float uFront;   // the inner face of the wall the glass is in
   uniform sampler2D uDark;
   uniform sampler2D uLamps;
+  uniform mat4 uDisplayPhoto;  // the shop's frame to the display photograph's clip space
+  uniform vec4 uDisplayPlane;  // the plane the display is drawn on: n.p = w
+  uniform sampler2D uDisplayDark;
+  uniform sampler2D uDisplayLamps;
+  uniform float uHasDisplay;
   uniform float uLit;
   uniform float uDay;     // 1 at noon, 0 at midnight
   uniform vec3 uSky;      // the sky, at the horizon
@@ -145,6 +157,27 @@ const fragmentShader = /* glsl */ `
       col = photo(vec3(hit.x, uBoxMax.y - 0.04, uBoxMin.z)) * 0.72;
     } else {
       col = photo(hit);
+    }
+
+    /* The window display, in front of the room: where the line of sight
+       meets the plane the display is drawn on, before the wall or floor
+       behind it, the display's own photograph — on nothing, so its gaps
+       are the room seen through them. Stored as light already weighted by
+       how much of each texel is display, which is what lets its edges and
+       its glass mix with the room behind correctly. */
+    if (uHasDisplay > 0.5) {
+      float facing = dot(uDisplayPlane.xyz, d);
+      if (abs(facing) > 1e-5) {
+        float at = (uDisplayPlane.w - dot(uDisplayPlane.xyz, p)) / facing;
+        if (at > 0.0 && at < far) {
+          vec4 c = uDisplayPhoto * vec4(p + d * at, 1.0);
+          vec2 uv = c.xy / c.w * 0.5 + 0.5;
+          if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
+            vec4 shelf = mix(texture2D(uDisplayDark, uv), texture2D(uDisplayLamps, uv), uLit);
+            col = shelf.rgb + (1.0 - shelf.a) * col;
+          }
+        }
+      }
     }
     if (uMode == 1) {
       gl_FragColor = vec4(col, 1.0);
@@ -229,25 +262,18 @@ function glassGeometry(unit, panes) {
   return g;
 }
 
-/* The camera the photograph is taken with: at the vantage, looking at the
-   middle of the room, and its frustum drawn in tight round the room's box
-   — walls, floor, and the depth of the shopfront in front of them, which a
-   line of sight crosses before it is inside — so that every texel of the
-   photograph is room. */
-function photoCamera(unit, room, vantage) {
+/* The camera a photograph is taken with: at the vantage, looking at the
+   middle of what it is of, and its frustum drawn in tight round that — the
+   corners given, in the shop's frame — so that every texel of the
+   photograph is of it. */
+function photoCamera(unit, corners, vantage) {
   const toWorld = shopMatrix(unit);
   const cam = new THREE.PerspectiveCamera();
+  const mid = corners.reduce((a, c) => a.add(c), new THREE.Vector3()).multiplyScalar(1 / corners.length);
   cam.position.set(vantage.x, vantage.y, vantage.z).applyMatrix4(toWorld);
-  cam.lookAt(new THREE.Vector3((room.minX + room.maxX) / 2, ROOM.height / 2, room.back / 2).applyMatrix4(toWorld));
+  cam.lookAt(mid.applyMatrix4(toWorld));
   cam.updateMatrixWorld();
-  const view = [];
-  for (const x of [room.minX, room.maxX]) {
-    for (const y of [0, ROOM.height]) {
-      for (const z of [room.back, 0.16]) {
-        view.push(new THREE.Vector3(x, y, z).applyMatrix4(toWorld).applyMatrix4(cam.matrixWorldInverse));
-      }
-    }
-  }
+  const view = corners.map((c) => c.clone().applyMatrix4(toWorld).applyMatrix4(cam.matrixWorldInverse));
   const near = Math.min(...view.map((v) => -v.z)) * 0.9;
   const far = Math.max(...view.map((v) => -v.z)) * 1.1;
   const xs = view.map((v) => (v.x * near) / -v.z);
@@ -258,19 +284,44 @@ function photoCamera(unit, room, vantage) {
   cam.projectionMatrix.makePerspective(l, r, t, b, near, far);
   cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
   const toPhoto = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).multiply(toWorld);
-  return { cam, toPhoto, aspect: (r - l) / (t - b) };
+  return { cam, toPhoto, aspect: (r - l) / (t - b), span: r - l };
+}
+
+// The eight corners of a box in the shop's frame.
+const cornersOf = ([x0, y0, z0], [x1, y1, z1]) => {
+  const out = [];
+  for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) out.push(new THREE.Vector3(x, y, z));
+  return out;
+};
+
+/* The plane a window display is drawn on, given the display's extent:
+   n.p = w in the shop's frame, the same across the width of the window.
+   Through its front at the bottom and its back at the top: the slope a
+   display stepped up away from the glass presents to the street, and
+   nearly upright for one that is tall and shallow. Measured against an
+   upright plane through the display's middle, and against one fitted to
+   the faces the photograph sees, this did as well or better on both
+   displays that have one (ART_BIBLE section 55). */
+function displayPlane({ min, max }) {
+  const dy = max[1] - min[1];
+  const dz = min[2] - max[2];
+  const n = new THREE.Vector3(0, -dz, dy).normalize();
+  return new THREE.Vector4(n.x, n.y, n.z, n.y * min[1] + n.z * max[2]);
 }
 
 /**
- * The glass for one shop, and its two photographs.
+ * The glass for one shop, and its photographs.
  *   unit:  the shopfront, { id, x, z, yaw }
  *   panes: its glass, from highstreet.js's shopGlass
  *   room:  the room behind it, { minX, maxX, back } in the shop's frame
  */
 export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = PHOTO_SIZE }) {
-  const shot = photoCamera(unit, room, vantage);
-  const width = shot.aspect >= 1 ? size : Math.max(32, Math.round(size * shot.aspect));
-  const height = shot.aspect >= 1 ? Math.max(32, Math.round(size / shot.aspect)) : size;
+  const shot = photoCamera(unit, cornersOf([room.minX, 0, room.back], [room.maxX, ROOM.height, 0.16]), vantage);
+  // The photograph's size, longer side `size`, and texels to the unit across.
+  const sized = (aspect, long) => (aspect >= 1
+    ? [long, Math.max(32, Math.round(long / aspect))]
+    : [Math.max(32, Math.round(long * aspect)), long]);
+  const [width, height] = sized(shot.aspect, size);
   /* Eight bits a channel stored as sRGB, smoothed at the edges and
      mipmapped. sRGB because the photograph holds the room's light as it
      is, before it is turned into a picture, and eight bits of that light
@@ -281,8 +332,8 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
      window seen from the far end of the street is a few dozen pixels of a
      photograph five hundred across, which without them sparkles as the
      camera moves. */
-  const target = (which) => {
-    const rt = new THREE.WebGLRenderTarget(width, height, {
+  const target = (which, w, h) => {
+    const rt = new THREE.WebGLRenderTarget(w, h, {
       colorSpace: THREE.SRGBColorSpace,
       samples: 4,
       generateMipmaps: true,
@@ -292,8 +343,13 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
     rt.texture.name = `shop-window:${unit.id}:${which}`;
     return rt;
   };
-  const photos = { dark: target('dark'), lamps: target('lamps') };
+  const photos = { dark: target('dark', width, height), lamps: target('lamps', width, height) };
   const taken = { dark: false, lamps: false };
+  /* The window display, if the room has one, has a pair of photographs
+     of its own, of the display alone on a clear background, taken with
+     the room's. Made the first time the room is photographed, which is
+     when the display's extent is known. */
+  let display = null;
 
   const material = new THREE.ShaderMaterial({
     name: `shop-window:${unit.id}`,
@@ -305,6 +361,11 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
       uFront: { value: -ROOM.wall },
       uDark: { value: null },
       uLamps: { value: null },
+      uDisplayPhoto: { value: new THREE.Matrix4() },
+      uDisplayPlane: { value: new THREE.Vector4() },
+      uDisplayDark: { value: null },
+      uDisplayLamps: { value: null },
+      uHasDisplay: { value: 0 },
       uLit: { value: 0 },
       uDay: { value: 1 },
       uSky: { value: new THREE.Color() },
@@ -342,16 +403,41 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
 
   const mesh = new THREE.Mesh(glassGeometry(unit, panes), material);
   mesh.name = `shop-window:${unit.id}`;
-  // Shown once both photographs are in; the painted window until then.
+  // Shown once its photographs are in; the painted window until then.
   mesh.visible = false;
 
+  /* The display's camera, plane and pair of photographs, sized so a texel
+     covers the same ground as one of the room's. */
+  function setUpDisplay(extent) {
+    const pad = 0.03;
+    const min = extent.min.map((v) => v - pad);
+    const max = extent.max.map((v) => v + pad);
+    const cam = photoCamera(unit, cornersOf(min, max), vantage);
+    cam.cam.layers.set(DISPLAY_LAYER);
+    const [w, h] = sized(cam.aspect, Math.min(size, Math.round(size * (cam.span / shot.span) * (shot.cam.near / cam.cam.near))));
+    display = {
+      shot: cam,
+      size: [w, h],
+      extent: { min, max },
+      plane: displayPlane({ min, max }),
+      photos: { dark: target('display-dark', w, h), lamps: target('display-lamps', w, h) },
+    };
+    u.uDisplayPhoto.value.copy(cam.toPhoto);
+    u.uDisplayPlane.value.copy(display.plane);
+    u.uDisplayDark.value = display.photos.dark.texture;
+    u.uDisplayLamps.value = display.photos.lamps.texture;
+    u.uHasDisplay.value = 1;
+  }
+
   const ready = () => taken.dark && taken.lamps;
+  const takeAgain = () => { taken.dark = false; taken.lamps = false; };
   let ms = 0;
   let shots = 0;
   /* Being taken again, with the last pair still showing: a window whose
      room has changed keeps the room it had until the new photographs are
-     both in, rather than going back to paint for the frames between. */
+     all in, rather than going back to paint for the frames between. */
   let stale = false;
+  const clear = new THREE.Color();
 
   return {
     id: unit.id,
@@ -361,16 +447,35 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
     ready,
     /* Which photograph is still to take, or null. */
     next: () => (!taken.dark ? 'dark' : !taken.lamps ? 'lamps' : null),
-    /* Takes one of the two photographs of the room, which has to be the
-       room built for this shop. The room's lamps are left as the
-       photograph had them; whoever next draws the room sets them again. */
+    /* Takes one of the room's two photographs — 'dark', with its lamps
+       off, or 'lamps' — of the room built for this shop, without its
+       window display; and, in the same frame and the same light, the
+       display alone on nothing, which costs only the display's own draw.
+       The room's lamps are left as the photograph had them; whoever next
+       draws the room sets them again. */
     photograph(renderer, built, which) {
       const t0 = performance.now();
+      if (!display && built.display) setUpDisplay(built.display);
       const prev = renderer.getRenderTarget();
       built.forPhoto(true);
       built.update(which === 'lamps' ? 1 : 0, 0);
       renderer.setRenderTarget(photos[which]);
       renderer.render(built.scene, shot.cam);
+      if (display) {
+        /* On a clear background: the room's own colour taken away, and
+           only the display's layer in the camera, so what is not display
+           is nothing at all and the glass sees the room through it. */
+        const background = built.scene.background;
+        const alpha = renderer.getClearAlpha();
+        renderer.getClearColor(clear);
+        built.scene.background = null;
+        renderer.setClearColor(0x000000, 0);
+        renderer.setRenderTarget(display.photos[which]);
+        renderer.clear();
+        renderer.render(built.scene, display.shot.cam);
+        built.scene.background = background;
+        renderer.setClearColor(clear, alpha);
+      }
       renderer.setRenderTarget(prev);
       built.forPhoto(false);
       taken[which] = true;
@@ -379,18 +484,16 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
       if (ready()) stale = false;
       mesh.visible = ready() || stale;
     },
-    /* Both photographs to be taken again, the old ones shown meanwhile. */
+    /* All its photographs to be taken again, the old ones shown meanwhile. */
     retake() {
       if (ready()) stale = true;
-      taken.dark = false;
-      taken.lamps = false;
+      takeAgain();
     },
-    /* Both photographs gone — a lost context takes everything a render
+    /* All its photographs gone — a lost context takes everything a render
        target held — so the painted window shows until they are taken
        again. */
     forget() {
-      taken.dark = false;
-      taken.lamps = false;
+      takeAgain();
       stale = false;
       mesh.visible = false;
     },
@@ -414,6 +517,11 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
       size: [width, height],
       vantage: { ...vantage },
       box: { minX: room.minX, maxX: room.maxX, back: room.back, height: ROOM.height },
+      display: display && {
+        size: display.size,
+        extent: display.extent,
+        plane: display.plane.toArray(),
+      },
       panes: panes.length,
       // Where the glass is, in the world.
       bounds: {
@@ -421,14 +529,13 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
         max: mesh.geometry.boundingBox.max.toArray(),
       },
       ms: Math.round(ms),
-      // How many photographs have been taken, all told.
+      // How many times the room has been photographed, all told.
       shots,
-      // Both photographs and their mipmaps, which add a third.
-      bytes: Math.round(width * height * 4 * 2 * (4 / 3)),
+      // Every photograph and its mipmaps, which add a third.
+      bytes: Math.round(((width * height) + (display ? display.size[0] * display.size[1] : 0)) * 4 * 2 * (4 / 3)),
     }),
     dispose() {
-      photos.dark.dispose();
-      photos.lamps.dispose();
+      for (const rt of [photos.dark, photos.lamps, ...(display ? [display.photos.dark, display.photos.lamps] : [])]) rt.dispose();
       mesh.geometry.dispose();
       material.dispose();
     },

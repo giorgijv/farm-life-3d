@@ -9326,6 +9326,10 @@ test.describe('Farm City: through the shop windows', () => {
   });
 
   test('nothing is photographed from the farm, and the glass covers the painted panes once it is', async ({ page }) => {
+    /* Thirty frames on the farm on purpose, then the town: beside one of
+       the tests that render the street from a dozen cameras, those frames
+       come a second apart, and the minute ran out. */
+    test.slow();
     await load(page, makeSave());
     await ready(page);
     /* From the farm the High Street is fifty units off, past the town's
@@ -9389,7 +9393,7 @@ test.describe('Farm City: through the shop windows', () => {
     });
     // The painted window, not a black one, while the photographs are gone.
     await expect.poll(async () => (await grocer(page)).shown).toBe(false);
-    expect((await grocer(page)).taken).toEqual({ dark: false, lamps: false });
+    expect(Object.values((await grocer(page)).taken).some(Boolean)).toBe(false);
     await page.evaluate(() => window.__lose.restoreContext());
     await expect.poll(async () => (await grocer(page)).ready, { timeout: 30_000 }).toBe(true);
     // And what it shows is the room again, not whatever the lost target held.
@@ -9583,5 +9587,69 @@ test.describe('Farm City: through the shop windows', () => {
     // Its two photographs taken again; the Greengrocer's, whose shelves did not change, not.
     expect(after.hardware.shots - before.hardware.shots).toBe(2);
     expect(after.grocer.shots).toBe(before.grocer.shots);
+  });
+  test('the window display is a layer of its own, photographed apart, and still part of the room inside', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    const win = await grocer(page);
+    /* Its own photographs, as wide as the display and no wider: a texel
+       covers the same ground as one of the room's. Measured 336 by 144. */
+    expect(win.display).not.toBeNull();
+    expect(win.display.size[0]).toBeGreaterThan(200);
+    expect(win.display.size[0]).toBeLessThan(win.size[0]);
+    // On a plane that leans back from the street and up, as the crates step up.
+    expect(win.display.plane[1]).toBeGreaterThan(0.3);
+    expect(win.display.plane[2]).toBeGreaterThan(0.3);
+    // Inside the room, between its street wall and its back wall.
+    expect(win.display.extent.max[2]).toBeLessThan(0);
+    expect(win.display.extent.min[2]).toBeGreaterThan(win.box.back);
+    /* And inside the shop it is still there: every triangle of the room is
+       drawn, the display's 3,358 among them, as well as the two figures. */
+    const inside = await page.evaluate(() => new Promise((resolve) => {
+      const s = window.Farm3DScene;
+      s.enter('grocer');
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const room = s.interior();
+        resolve({ drawn: s.drawCost().triangles, room: room.triangles, display: room.display.triangles });
+      }));
+    }));
+    expect(inside.display).toBeGreaterThan(1000);
+    expect(inside.drawn).toBeGreaterThanOrEqual(inside.room);
+  });
+
+  test('from the side and from below, the window display stands where it does in the room', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    await page.evaluate(() => window.Farm3DScene.windowShop('pharmacy'));
+    const d = await page.evaluate(() => window.Farm3DScene.shopDoors().find((x) => x.id === 'pharmacy'));
+    await page.evaluate((p) => window.Farm3DScene.putFarmerAt(p.x, p.z), d.outside);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.shopWindows().find((w) => w.id === 'pharmacy').ready),
+      { timeout: 30_000 }).toBe(true);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const units = (await s.highStreet()).units;
+      // A point in a shop's own frame — x along it, z out to the street — in the world.
+      const at = (id, view) => {
+        const u = units.find((x) => x.id === id);
+        const W = ([lx, ly, lz]) => [u.x + lx * u.faceZ + lz * u.faceX, ly, u.z - lx * u.faceX + lz * u.faceZ];
+        return s.windowAgreement(id, { position: W(view.from), target: W(view.to), fov: view.fov, night: 0 }).mean;
+      };
+      return {
+        grocerSide: at('grocer', { from: [6.4, 4.2, 7.7], to: [0, 1.1, 0.7], fov: 28 }),
+        grocerLow: at('grocer', { from: [1.5, 0.9, 5], to: [0, 1.4, 0], fov: 40 }),
+        pharmacyClose: at('pharmacy', { from: [0, 3.1, 6.3], to: [0, 1.1, 0.7], fov: 40 }),
+      };
+    });
+    /* With the display printed on the floor behind it, as it was, these
+       were 20.9, 21.4 and 33.2 out of 255: the Greengrocer's crates smeared
+       into streaks from the side and gone from below, the Pharmacy's
+       carboys gone from close in. On a layer of their own, measured 14.6,
+       14.5 and 20.0. */
+    expect(r.grocerSide).toBeLessThan(18);
+    expect(r.grocerLow).toBeLessThan(18);
+    expect(r.pharmacyClose).toBeLessThan(26);
   });
 });
