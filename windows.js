@@ -28,6 +28,7 @@
  */
 import * as THREE from 'three';
 import { ROOM } from './interiors.js';
+import { FRONT } from './highstreet.js';
 
 /* Where a room is photographed from, in its shop's frame: x along the
    frontage, +z out to the street, y up from the pavement. This is the
@@ -45,13 +46,19 @@ export const PHOTO_SIZE = 512;
    room has been photographed. */
 const PROUD = 0.005;
 
+// The white between an awning's stripes (highstreet.js's paint).
+const AWNING_WHITE = '#f6f4ee';
+
 const vertexShader = /* glsl */ `
   #include <common>
   #include <fog_pars_vertex>
+  attribute vec4 pane;
   varying vec3 vWorld;
+  varying vec4 vPane;
   void main() {
     vec4 world = modelMatrix * vec4(position, 1.0);
     vWorld = world.xyz;
+    vPane = pane;
     vec4 mvPosition = viewMatrix * world;
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
@@ -65,16 +72,53 @@ const fragmentShader = /* glsl */ `
   uniform mat4 uPhoto;    // the shop's frame to the photograph's clip space
   uniform vec3 uBoxMin;   // the room: (left wall, floor, back wall)
   uniform vec3 uBoxMax;   //           (right wall, top of the walls, -)
+  uniform float uFront;   // the inner face of the wall the glass is in
   uniform sampler2D uDark;
   uniform sampler2D uLamps;
   uniform float uLit;
-  uniform int uMode;      // 0 as seen, 1 without the fog, 2 flat magenta
+  uniform float uDay;     // 1 at noon, 0 at midnight
+  uniform vec3 uSky;      // the sky, at the horizon
+  uniform vec3 uGround;   // the pavement, lit as it is
+  uniform vec3 uReveal;   // the shopfront's paint, for the sides of the opening
+  uniform vec4 uAwning;   // its hinge height, drop, distance out at the hinge, reach
+  uniform vec4 uAwningSpan; // left, right, its valance's depth, and 1 if it has one
+  uniform vec3 uAwningColour;
+  uniform int uMode;      // 0 as seen; 1 the room alone; 2 flat magenta; 3 the
+                          // sides of the opening, the left red, the right green,
+                          // the head and sill blue; 4 what the glass reflects
   varying vec3 vWorld;
+  varying vec4 vPane;     // this pane: left, right, bottom, top, in the shop's frame
 
   vec3 photo(vec3 p) {
     vec4 c = uPhoto * vec4(p, 1.0);
     vec2 uv = clamp(c.xy / c.w * 0.5 + 0.5, 0.0, 1.0);
     return mix(texture2D(uDark, uv).rgb, texture2D(uLamps, uv).rgb, uLit);
+  }
+
+  /* What the glass reflects along r from p: the underside of the shop's
+     own awning, where the reflection runs up into it — its sloping canvas,
+     or the valance hanging from its lip — and otherwise the sky above the
+     horizon and the pavement below it. */
+  vec3 reflected(vec3 p, vec3 r) {
+    if (uAwningSpan.w > 0.5) {
+      vec3 under = uAwningColour * (0.1 + 0.3 * uDay);
+      float slope = uAwning.y / uAwning.w;
+      float den = r.y + slope * r.z;
+      if (abs(den) > 1e-4) {
+        float t = (uAwning.x + slope * uAwning.z - p.y - slope * p.z) / den;
+        vec3 h = p + r * t;
+        if (t > 0.0 && h.z >= uAwning.z && h.z <= uAwning.z + uAwning.w
+          && h.x >= uAwningSpan.x && h.x <= uAwningSpan.y) return under;
+      }
+      if (r.z > 1e-4) {
+        float lipZ = uAwning.z + uAwning.w;
+        float lipY = uAwning.x - uAwning.y;
+        vec3 h = p + r * ((lipZ - p.z) / r.z);
+        if (h.y <= lipY && h.y >= lipY - uAwningSpan.z
+          && h.x >= uAwningSpan.x && h.x <= uAwningSpan.y) return under;
+      }
+    }
+    return r.y > 0.0 ? uSky : uGround;
   }
 
   void main() {
@@ -102,10 +146,49 @@ const fragmentShader = /* glsl */ `
     } else {
       col = photo(hit);
     }
-    gl_FragColor = vec4(col, 1.0);
-    if (uMode == 0) {
-      #include <fog_fragment>
+    if (uMode == 1) {
+      gl_FragColor = vec4(col, 1.0);
+      #include <colorspace_fragment>
+      return;
     }
+
+    /* The sides of the opening. The glass is at the front of a wall the
+       depth of the shopfront and the room's street wall together; a line
+       of sight at a slant that leaves the pane's own rectangle before it
+       is through that wall has met the reveal, not the room. Painted as
+       the shopfront is, the head in its own shadow, the sill catching the
+       sky, and a little of the room's light on all of them. */
+    float through = (uFront - p.z) / d.z;
+    float tx = ((d.x < 0.0 ? vPane.x : vPane.y) - p.x) / d.x;
+    float ty = ((d.y < 0.0 ? vPane.z : vPane.w) - p.y) / d.y;
+    float leaves = min(tx, ty);
+    bool reveal = leaves < through;
+    if (uMode == 3) {
+      bool jamb = reveal && tx < ty;
+      gl_FragColor = vec4(jamb && d.x < 0.0 ? 1.0 : 0.0, jamb && d.x > 0.0 ? 1.0 : 0.0, reveal && !jamb ? 1.0 : 0.0, 1.0);
+      return;
+    }
+    if (reveal) {
+      float face = tx < ty ? 0.8 : (d.y < 0.0 ? 1.0 : 0.45);
+      col = uReveal * face * (0.08 + 0.6 * uDay) + col * 0.18;
+    }
+
+    /* The glass itself: a little of the light through it lost, and the
+       street reflected in it — four parts in a hundred looking straight
+       at it, more and more towards a glancing angle, which is Fresnel's
+       law for glass by Schlick's sum. */
+    float cosi = clamp(-d.z, 0.0, 1.0);
+    float fresnel = 0.04 + 0.96 * pow(1.0 - cosi, 5.0);
+    vec3 r = vec3(d.x, d.y, -d.z);
+    if (uMode == 4) {
+      gl_FragColor = vec4(reflected(p, r), 1.0);
+      #include <colorspace_fragment>
+      return;
+    }
+    col = col * (1.0 - fresnel) * 0.94 + reflected(p, r) * fresnel;
+
+    gl_FragColor = vec4(col, 1.0);
+    #include <fog_fragment>
     #include <colorspace_fragment>
   }
 `;
@@ -125,17 +208,21 @@ function shopMatrix(unit) {
 function glassGeometry(unit, panes) {
   const pos = [];
   const nrm = [];
+  const rect = [];
   for (const p of panes) {
     const z = p.z + PROUD;
     const quad = [[p.x0, p.y0], [p.x1, p.y0], [p.x1, p.y1], [p.x0, p.y0], [p.x1, p.y1], [p.x0, p.y1]];
     for (const [x, y] of quad) {
       pos.push(x, y, z);
       nrm.push(0, 0, 1);
+      // Every corner carries its pane's rectangle, for the reveal.
+      rect.push(p.x0, p.x1, p.y0, p.y1);
     }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('pane', new THREE.Float32BufferAttribute(rect, 4));
   g.applyMatrix4(shopMatrix(unit));
   g.computeBoundingSphere();
   g.computeBoundingBox();
@@ -215,9 +302,17 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
       uPhoto: { value: new THREE.Matrix4() },
       uBoxMin: { value: new THREE.Vector3() },
       uBoxMax: { value: new THREE.Vector3() },
+      uFront: { value: -ROOM.wall },
       uDark: { value: null },
       uLamps: { value: null },
       uLit: { value: 0 },
+      uDay: { value: 1 },
+      uSky: { value: new THREE.Color() },
+      uGround: { value: new THREE.Color() },
+      uReveal: { value: new THREE.Color() },
+      uAwning: { value: new THREE.Vector4() },
+      uAwningSpan: { value: new THREE.Vector4() },
+      uAwningColour: { value: new THREE.Color() },
       uMode: { value: 0 },
     }]),
     vertexShader,
@@ -232,6 +327,18 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
   u.uBoxMax.value.set(room.maxX, ROOM.height, 1);
   u.uDark.value = photos.dark.texture;
   u.uLamps.value = photos.lamps.texture;
+  /* The shopfront around the glass: its paint, for the reveal, and its
+     awning, whose underside is what the top of the window reflects to a
+     camera low enough to see it — the stripes and the white between them,
+     taken together. */
+  u.uReveal.value.set(unit.colours.paint);
+  if (unit.awning !== false) {
+    const A = FRONT.awning;
+    const half = (unit.width - 2 * FRONT.pilaster - 0.06) / 2;
+    u.uAwning.value.set(A.hinge, A.drop, A.wall, A.reach);
+    u.uAwningSpan.value.set(-half, half, A.valance, 1);
+    u.uAwningColour.value.set(unit.colours.stripe).lerp(new THREE.Color(AWNING_WHITE), 0.5);
+  }
 
   const mesh = new THREE.Mesh(glassGeometry(unit, panes), material);
   mesh.name = `shop-window:${unit.id}`;
@@ -240,6 +347,11 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
 
   const ready = () => taken.dark && taken.lamps;
   let ms = 0;
+  let shots = 0;
+  /* Being taken again, with the last pair still showing: a window whose
+     room has changed keeps the room it had until the new photographs are
+     both in, rather than going back to paint for the frames between. */
+  let stale = false;
 
   return {
     id: unit.id,
@@ -262,8 +374,16 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
       renderer.setRenderTarget(prev);
       built.forPhoto(false);
       taken[which] = true;
+      shots += 1;
       ms += performance.now() - t0;
-      mesh.visible = ready();
+      if (ready()) stale = false;
+      mesh.visible = ready() || stale;
+    },
+    /* Both photographs to be taken again, the old ones shown meanwhile. */
+    retake() {
+      if (ready()) stale = true;
+      taken.dark = false;
+      taken.lamps = false;
     },
     /* Both photographs gone — a lost context takes everything a render
        target held — so the painted window shows until they are taken
@@ -271,10 +391,18 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
     forget() {
       taken.dark = false;
       taken.lamps = false;
+      stale = false;
       mesh.visible = false;
     },
     setLit(lit) {
       u.uLit.value = lit;
+    },
+    /* The street as the glass reflects it: the sky's colour, the pavement's
+       as it is lit, and how far into the day it is. */
+    setStreet({ sky, ground, day }) {
+      u.uSky.value.copy(sky);
+      u.uGround.value.copy(ground);
+      u.uDay.value = day;
     },
     setMode(mode) {
       u.uMode.value = mode;
@@ -293,6 +421,8 @@ export function buildShopWindow({ unit, panes, room, vantage = VANTAGE, size = P
         max: mesh.geometry.boundingBox.max.toArray(),
       },
       ms: Math.round(ms),
+      // How many photographs have been taken, all told.
+      shots,
       // Both photographs and their mipmaps, which add a third.
       bytes: Math.round(width * height * 4 * 2 * (4 / 3)),
     }),

@@ -6970,10 +6970,11 @@ ${lit}`;
      the goods painted in their windows for now. */
   const WINDOWED = ['grocer'];
   const shopWindows = new Map();
-  for (const id of WINDOWED) {
+  function makeShopWindow(id) {
+    if (shopWindows.has(id)) return true;
     const f = shopFrame(id);
     const spec = roomSpec(id);
-    if (!f || !spec) continue;
+    if (!f || !spec) return false;
     try {
       const win = buildShopWindow({ unit: f.unit, panes: f.built.glass, room: spec.room });
       /* The glass inside a group of its own, which is what the town's
@@ -6984,11 +6985,15 @@ ${lit}`;
       holder.add(win.mesh);
       scene.add(holder);
       addTownDetail(holder);
-      shopWindows.set(id, { win, holder });
+      // `shows`: what the room had on its shelves when it was photographed.
+      shopWindows.set(id, { win, holder, shows: null });
+      return true;
     } catch (err) {
       console.warn(`farm: the ${f.unit.name}'s window did not build`, err);
+      return false;
     }
   }
+  WINDOWED.forEach(makeShopWindow);
 
   /* Each frame: the glass's lamps set by the same clock as the room's, and
      at most one piece of work towards a photograph — building a room, or
@@ -6998,11 +7003,38 @@ ${lit}`;
      a room it cannot see. Not while she is in a shop, either, when the
      street is not being drawn and the room is hers. Returns whether it did
      any work. */
+  /* The pavement a shop window reflects, as its stone is lit: a little by
+     the lamps after dark, the rest by the day. */
+  const WINDOW_PAVEMENT = new THREE.Color('#9e998f');
+  const windowStreet = { sky: scene.fog.color, ground: new THREE.Color(), day: 1 };
+  /* What a room shows can change while the photograph of it stands: the
+     cards at Hardware & Feed's counter show the levels the farm has
+     bought, and buying one is done at that counter. So when the farm's
+     upgrades change, every built room is restocked, and a window whose
+     room now shows something else is taken again. Nothing else a room
+     shows changes after it is built. */
+  let upgradesSeen = null;
+  const shelvesOf = (room) => JSON.stringify(room.stockShown());
   function syncShopWindows() {
     const lit = lampsLit(skyNight);
+    windowStreet.day = 1 - skyNight;
+    windowStreet.ground.copy(WINDOW_PAVEMENT).multiplyScalar(0.06 + 0.5 * windowStreet.day);
+    const upgrades = bridge.getState().upgrades ?? {};
+    const key = JSON.stringify(upgrades);
+    if (key !== upgradesSeen) {
+      upgradesSeen = key;
+      for (const [id, entry] of shopWindows) {
+        const room = interiors.get(id);
+        if (!room || entry.shows === null) continue;
+        room.stock(upgrades);
+        if (shelvesOf(room) !== entry.shows) entry.win.retake();
+      }
+    }
     let worked = false;
-    for (const [id, { win, holder }] of shopWindows) {
+    for (const [id, entry] of shopWindows) {
+      const { win, holder } = entry;
       win.setLit(lit);
+      win.setStreet(windowStreet);
       if (worked || inside || !holder.visible || win.ready()) continue;
       worked = true;
       if (!interiors.has(id)) {
@@ -7013,6 +7045,8 @@ ${lit}`;
       if (!room) continue;
       if (shadowsAfforded) renderer.shadowMap.needsUpdate = true;
       try {
+        room.stock(upgrades);
+        entry.shows = shelvesOf(room);
         win.photograph(renderer, room, win.next());
       } catch (err) {
         console.warn(`farm: the ${id}'s window could not be photographed`, err);
@@ -7030,8 +7064,12 @@ ${lit}`;
      the room itself, without its street wall, at the same hour. Bytes as
      the picture has them, bottom row first. Everything is put back. With
      `painted`, the second is the street with the painted window the glass
-     replaced, as a measure of how far off a window can be. */
-  function windowViews(id, { position, target, night = skyNight, width = 320, height = 180, fov = camera.fov, painted = false } = {}) {
+     replaced, as a measure of how far off a window can be; `glassMode`
+     draws the glass in another of its modes (windows.js) — 0 as seen, 3
+     the sides of the opening, 4 what it reflects. */
+  function windowViews(id, {
+    position, target, night = skyNight, width = 320, height = 180, fov = camera.fov, painted = false, glassMode = 1,
+  } = {}) {
     const entry = shopWindows.get(id);
     const room = interiors.get(id);
     if (!entry || !room || !entry.win.ready()) return null;
@@ -7059,7 +7097,7 @@ ${lit}`;
     renderer.render(scene, cam);
     const mask = read();
     // With `painted`, the window as it was before: the glass left out.
-    entry.win.setMode(1);
+    entry.win.setMode(glassMode);
     entry.win.mesh.visible = !painted;
     renderer.render(scene, cam);
     entry.win.mesh.visible = shown;
@@ -7746,6 +7784,12 @@ ${lit}`;
     shopWindows: () => [...shopWindows.values()].map(({ win, holder }) => ({
       ...win.report(), shown: win.mesh.visible && holder.visible, roomBuilt: interiors.has(win.id),
     })),
+    /* The renders themselves, for a test to count pixels in, in the page:
+       { mask, glass, truth, width, height }, bottom row first. */
+    windowRender: (id, view = {}) => windowViews(id, view),
+    /* A window for a shop whose window is still painted, for a test that
+       needs one before that shop's own step. */
+    windowShop: (id) => makeShopWindow(id),
     /* The glass over every photographed window shown or left out, for a
        test to weigh what it costs against the same street without it. */
     shopWindowGlass: (on) => {

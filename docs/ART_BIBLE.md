@@ -5351,6 +5351,148 @@ Each test was checked to fail on the bug it is there for:
 - **Step 3:** the window displays on a layer of their own.
 - **Steps 4 and 5:** the other five shops, and phones.
 
+## 54. Through the shop windows, step two: day, night, and the glass
+
+Step one put the Greengrocer's room behind its glass. Step two checks
+that room at every hour, makes the glass read as glass, and retakes the
+photographs when what a room shows changes.
+
+### The room at every hour
+
+Every light in a room is a straight line in `lampsLit`, so the
+lamps-off and lamps-on photographs mixed by it should be the room at any
+hour, not only at noon and midnight. Measured from the street's camera,
+mean difference from the room out of 255:
+
+| Night | 0 | 0.2 | 0.3 | 0.4 | 0.45 | 0.5 | 0.6 | 0.8 | 1 |
+|---|---|---|---|---|---|---|---|---|---|
+| Greengrocer, at its door | 5.1 | 5.1 | 5.2 | 5.3 | 5.7 | 6.1 | 7.6 | 8.0 | 8.0 |
+| Restaurant, 7.5 out | 20.5 | 20.5 | 21.0 | 20.4 | 19.6 | 18.6 | 17.6 | 17.6 | 17.6 |
+
+The Greengrocer rises with its lamps and the Restaurant falls, with no
+bump at dusk in either. The Restaurant's level is its tables standing at
+the glass, which is step 3's work.
+
+- **The Restaurant was measured from 7.5 out, not 14.7.** At 14.7 out
+  from its door, the street's camera stands just behind the Pharmacy's
+  block across the road, and sees the back of it. The camera coming out
+  of a shop is brought in to 7.5 for the same kind of reason.
+- **The candles have their own curve.** They are lit on a curve of their
+  own, from 0.2 to 0.5 of the night where the lamps run from 0.25 to
+  0.65, so the two-photograph mix does not follow them exactly. Measured
+  with them moved onto the lamps' curve for comparison, they cost 0.5 at
+  0.3 of the night (21.0 against 20.5) and 0.7 at 0.4 (20.4 against
+  19.7), and nothing at either end. That is too little for a third
+  photograph.
+- **Candles are held steady for a photograph.** A photograph used to
+  catch them at whatever moment of their flicker it happened on. It now
+  holds them at their average, 0.78.
+
+### The glass
+
+- **What it reflects:** the sky's colour above the horizon and the
+  pavement below it, lit as the hour has it. Where the reflection runs
+  up under the shop's own awning, it reflects the awning's shaded
+  underside instead: the canvas, or the valance hanging from its lip,
+  with the stripes and the white between them taken together. The glass
+  passes 94 parts in a hundred of the room's light.
+- **How much:** four parts in a hundred straight on, rising towards a
+  glancing angle by Fresnel's law (Schlick's form). Counted over the
+  pixels where the room and the reflection differ enough to tell:
+
+  | Angle from the glass | Glass pixels nearer the reflection |
+  |---|---|
+  | Straight on | 0% |
+  | 60° | 0% |
+  | 80° | 66% |
+  | 85° | 99% |
+
+- **The awning's shade** was a dark band painted across the top of the
+  old windows. Its counterpart in the glass is the awning reflected, and
+  that only shows to a camera below the head of the window. From close
+  in at 0.9 up, the reflection runs, bottom to top: the pavement (115
+  out of 255), the sky (189), and under the awning 150 falling to 127.
+  From the street's camera, high up, the glass reflects the pavement,
+  which is dim, and the room shows through it almost untouched. By day
+  from low down the glass takes a veil of sky, as a shop window does.
+  At night the reflection all but goes, and the room's own lamps are
+  the light in the window.
+- **The sides of the opening.** The glass stands at the front of a wall
+  0.165 deep: the shopfront and the room's street wall together. A line
+  of sight at a slant that leaves its pane's rectangle before it is
+  through that wall has met the side of the opening, not the room. Each
+  pane carries its rectangle for this. The sides are painted in the
+  shopfront's colour, the head in its own shadow, the sill catching the
+  sky, with a little of the room's light on all of them.
+
+  | Camera | Left side | Right side | Head and sill |
+  |---|---|---|---|
+  | Straight on | 0.8% | 1.1% | 1.8% |
+  | 40° to the right | 6.0% | 0 | 4.7% |
+  | 40° to the left | 0 | 6.4% | 3.2% |
+
+  The sill seen straight on is the camera looking down over it.
+- **None of this is in the room-alone check.** The agreement check
+  compares the room alone (mode 1), so step one's numbers still mean
+  the same thing. The reflection and the sides of the opening each have
+  a mode of their own for tests: 4 and 3.
+
+### Photographs taken again
+
+What a room shows can change while its photograph stands. The cards at
+Hardware & Feed's counter show the levels the farm has bought, and
+buying one is done at that counter.
+
+- **When the farm's upgrades change,** every built room is restocked, and
+  a window whose room now shows something else is taken again.
+- **The old pair stays up while it is retaken,** so the window never goes
+  back to paint for the frames between.
+- **Nothing else a room shows changes after it is built.** A lost WebGL
+  context was already handled in step one.
+
+Measured: buying a sprinkler with Hardware & Feed's and the Greengrocer's
+windows both up took Hardware & Feed's two photographs again and not the
+Greengrocer's, and both windows showed a room on every frame between.
+
+Hardware & Feed's and the Restaurant's windows are not up yet; that is
+step 4. The test surface's `windowShop(id)` puts one up for a test that
+needs it first: these measurements and two of the tests.
+
+### The tests
+
+- **The room at every hour.** The two photographs are the room at seven
+  hours from noon to midnight, for the Greengrocer and the Restaurant,
+  candles and all. No hour is further from the room than the two ends of
+  the day by more than a level.
+- **The reflection.** The glass reflects the street, and more of it
+  towards a glancing angle: the room straight on, the reflection at 80
+  degrees.
+- **The awning.** Seen from below, the top of the window reflects the
+  awning rather than the sky: at least 30 levels darker than the sky
+  below it.
+- **The sides of the opening.** At a slant they show, on the side away
+  from the camera and never the near side. Straight on, hardly at all.
+- **The retake.** Buying a tool takes Hardware & Feed's window again and
+  no other, without going back to paint.
+
+Each was checked to fail on the bug it is there for:
+- Fresnel held at four parts in a hundred: no pixel nearer the reflection
+  at 80 degrees.
+- The awning left out: the top of the window as bright as the sky.
+- The sides swapped: 41% of the glass "near side".
+- No retake: Hardware & Feed's photographs not taken again.
+- The old pair not kept up: the window back to paint for a frame.
+- The mix the wrong way round: 28.4 at noon against a limit of 8.
+
+### Still open
+
+- **Step 3:** the window displays on a layer of their own.
+- **Step 4:** the other five shops, and the place each one's photographs
+  are taken from, measured shop by shop. From 14.7 out, the Restaurant
+  is hidden by the Pharmacy across the road, and the Pharmacy faces the
+  other way.
+- **Step 5:** phones.
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

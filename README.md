@@ -208,6 +208,13 @@ It costs the street one draw call. Nothing is photographed until the
 town is in view, and until it is, the painted window shows. The other
 five shops still have painted windows.
 
+The glass is glass. It reflects the sky and the pavement, a little
+looking straight in and more towards a glancing angle, and the underside
+of the awning to anyone standing below it. At a slant you see the sides
+of the opening it is set in. By day from the pavement there is a veil of
+sky over the room; at night the room's own lamps are the light in the
+window, from dusk on as they come up.
+
 High Street ends at the **City Hall**: a stone building on a podium, six
 columns under a pediment with the town's wheat-sheaf in it, and a clock
 tower whose hands show the farm's own time of day. Across the street is the
@@ -620,7 +627,13 @@ and after dark, several times closer to it than the painted goods it
 replaced, that nothing is photographed for it from the farm and its glass
 covers exactly the panes it replaced, that it costs the street one draw
 call, and that a lost WebGL context takes its photographs and they are
-taken again when it comes back, that she can drive the whole way out to each
+taken again when it comes back, that the two photographs are the room
+at every hour from noon to midnight with the Restaurant's candles and
+all, that the glass reflects the street and more of it towards a
+glancing angle, that seen from below the top of the window reflects the
+awning, that at a slant the sides of the opening show on the side away
+from the camera, and that buying a tool takes Hardware & Feed's window
+again and no other without going back to paint, that she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

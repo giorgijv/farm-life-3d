@@ -9397,4 +9397,191 @@ test.describe('Farm City: through the shop windows', () => {
     const r = await page.evaluate((v) => window.Farm3DScene.windowAgreement('grocer', { ...v, night: 0 }), view);
     expect(r.mean).toBeLessThan(8);
   });
+
+  test('the two photographs are the room at every hour, the Restaurant\'s candles and all', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    await page.evaluate(() => window.Farm3DScene.windowShop('restaurant'));
+    const d = await page.evaluate(() => window.Farm3DScene.shopDoors().find((x) => x.id === 'restaurant'));
+    await page.evaluate((p) => window.Farm3DScene.putFarmerAt(p.x, p.z), d.outside);
+    await expect.poll(() => page.evaluate(() => window.Farm3DScene.shopWindows().find((w) => w.id === 'restaurant').ready),
+      { timeout: 30_000 }).toBe(true);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const units = (await s.highStreet()).units;
+      /* The Greengrocer from the street's camera at its door; the
+         Restaurant from the 7.5 the camera comes out of a shop to, since 14
+         out from it is behind the Pharmacy across the road. */
+      const views = {
+        grocer: (u) => ({ position: [u.x, 5.8, u.z + 14.7], target: [u.x, 1.1, u.z + 0.7], fov: 12 }),
+        restaurant: (u) => ({ position: [u.x, 3.5, u.z + 7.8], target: [u.x, 1.1, u.z + 0.7], fov: 24 }),
+      };
+      const out = {};
+      for (const [id, view] of Object.entries(views)) {
+        const v = view(units.find((u) => u.id === id));
+        out[id] = [0, 0.3, 0.4, 0.45, 0.5, 0.6, 1].map((night) => s.windowAgreement(id, { ...v, night }).mean);
+      }
+      return out;
+    });
+    /* Every light in a room is a straight line in one number, so the two
+       photographs mixed by it are the room at dawn and dusk as much as at
+       noon and midnight: no hour between is further from the room than the
+       two ends are. Measured: the Greengrocer 5.1 to 8.0, rising with the
+       lamps; the Restaurant 20.5 to 17.6, falling, its tables at the glass
+       being most of that (step 3). Its candles, on a curve of their own,
+       are the one light the mix does not follow exactly — measured at 0.7
+       out of 255 at the most, at dusk, with them put on the lamps' curve
+       for comparison. */
+    for (const [id, means] of Object.entries(r)) {
+      const ends = Math.max(means[0], means[means.length - 1]);
+      for (const m of means) expect(m, `${id} at some hour`).toBeLessThan(ends + 1);
+    }
+    expect(r.grocer[0]).toBeLessThan(8);
+    expect(r.grocer[6]).toBeLessThan(12);
+  });
+
+  test('the glass reflects the street, and more of it towards a glancing angle', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const lum = (b, i) => (b[i] + b[i + 1] + b[i + 2]) / 3;
+      const isGlass = (m, i) => m[i] === 255 && m[i + 1] === 0 && m[i + 2] === 255;
+      const u = (await s.highStreet()).units.find((x) => x.id === 'grocer');
+      const mid = [u.x + 0.8, 1.2, u.z];
+      /* As seen, against the room alone (mode 1) and against what the
+         glass reflects (mode 4): which of the two is each pixel nearer?
+         Only pixels where the two differ enough to tell. */
+      const nearer = (position) => {
+        const at = (glassMode) => s.windowRender('grocer', { position, target: mid, fov: 30, glassMode });
+        const seen = at(0);
+        const room = at(1);
+        const env = at(4);
+        let n = 0;
+        let towards = 0;
+        for (let i = 0; i < seen.mask.length; i += 4) {
+          if (!isGlass(seen.mask, i) || Math.abs(lum(env.glass, i) - lum(room.glass, i)) < 20) continue;
+          n += 1;
+          if (Math.abs(lum(seen.glass, i) - lum(env.glass, i)) < Math.abs(lum(seen.glass, i) - lum(room.glass, i))) towards += 1;
+        }
+        return { n, towards: towards / Math.max(1, n) };
+      };
+      return {
+        headOn: nearer([u.x + 0.8, 3.0, u.z + 8]),
+        glancing: nearer([u.x + 9.8, 1.6, u.z + 1.6]), // 80 degrees off the glass
+      };
+    });
+    // Looking into it, the room: measured 0 of 4,516 pixels nearer the reflection.
+    expect(r.headOn.n).toBeGreaterThan(1000);
+    expect(r.headOn.towards).toBeLessThan(0.05);
+    // Along it, the street: 66% of them.
+    expect(r.glancing.n).toBeGreaterThan(100);
+    expect(r.glancing.towards).toBeGreaterThan(0.5);
+  });
+
+  test('seen from below, the top of the window reflects the awning rather than the sky', async ({ page }) => {
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    const rows = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const u = (await s.highStreet()).units.find((x) => x.id === 'grocer');
+      // Below the head of the window and close in, looking up into it.
+      const v = s.windowRender('grocer', { position: [u.x + 1.5, 0.9, u.z + 5], target: [u.x, 1.4, u.z], fov: 40, glassMode: 4 });
+      const out = [];
+      for (let y = 0; y < v.height; y += 1) {
+        let n = 0;
+        let l = 0;
+        for (let x = 0; x < v.width; x += 1) {
+          const i = (y * v.width + x) * 4;
+          if (v.mask[i] !== 255 || v.mask[i + 1] !== 0 || v.mask[i + 2] !== 255) continue;
+          n += 1;
+          l += (v.glass[i] + v.glass[i + 1] + v.glass[i + 2]) / 3;
+        }
+        if (n > 20) out.push(l / n);
+      }
+      return out; // bottom row of the picture first
+    });
+    /* Bottom to top: the pavement below her eye, the sky above it, and at
+       the top the awning's shaded underside. Measured 115, 189 and 127. */
+    const sky = Math.max(...rows);
+    const top = rows.slice(-Math.ceil(rows.length * 0.1));
+    expect(Math.max(...top)).toBeLessThan(sky - 30);
+  });
+
+  test('at a slant the sides of the opening show, on the side away from the camera', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave());
+    await ready(page);
+    await toTown(page);
+    const r = await page.evaluate(async () => {
+      const s = window.Farm3DScene;
+      const u = (await s.highStreet()).units.find((x) => x.id === 'grocer');
+      const target = [u.x, 1.1, u.z + 0.2];
+      // Mode 3 paints the left side of the opening red, the right green.
+      const sides = (position, fov) => {
+        const v = s.windowRender('grocer', { position, target, fov, glassMode: 3 });
+        let n = 0;
+        let left = 0;
+        let right = 0;
+        for (let i = 0; i < v.mask.length; i += 4) {
+          if (v.mask[i] !== 255 || v.mask[i + 1] !== 0 || v.mask[i + 2] !== 255) continue;
+          n += 1;
+          if (v.glass[i] > 128) left += 1;
+          if (v.glass[i + 1] > 128) right += 1;
+        }
+        return { left: left / n, right: right / n };
+      };
+      const round = (az) => [target[0] + 10 * Math.sin(1.257) * Math.sin(az), 1.1 + 10 * Math.cos(1.257), target[2] + 10 * Math.sin(1.257) * Math.cos(az)];
+      return {
+        headOn: sides([u.x, 5.8, u.z + 14.7], 12),
+        fromRight: sides(round(0.7), 28),
+        fromLeft: sides(round(-0.7), 28),
+      };
+    });
+    // Straight on, hardly any: measured 0.8% and 1.1%.
+    expect(r.headOn.left).toBeLessThan(0.03);
+    expect(r.headOn.right).toBeLessThan(0.03);
+    // Forty degrees to the right, the left side of each pane, and only that.
+    expect(r.fromRight.left).toBeGreaterThan(0.03);
+    expect(r.fromRight.right).toBe(0);
+    // And the other way about.
+    expect(r.fromLeft.right).toBeGreaterThan(0.03);
+    expect(r.fromLeft.left).toBe(0);
+  });
+
+  test('buying a tool takes Hardware & Feed\'s window again, and no other, without going back to paint', async ({ page }) => {
+    test.slow();
+    await load(page, makeSave({ coins: 9000 }));
+    await ready(page);
+    await page.evaluate(() => window.Farm3DScene.windowShop('hardware'));
+    const d = await page.evaluate(() => window.Farm3DScene.shopDoors().find((x) => x.id === 'hardware'));
+    await page.evaluate((p) => window.Farm3DScene.putFarmerAt(p.x, p.z), d.outside);
+    const windows = () => page.evaluate(() => Object.fromEntries(window.Farm3DScene.shopWindows().map((w) => [w.id, w])));
+    await expect.poll(async () => Object.values(await windows()).every((w) => w.ready), { timeout: 30_000 }).toBe(true);
+    const before = await windows();
+    /* The cards at its counter show the levels the farm has bought. A tool
+       bought, and the next frames watched one by one: is each window still
+       showing a room the whole time? */
+    const shown = await page.evaluate(() => new Promise((resolve) => {
+      window.Farm3DBridge.setCityOpen(true);
+      buyUpgrade('sprinkler');
+      const seen = [];
+      const tick = () => {
+        seen.push(window.Farm3DScene.shopWindows().every((w) => w.shown));
+        if (seen.length >= 8) resolve(seen); else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }));
+    expect(shown.every(Boolean)).toBe(true);
+    await expect.poll(async () => (await windows()).hardware.ready).toBe(true);
+    const after = await windows();
+    // Its two photographs taken again; the Greengrocer's, whose shelves did not change, not.
+    expect(after.hardware.shots - before.hardware.shots).toBe(2);
+    expect(after.grocer.shots).toBe(before.grocer.shots);
+  });
 });

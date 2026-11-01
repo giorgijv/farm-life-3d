@@ -2626,7 +2626,8 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   const puffS = new THREE.Vector3();
   let clock = 0;
   let candleLit = 0;
-  const flicker = (t, i) => 0.78 + 0.22 * (Math.sin(t * 13.7 + i * 2.1) * 0.6 + Math.sin(t * 23.3 + i * 5.7) * 0.4);
+  const FLICKER_MEAN = 0.78;
+  const flicker = (t, i) => FLICKER_MEAN + 0.22 * (Math.sin(t * 13.7 + i * 2.1) * 0.6 + Math.sin(t * 23.3 + i * 5.7) * 0.4);
 
   const scene = new THREE.Scene();
   scene.name = `interior-scene:${spec.id}`;
@@ -2684,6 +2685,10 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   };
 
   let lit = 0;
+  /* Candles held at their average for a photograph, rather than caught at
+     whatever moment of their flicker the shutter happened on. */
+  let steady = false;
+  const flickerNow = (i) => (steady ? FLICKER_MEAN : flicker(clock, i));
   /* night: 0 by day, 1 at midnight, the scene's skyNight. dt: seconds. */
   function update(night, dt) {
     lit = lampsLit(night);
@@ -2698,9 +2703,9 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     candleLit = THREE.MathUtils.smoothstep(night, 0.2, 0.5);
     if (flameMesh) {
       flameMesh.visible = candleLit > 0.01;
-      mats.flame.emissiveIntensity = candleLit * 2.4 * flicker(clock, 0);
+      mats.flame.emissiveIntensity = candleLit * 2.4 * flickerNow(0);
     }
-    candleLights.forEach((l, i) => { l.intensity = candleLit * 1.1 * flicker(clock, i + 1); });
+    candleLights.forEach((l, i) => { l.intensity = candleLit * 1.1 * flickerNow(i + 1); });
     if (steam) {
       const [sx, sy, sz] = design.steam;
       for (let i = 0; i < 8; i += 1) {
@@ -2721,6 +2726,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
        room. Put back with false. */
     forPhoto: (on) => {
       for (const key of ['front', 'pave']) if (meshes[key]) meshes[key].visible = !on;
+      steady = on;
     },
     stockShown: () => JSON.parse(JSON.stringify(shown)),
     greeting: design.greeting, // (hour 0-24) => what the shopkeeper says
