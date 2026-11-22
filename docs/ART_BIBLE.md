@@ -5631,6 +5631,179 @@ Each was checked to fail on the bug it is there for:
   is photographed from.
 - **Step 5:** phones.
 
+## 56. Through the shop windows, step four: the whole of High Street
+
+All six shops now show their rooms through their glass: the Greengrocer
+since step one, and the Bakery, the Café, the Restaurant, Hardware &
+Feed and the Pharmacy from this step.
+
+### The four displays marked
+
+Each room's window display is on a layer of its own, as the
+Greengrocer's and the Pharmacy's were in step three:
+- **Hardware & Feed:** both of its windows: the wheelbarrow, cans and
+  pots on the left; the barrel of handles, buckets and hose on the right.
+- **The Bakery:** the lace-covered shelf with the cake stand and the
+  baskets of bread.
+- **The Café:** its two tables at the windows.
+- **The Restaurant:** its two front tables and the booking stand inside
+  the door.
+
+The Restaurant's front tables carry candles, so a display can now hold
+flames. A room switched its one flame mesh on at dusk and off by day; it
+now switches all of them together.
+
+Inside, each room draws the same triangles as before and costs two
+draw calls more than section 52 measured: one for the street wall, split
+off in step one, and one for the display.
+
+| Room | Draw calls | Triangles |
+|---|---|---|
+| Greengrocer | 82 | 15,128 |
+| Bakery | 84 | 15,886 |
+| Café | 84 | 6,568 |
+| Restaurant | 85 by day, 87 after dark | 11,936 by day, 12,064 after dark |
+| Hardware & Feed | 85 | 12,010 |
+| Pharmacy | 84 | 9,464 |
+
+The Restaurant's 128 triangles between day and night are its four
+candle flames, hidden by day.
+
+### Where each one is photographed from
+
+Three places were tried for each shop, over the same 54 cameras round
+her at its door as before. The first figure is the mean over those
+cameras. The second is the street's camera at the door, from 14.7 out,
+or, where it cannot see the shop from there, the camera at its
+doorstep, 7.8 out.
+
+| Shop | 14.7 out, 5.8 up | 11 out, 4.6 up | 7.8 out, 3.5 up |
+|---|---|---|---|
+| Bakery | 29.2; door 6.1 | 28.7; door 9.3 | 28.2; door 14.0 |
+| Café | 19.1; door 4.4 | 18.7; door 4.6 | 18.1; door 5.2 |
+| Hardware & Feed | 16.2; door 2.7 | 15.9; door 4.2 | 15.6; door 7.2 |
+| Restaurant | 20.3; doorstep 10.6 | 19.5; doorstep 8.4 | 18.7; doorstep 5.7 |
+| Pharmacy | 36.5; doorstep 12.3 | 38.7; doorstep 10.8 | 34.4; doorstep 7.4 |
+
+- **The means are no guide.** No shop's mean varies by much over 2
+  between the three, as with the Greengrocer and the Pharmacy in step
+  three.
+- **The deciding view is each shop's commonest.** Where the street's
+  camera at the door can see the shop, it is best photographed from
+  there, 14.7 out: so are the Greengrocer, the Bakery, the Café and
+  Hardware & Feed.
+- **The Restaurant and the Pharmacy** cannot be seen from 14.7 out. From
+  there the camera stands behind the Pharmacy's block, for the
+  Restaurant, or in among the blocks across the road, for the Pharmacy.
+  Their camera is the one that comes out of the shop, brought in to 7.5,
+  so they are photographed from their doorsteps (`VANTAGE_NEAR`).
+
+### From the doorstep, the Restaurant's candles showed
+
+Photographed from 7.8 out, the Restaurant's own error falls to 5.7, and
+its candles, lit on a curve of their own, stood out against it:
+
+| Night | 0 | 0.3 | 0.4 | 0.45 | 0.5 | 0.6 | 1 |
+|---|---|---|---|---|---|---|---|
+| Candles on their own curve | 5.69 | 6.68 | 7.07 | 6.85 | 6.41 | 5.79 | 5.75 |
+| Candles on the lamps' curve | 5.69 | 5.81 | 5.83 | 5.73 | 5.65 | 5.73 | 5.75 |
+
+That is 1.2 at dusk where step two measured 0.7 from across the road.
+Rather than a third photograph for one small light, the candles are now
+lit with the lamps, from 0.25 of the night to 0.65 instead of 0.2 to 0.5.
+They are still out at noon and lit at dusk, which is what the
+Restaurant's own test asks of them. Every light in every room is now a
+straight line in `lampsLit`, and on the lamps' curve the mix is flat all
+day.
+
+### Photographing only what is in view
+
+Six rooms photographed as soon as the town is in range would be six
+rooms built and twelve photographs taken behind every test that goes to
+town, and behind every player arriving there. So each frame's one piece
+of work now goes to the nearest window that:
+- is within the town's detail range,
+- is in the picture,
+- and is seen from its own street side.
+
+The street-side check matters. From the north side's doors the street's
+camera looks north, and the Pharmacy is between it and the shops,
+facing away; the frustum alone counted it in.
+
+Measured from Hardware & Feed's door, the Greengrocer, off the edge of
+the picture at the street's far end, and the Pharmacy, showing the
+camera its back, are not photographed at all. Each of the rest was
+showing its room 0.8 to 2.4 seconds after she came to its door. A window
+coming into view shows its painted goods for the frames its work takes.
+The Pharmacy is photographed when the camera comes round to its side of
+the road, as it does when she comes out of the Pharmacy.
+
+### Measured
+
+From each shop's own camera, out of 255:
+
+| Shop | Glass, noon / midnight | Painted, noon / midnight |
+|---|---|---|
+| Greengrocer | 5.2 / 8.4 | 23.2 / 39.9 |
+| Bakery | 6.1 / 6.8 | 54.8 / 49.2 |
+| Café | 4.4 / 5.3 | 35.2 / 37.9 |
+| Restaurant (doorstep) | 5.7 / 5.8 | 47.2 / 44.1 |
+| Hardware & Feed | 2.7 / 2.8 | 25.5 / 37.0 |
+| Pharmacy (doorstep) | 7.4 / 9.2 | 108.6 / 87.9 |
+
+- **The party wall.** Each window's room is its own shop's room, and
+  the Café's and the Restaurant's come from either side of their party
+  wall. The two rooms behind the glass stop 0.12 apart, the wall's
+  thickness. Looking across the Café's glass from the left towards that
+  wall, the window is 17.3 from the room.
+- **Memory.** The photographs of all six come to 13.7 MB on a desktop.
+  Making that smaller for phones is step five.
+
+### The tests
+
+- **Every shop on High Street shows its own room**, by day and after
+  dark, from its own camera:
+  - with its glass in full view;
+  - with its window display on a layer of its own;
+  - under 9 by day and 12 at midnight;
+  - at least three times closer to the room than its painted window.
+
+  The Restaurant and the Pharmacy, and only they, are photographed from
+  the doorstep.
+- **The Café and the Restaurant each show their own side of the wall
+  between them:** their rooms 0.12 apart, and the slanting view along
+  the Café's glass under 22.
+- **A window is photographed only when the camera can see it from the
+  street.** From Hardware & Feed's door, neither the Greengrocer nor the
+  Pharmacy is photographed. Out of the Pharmacy, it is.
+- **The north side of the street pays a draw call a window,** five for
+  its five windows, and two triangles a pane.
+- **Step two's and three's tests now meet the new rules:**
+  - the cost of one window is weighed alone;
+  - the retake asks the windows that were showing a room to go on
+    showing one;
+  - the Pharmacy's display test brings the camera round by coming out of
+    the shop.
+- **The test surface's `windowShop`** put up a window ahead of its step.
+  It has gone, since every shop has one.
+
+Each was checked to fail on the bug it is there for:
+- the street-side check taken out: the Pharmacy photographed from
+  Hardware & Feed's door;
+- the in-view check taken out: the Greengrocer photographed from there;
+- the Café's room run 0.4 past its wall: 0.28 of overlap where 0.12 of
+  wall should be;
+- the Restaurant photographed from 14.7: its window not in view of its
+  camera at all, which the test now asks of every shop;
+- the Café's tables left off its display layer.
+
+### Still open
+
+- **Step 5:** phones: the photographs' size by device, and the cost of
+  the town arriving on the slowest.
+- **The Pharmacy's side shelves,** seen edge-on from in front: past what
+  one photograph holds (section 55).
+
 ## Verified, not assumed
 
 Everything above was checked before it was written:

@@ -44,6 +44,13 @@ import { FRONT } from './highstreet.js';
    shopfront the game gives most. */
 export const VANTAGE = { x: 0, y: 5.8, z: 14.7 };
 
+/* And where the camera stands when that spot cannot see the shop — across
+   the road from the Restaurant it is behind the Pharmacy, and across it
+   from the Pharmacy it is in among the blocks on the far side. This is the
+   camera as it comes out of a shop, brought in to 7.5 from her at the
+   door, which is the view of those two shopfronts a player has. */
+export const VANTAGE_NEAR = { x: 0, y: 3.5, z: 7.8 };
+
 /* The photograph's longer side, in texels. A shopfront seen from the
    street's camera is about four hundred pixels across on a desktop. */
 export const PHOTO_SIZE = 512;

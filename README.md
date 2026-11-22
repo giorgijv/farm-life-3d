@@ -197,21 +197,30 @@ the street's camera stands on the street side of the door looking at the
 shopfront, so she steps out with the shop behind her, and walking on
 takes her away from it.
 
-**And the Greengrocer's room can be seen from the street.** Its window
-and the pane in its door no longer show painted goods. They show the
-real room: the crates stepped up behind the glass, the counter, and the
-lamp coming on at dusk. The room is photographed once, off screen, from
-where the street's camera stands. The glass follows each line of sight
-into the room's real walls and floor and looks that point up in the
-photograph, so the room moves behind the glass as the camera goes past.
-It costs the street one draw call. Nothing is photographed until the
-town is in view, and until it is, the painted window shows. The other
-five shops still have painted windows.
+**And every shop's room can be seen from the street.** The windows and
+the panes in the doors no longer show painted goods. They show the real
+rooms:
+- the Greengrocer's crates stepped up behind the glass;
+- the Bakery's cake stand and bread on its tiled floor;
+- the Café's tables at the window;
+- the Restaurant's laid tables on its red carpet;
+- Hardware & Feed's wheelbarrow and barrel of handles;
+- the Pharmacy's carboys.
 
-What stands right behind the glass, the crates stepped up in the
-window, is photographed on its own and drawn in front of the room. From
-the side or from below, the crates stand where they do in the room
-instead of smearing across its floor.
+Each lamp comes on at dusk. Each room is photographed off screen from
+where the street's camera stands: across the road, or from the doorstep
+for the Restaurant and the Pharmacy, which the camera cannot see from
+across it. The glass follows each line of sight into the room's real
+walls and floor and looks that point up in the photograph, so the room
+moves behind the glass as the camera goes past. Each window costs the
+street one draw call. A window is photographed only when the camera can
+see it from the street; until then the painted window shows.
+
+What stands right behind the glass, the window display, is photographed
+on its own and drawn in front of the room. From the side or from below,
+the display stands where it does in the room instead of smearing across
+its floor. The Restaurant's candles now light with its lamps, which lets
+two photographs show the room at every hour.
 
 The glass is glass. It reflects the sky and the pavement, a little
 looking straight in and more towards a glancing angle, and the underside
@@ -641,7 +650,12 @@ from the camera, that buying a tool takes Hardware & Feed's window
 again and no other without going back to paint, that the window display
 is a layer of its own, photographed apart and still part of the room
 inside, and that from the side and from below the display stands where
-it does in the room, that she can drive the whole way out to each
+it does in the room, that every shop on High Street shows its own room
+through its window by day and after dark, that the Café and the
+Restaurant each show their own side of the wall between them, that a
+window is photographed only when the camera can see it from the street,
+and that the north side of the street pays a draw call a window, that
+she can drive the whole way out to each
 property, walk its grounds without being snapped home and still not get
 through its front door, and that neither can be bought until she has been —
 below the button as well as on it, that the market and the city are two

@@ -1432,47 +1432,49 @@ function hardware(kit, spec) {
   const { block, cylinder, solid } = kit;
 
   // The window, left of the door: a wheelbarrow, watering cans and pots.
-  block('woodDark', [minX, -0.8], [0, 0.22], [-1.1, front]);
-  solid('window-left', [minX, -0.8], [-1.1, front], 1.0);
-  {
-    const x = -2.55;
-    const z = -0.62;
-    const tray = paint(new THREE.CylinderGeometry(0.34, 0.24, 0.2, 4, 1, true), kit.sw('jerryGreen'));
-    kit.parts.atlas.push(tray.rotateY(Math.PI / 4).scale(1.1, 1, 0.8).translate(x, 0.5, z));
-    block('jerryGreen', [x - 0.24, x + 0.24], [0.39, 0.41], [z - 0.17, z + 0.17]);
-    const wheel = paint(new THREE.CylinderGeometry(0.13, 0.13, 0.05, 12), kit.sw('tyre'));
-    kit.parts.atlas.push(wheel.rotateZ(Math.PI / 2).rotateY(Math.PI / 2).translate(x, 0.35, z + 0.36));
-    for (const sx of [-0.14, 0.14]) {
-      block('wood', [x + sx - 0.015, x + sx + 0.015], [0.4, 0.43], [z - 0.55, z + 0.36]);
-      block('iron', [x + sx - 0.015, x + sx + 0.015], [0.22, 0.4], [z - 0.2, z - 0.17]);
+  kit.display(() => {
+    block('woodDark', [minX, -0.8], [0, 0.22], [-1.1, front]);
+    solid('window-left', [minX, -0.8], [-1.1, front], 1.0);
+    {
+      const x = -2.55;
+      const z = -0.62;
+      const tray = paint(new THREE.CylinderGeometry(0.34, 0.24, 0.2, 4, 1, true), kit.sw('jerryGreen'));
+      kit.parts.atlas.push(tray.rotateY(Math.PI / 4).scale(1.1, 1, 0.8).translate(x, 0.5, z));
+      block('jerryGreen', [x - 0.24, x + 0.24], [0.39, 0.41], [z - 0.17, z + 0.17]);
+      const wheel = paint(new THREE.CylinderGeometry(0.13, 0.13, 0.05, 12), kit.sw('tyre'));
+      kit.parts.atlas.push(wheel.rotateZ(Math.PI / 2).rotateY(Math.PI / 2).translate(x, 0.35, z + 0.36));
+      for (const sx of [-0.14, 0.14]) {
+        block('wood', [x + sx - 0.015, x + sx + 0.015], [0.4, 0.43], [z - 0.55, z + 0.36]);
+        block('iron', [x + sx - 0.015, x + sx + 0.015], [0.22, 0.4], [z - 0.2, z - 0.17]);
+      }
     }
-  }
-  for (const [x, z, r] of [[-1.55, -0.45, 0.1], [-1.2, -0.75, 0.09], [-1.0, -0.4, 0.08]]) {
-    cylinder('galv', r, r * 1.05, r * 1.8, x, 0.22, z, 10);
-    const spout = paint(new THREE.CylinderGeometry(0.012, 0.02, r * 2.6, 6), kit.sw('galvDark'));
-    kit.parts.atlas.push(spout.rotateZ(-0.9).translate(x + r * 1.3, 0.22 + r * 1.6, z));
-    const handle = paint(new THREE.TorusGeometry(r * 0.7, 0.01, 4, 10, Math.PI), kit.sw('galvDark'));
-    kit.parts.atlas.push(handle.translate(x - r * 0.2, 0.22 + r * 1.8, z));
-  }
-  for (let k = 0; k < 4; k += 1) cylinder('terracotta', 0.11, 0.08, 0.13, -3.25, 0.22 + k * 0.07, -0.5, 10, k < 3);
+    for (const [x, z, r] of [[-1.55, -0.45, 0.1], [-1.2, -0.75, 0.09], [-1.0, -0.4, 0.08]]) {
+      cylinder('galv', r, r * 1.05, r * 1.8, x, 0.22, z, 10);
+      const spout = paint(new THREE.CylinderGeometry(0.012, 0.02, r * 2.6, 6), kit.sw('galvDark'));
+      kit.parts.atlas.push(spout.rotateZ(-0.9).translate(x + r * 1.3, 0.22 + r * 1.6, z));
+      const handle = paint(new THREE.TorusGeometry(r * 0.7, 0.01, 4, 10, Math.PI), kit.sw('galvDark'));
+      kit.parts.atlas.push(handle.translate(x - r * 0.2, 0.22 + r * 1.8, z));
+    }
+    for (let k = 0; k < 4; k += 1) cylinder('terracotta', 0.11, 0.08, 0.13, -3.25, 0.22 + k * 0.07, -0.5, 10, k < 3);
 
-  // The window, right of the door: a barrel of handles, buckets, hose.
-  block('woodDark', [0.8, maxX], [0, 0.22], [-1.1, front]);
-  solid('window-right', [0.8, maxX], [-1.1, front], 1.0);
-  cylinder('wood', 0.2, 0.18, 0.5, 1.4, 0.22, -0.6, 12);
-  for (const y of [0.32, 0.6]) cylinder('iron', 0.205, 0.205, 0.03, 1.4, y, -0.6, 12);
-  for (let k = 0; k < 5; k += 1) {
-    const a = (k / 5) * Math.PI * 2;
-    const hx = 1.4 + Math.cos(a) * 0.1;
-    const hz = -0.6 + Math.sin(a) * 0.1;
-    block('woodLight', [hx - 0.015, hx + 0.015], [0.5, 1.25 + (k % 2) * 0.12], [hz - 0.015, hz + 0.015]);
-    block(k % 2 ? 'galv' : 'tyre', [hx - 0.08, hx + 0.08], [1.25 + (k % 2) * 0.12, 1.31 + (k % 2) * 0.12], [hz - 0.02, hz + 0.02]);
-  }
-  for (let k = 0; k < 3; k += 1) cylinder('galv', 0.14, 0.11, 0.22, 2.3, 0.22 + k * 0.05, -0.55, 12, true);
-  for (let k = 0; k < 3; k += 1) {
-    const ring = paint(new THREE.TorusGeometry(0.2, 0.025, 5, 14), kit.sw('hose'));
-    kit.parts.atlas.push(ring.rotateX(Math.PI / 2).translate(3.05, 0.25 + k * 0.05, -0.6));
-  }
+    // The window, right of the door: a barrel of handles, buckets, hose.
+    block('woodDark', [0.8, maxX], [0, 0.22], [-1.1, front]);
+    solid('window-right', [0.8, maxX], [-1.1, front], 1.0);
+    cylinder('wood', 0.2, 0.18, 0.5, 1.4, 0.22, -0.6, 12);
+    for (const y of [0.32, 0.6]) cylinder('iron', 0.205, 0.205, 0.03, 1.4, y, -0.6, 12);
+    for (let k = 0; k < 5; k += 1) {
+      const a = (k / 5) * Math.PI * 2;
+      const hx = 1.4 + Math.cos(a) * 0.1;
+      const hz = -0.6 + Math.sin(a) * 0.1;
+      block('woodLight', [hx - 0.015, hx + 0.015], [0.5, 1.25 + (k % 2) * 0.12], [hz - 0.015, hz + 0.015]);
+      block(k % 2 ? 'galv' : 'tyre', [hx - 0.08, hx + 0.08], [1.25 + (k % 2) * 0.12, 1.31 + (k % 2) * 0.12], [hz - 0.02, hz + 0.02]);
+    }
+    for (let k = 0; k < 3; k += 1) cylinder('galv', 0.14, 0.11, 0.22, 2.3, 0.22 + k * 0.05, -0.55, 12, true);
+    for (let k = 0; k < 3; k += 1) {
+      const ring = paint(new THREE.TorusGeometry(0.2, 0.025, 5, 14), kit.sw('hose'));
+      kit.parts.atlas.push(ring.rotateX(Math.PI / 2).translate(3.05, 0.25 + k * 0.05, -0.6));
+    }
+  });
 
   // The two islands down the middle, the shop's six lines on them.
   const islands = [[-2.1, -1.0], [1.0, 2.1]];
@@ -1776,20 +1778,22 @@ function bakery(kit, spec) {
 
   // The window: a lace runner on a low shelf, baskets of bread, and a
   // three-tier cake on a stand in the middle.
-  block('paint', [-0.85, maxX], [0, 0.42], [-0.74, front]);
-  block('lace', [-0.82, maxX - 0.02], [0.42, 0.43], [-0.7, front - 0.02]);
-  solid('window-display', [-0.85, maxX], [-0.76, front], 1.0);
-  cylinder('china', 0.03, 0.05, 0.08, 0.85, 0.43, -0.42, 8);
-  cylinder('china', 0.2, 0.2, 0.015, 0.85, 0.51, -0.42, 16);
-  cake(0.85, 0.525, -0.42, 0.17, 0.14, 'icing');
-  cake(0.85, 0.665, -0.42, 0.12, 0.12, 'pinkIcing');
-  cake(0.85, 0.785, -0.42, 0.075, 0.1, 'icing', 1);
-  for (const [x, kind] of [[-0.4, 'cob'], [1.7, 'bloomer'], [2.2, 'roll']]) {
-    kit.cylinder('wicker', 0.2, 0.16, 0.12, x, 0.43, -0.4, 10, true);
-    for (let k = 0; k < (kind === 'roll' ? 5 : 3); k += 1) {
-      loaf(x + (k - 1) * (kind === 'roll' ? 0.07 : 0.1), 0.48, -0.4 + (k % 2) * 0.05, kind, k + 3);
+  kit.display(() => {
+    block('paint', [-0.85, maxX], [0, 0.42], [-0.74, front]);
+    block('lace', [-0.82, maxX - 0.02], [0.42, 0.43], [-0.7, front - 0.02]);
+    solid('window-display', [-0.85, maxX], [-0.76, front], 1.0);
+    cylinder('china', 0.03, 0.05, 0.08, 0.85, 0.43, -0.42, 8);
+    cylinder('china', 0.2, 0.2, 0.015, 0.85, 0.51, -0.42, 16);
+    cake(0.85, 0.525, -0.42, 0.17, 0.14, 'icing');
+    cake(0.85, 0.665, -0.42, 0.12, 0.12, 'pinkIcing');
+    cake(0.85, 0.785, -0.42, 0.075, 0.1, 'icing', 1);
+    for (const [x, kind] of [[-0.4, 'cob'], [1.7, 'bloomer'], [2.2, 'roll']]) {
+      kit.cylinder('wicker', 0.2, 0.16, 0.12, x, 0.43, -0.4, 10, true);
+      for (let k = 0; k < (kind === 'roll' ? 5 : 3); k += 1) {
+        loaf(x + (k - 1) * (kind === 'roll' ? 0.07 : 0.1), 0.48, -0.4 + (k % 2) * 0.05, kind, k + 3);
+      }
     }
-  }
+  });
 
   // Bread on a three-tier wicker stand down the left wall.
   const bz = [-3.3, -1.25];
@@ -2024,8 +2028,10 @@ function cafe(kit, spec) {
   };
 
   // At the windows, either side of the door.
-  table(-1.35, -0.95, 'window-table-left');
-  table(1.45, -0.95, 'window-table-right');
+  kit.display(() => {
+    table(-1.35, -0.95, 'window-table-left');
+    table(1.45, -0.95, 'window-table-right');
+  });
   // A leather banquette down the left wall, and the third table at it.
   const bz = [-3.55, -2.05];
   block('woodDark', [minX, minX + 0.5], [0, 0.42], bz);
@@ -2187,17 +2193,19 @@ function restaurant(kit, spec) {
     candles.push([x, 0.97, z]);
     solid(id, [x - 0.4, x + 0.4], [z - 0.78, z + 0.78], 1.05);
   };
-  table(-1.45, -1.75, 'table-1');
-  table(1.45, -1.75, 'table-2');
+  // The two at the windows, which the street sees, and the booking stand
+  // just inside the door on the left.
+  kit.display(() => {
+    table(-1.45, -1.75, 'table-1');
+    table(1.45, -1.75, 'table-2');
+    block('woodDark', [-0.95, -0.6], [0, 1.0], [-0.55, -0.25]);
+    const book = topLabelled(0.34, 0.02, 0.24, kit.A.uv.booking, kit.sw('paint'));
+    kit.parts.atlas.push(book.rotateX(0.3).translate(-0.775, 1.04, -0.4));
+    cylinder('brass', 0.02, 0.02, 0.2, -0.66, 1.0, -0.3, 6);
+    kit.bulb(-0.66, 1.24, -0.3, 0.03);
+  });
   table(-1.45, -3.5, 'table-3');
   table(1.45, -3.5, 'table-4');
-
-  // The booking stand, just inside the door on the left.
-  block('woodDark', [-0.95, -0.6], [0, 1.0], [-0.55, -0.25]);
-  const book = topLabelled(0.34, 0.02, 0.24, kit.A.uv.booking, kit.sw('paint'));
-  kit.parts.atlas.push(book.rotateX(0.3).translate(-0.775, 1.04, -0.4));
-  cylinder('brass', 0.02, 0.02, 0.2, -0.66, 1.0, -0.3, 6);
-  kit.bulb(-0.66, 1.24, -0.3, 0.03);
   solid('booking-stand', [-0.97, -0.58], [-0.57, front], 1.25);
 
   // The bar at the back, from the aisle to the wall, the hatch behind it.
@@ -2518,7 +2526,8 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
   };
   mats.front = mats.atlas;
   let triangles = 0;
-  let flameMesh = null;
+  // A room's candle flames, the window display's included where it has any.
+  const flameMeshes = [];
   const meshes = {};
   /* The window display, where the room has one, is merged on its own and
      drawn on a layer of its own: the room's camera sees both, and the
@@ -2537,13 +2546,13 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
       mesh.receiveShadow = key !== 'glass';
       mesh.castShadow = key === 'atlas' || key === 'front';
       if (key === 'glass') mesh.renderOrder = 1;
+      if (key === 'flame') flameMeshes.push(mesh);
       if (display) {
         mesh.layers.set(DISPLAY_LAYER);
         merged.computeBoundingBox();
         displayBox.union(merged.boundingBox);
         displayTriangles += merged.getAttribute('position').count / 3;
       } else {
-        if (key === 'flame') flameMesh = mesh;
         meshes[key] = mesh;
       }
       group.add(mesh);
@@ -2739,11 +2748,15 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
     mats.glow.emissiveIntensity = 0.8 + 2.2 * lit;
     keeper.mixer.update(Math.min(dt, 0.1));
     clock += Math.min(dt, 0.25);
-    // Candles are lit at dusk, not before: a candle burning at noon is a
-    // restaurant that has forgotten it is open for lunch.
-    candleLit = THREE.MathUtils.smoothstep(night, 0.2, 0.5);
-    if (flameMesh) {
-      flameMesh.visible = candleLit > 0.01;
+    /* Candles are lit at dusk, not before: a candle burning at noon is a
+       restaurant that has forgotten it is open for lunch. And lit as the
+       lamps come up, on the same curve: on one of their own, from 0.2 of
+       the night to 0.5, they were the one light in any room that the
+       shop window's two photographs could not mix exactly, and from the
+       Restaurant's doorstep that showed, 1.2 out of 255 at dusk. */
+    candleLit = lampsLit(night);
+    if (flameMeshes.length) {
+      for (const m of flameMeshes) m.visible = candleLit > 0.01;
       mats.flame.emissiveIntensity = candleLit * 2.4 * flickerNow(0);
     }
     candleLights.forEach((l, i) => { l.intensity = candleLit * 1.1 * flickerNow(i + 1); });
@@ -2780,7 +2793,7 @@ export function buildInterior(spec, { anisotropy = 1, shadows = false } = {}) {
       lamps: lamps.map((l) => l.intensity),
       glow: mats.glow.emissiveIntensity,
       candles: candleLights.map((l) => l.intensity),
-      flame: flameMesh ? (flameMesh.visible ? mats.flame.emissiveIntensity : 0) : null,
+      flame: flameMeshes.length ? (flameMeshes[0].visible ? mats.flame.emissiveIntensity : 0) : null,
       steam: !!steam,
     }),
     report: {
